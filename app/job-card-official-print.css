@@ -1,0 +1,928 @@
+/* FRP Engineering official job card — print layout (matches client paper form) */
+
+.official-jc-root {
+  display: none;
+}
+
+.official-jc-page {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9pt;
+  line-height: 1.25;
+  color: #000;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.official-jc-header-table {
+  width: 100%;
+  border: 1px solid #000;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.official-jc-header-table > tbody > tr > .official-jc-spine {
+  border-left: 1px solid #000 !important;
+}
+
+.official-jc-page-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.official-jc-page-fill {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 4px;
+}
+
+.official-jc-page table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.official-jc-page th,
+.official-jc-page td {
+  border: 1px solid #000;
+  padding: 2px 4px;
+  vertical-align: middle;
+  color: #000 !important;
+  background: #fff !important;
+}
+
+.official-jc-section-bar {
+  background: #000;
+  color: #fff !important;
+  font-weight: 700;
+  font-size: 9pt;
+  padding: 3px 6px;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.official-jc-spine {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+  font-weight: 800;
+  font-size: 14pt;
+  letter-spacing: 0.08em;
+  width: 28px;
+  background: #fff !important;
+  border: 1px solid #000 !important;
+}
+
+.official-jc-top-band {
+  padding: 0 !important;
+  border: 1px solid #000 !important;
+}
+
+.official-jc-top-row {
+  width: 100%;
+}
+
+.official-jc-top-row th {
+  background: #d9d9d9 !important;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.official-jc-top-row td {
+  font-weight: 600;
+  min-width: 3.5rem;
+}
+
+.official-jc-due {
+  color: #c00000 !important;
+  font-weight: 700 !important;
+}
+
+.official-jc-bold {
+  font-weight: 700 !important;
+}
+
+.official-jc-block {
+  width: 33%;
+  vertical-align: top !important;
+  padding: 0 !important;
+}
+
+.official-jc-inner {
+  width: 100%;
+}
+
+.official-jc-inner .official-jc-lv-label {
+  width: 42%;
+  text-align: left;
+  font-weight: 600;
+  font-size: 8pt;
+  background: #fff !important;
+}
+
+.official-jc-inner .official-jc-lv-value {
+  font-size: 8.5pt;
+}
+
+.official-jc-logo-cell {
+  width: 24%;
+  min-width: 108px;
+  text-align: center;
+  padding: 4px !important;
+  vertical-align: top !important;
+}
+
+.official-jc-logo {
+  margin-bottom: 6px;
+}
+
+.official-jc-logo-img {
+  display: block;
+  width: 100%;
+  max-width: 112px;
+  height: auto;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.official-jc-qa-table {
+  margin-top: 4px;
+  font-size: 7.5pt;
+}
+
+.official-jc-qa-head {
+  background: #000 !important;
+  color: #fff !important;
+  text-align: center;
+  font-weight: 700;
+}
+
+.official-jc-doubt {
+  text-align: center;
+  font-weight: 700;
+  font-size: 9pt;
+  margin: 6px 0 2px;
+  color: #000 !important;
+}
+
+.official-jc-doubt--inline {
+  margin: 0 0 0 12px;
+  display: inline;
+}
+
+.official-jc-qa-note {
+  text-align: center;
+  font-weight: 700;
+  font-size: 7.5pt;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  color: #000 !important;
+}
+
+.official-jc-scope-table td {
+  padding: 0 !important;
+  border: 1px solid #000 !important;
+}
+
+.official-jc-scope-text {
+  width: 58%;
+  padding: 6px !important;
+  font-size: 9pt;
+  vertical-align: top !important;
+}
+
+.official-jc-scope-text p {
+  margin: 0 0 4px;
+  color: #000 !important;
+}
+
+.official-jc-scope-flags {
+  font-size: 7.5pt;
+  margin-top: 8px !important;
+  color: #333 !important;
+}
+
+.official-jc-spec-col {
+  width: 42%;
+  vertical-align: top !important;
+  border-left: 1px solid #000 !important;
+}
+
+.official-jc-spec-table th {
+  width: 38%;
+  font-size: 8pt;
+  font-weight: 700;
+  text-align: left;
+}
+
+.official-jc-spec-table td {
+  min-height: 14px;
+}
+
+.official-jc-clips-table {
+  margin-top: 4px;
+  font-size: 7.5pt;
+}
+
+.official-jc-clips-table thead th {
+  background: #d9d9d9 !important;
+  font-weight: 700;
+  text-align: center;
+}
+
+.official-jc-photo-table td {
+  padding: 0 !important;
+  vertical-align: top !important;
+}
+
+.official-jc-photo-left {
+  width: 50%;
+}
+
+.official-jc-photo-right {
+  width: 50%;
+}
+
+.official-jc-photo-left table,
+.official-jc-photo-right table {
+  font-size: 8pt;
+}
+
+.official-jc-photo-left thead th,
+.official-jc-photo-right thead th {
+  background: #d9d9d9 !important;
+  font-weight: 700;
+}
+
+.official-jc-notes-box {
+  border: 1px solid #000;
+  min-height: 48px;
+  padding: 6px;
+  margin-bottom: 4px;
+}
+
+.official-jc-pack-table td {
+  padding: 4px !important;
+  vertical-align: top !important;
+}
+
+.official-jc-pack-left {
+  width: 55%;
+}
+
+.official-jc-pack-right {
+  width: 45%;
+}
+
+.official-jc-pack-title {
+  font-weight: 700;
+  font-size: 8pt;
+  margin: 0 0 4px;
+  text-decoration: underline;
+}
+
+.official-jc-pack-grid th,
+.official-jc-pack-grid td {
+  font-size: 8pt;
+}
+
+.official-jc-delivery-label {
+  font-weight: 700;
+  margin: 0 0 4px;
+  font-size: 8pt;
+}
+
+.official-jc-delivery-box {
+  border: 1px solid #000;
+  min-height: 64px;
+  padding: 6px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.official-jc-pack-table--grow {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 100px;
+}
+
+.official-jc-pack-table--grow .official-jc-pack-row,
+.official-jc-pack-table--grow .official-jc-pack-row > td {
+  height: 100%;
+  vertical-align: top !important;
+}
+
+.official-jc-pack-right {
+  height: 100%;
+}
+
+.official-jc-pack-right .official-jc-delivery-box {
+  min-height: 100%;
+}
+
+.official-jc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 6px 4px 2px;
+  font-size: 8pt;
+  font-weight: 600;
+  border: none !important;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.official-jc-footer-left {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.official-jc-footer-center {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: 7pt;
+}
+
+.official-jc-footer-page {
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.official-jc-footer--pinned {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid #000 !important;
+}
+
+/* Page 2 — workshop schedule (portrait, matches page 1) */
+.official-jc-p2-title {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 12pt;
+  width: 28px;
+}
+
+.official-jc-p2-header th {
+  background: #d9d9d9 !important;
+  font-size: 7.5pt;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.official-jc-p2-header td {
+  font-size: 8pt;
+}
+
+.official-jc-p2-scope-head {
+  margin-top: 6px;
+  border: 1px solid #000;
+  border-bottom: none;
+  padding: 4px 6px;
+  background: #d9d9d9 !important;
+}
+
+.official-jc-p2-scope-title {
+  font-weight: 800;
+  font-size: 10pt;
+}
+
+.official-jc-p2-scope-box {
+  border: 1px solid #000;
+  min-height: 48px;
+  padding: 6px;
+  font-size: 8.5pt;
+}
+
+.official-jc-p2-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  border: 1px solid #000;
+  border-top: none;
+  padding: 6px;
+  margin-bottom: 6px;
+  font-size: 7.5pt;
+}
+
+.official-jc-check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.official-jc-checkbox {
+  width: 10px;
+  height: 10px;
+  border: 1px solid #000;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.official-jc-workshop-block {
+  margin-bottom: 6px;
+}
+
+.official-jc-workshop-title {
+  background: #000 !important;
+  color: #fff !important;
+  text-align: left;
+  font-size: 9pt;
+  padding: 3px 6px !important;
+}
+
+.official-jc-workshop-table {
+  font-size: 7.5pt;
+}
+
+.official-jc-row-num {
+  width: 18px;
+  text-align: center;
+  background: #d9d9d9 !important;
+  font-weight: 700;
+}
+
+.official-jc-subhead {
+  font-size: 7pt;
+  font-weight: 600;
+  background: #eee !important;
+}
+
+.official-jc-despatch-yes {
+  width: 36px;
+}
+
+.official-jc-workshop-note {
+  font-size: 7pt;
+  font-style: italic;
+  margin: 2px 0 0;
+  padding-left: 4px;
+}
+
+.official-jc-p2-pack td {
+  vertical-align: top !important;
+}
+
+.official-jc-p2-delivery {
+  width: 38%;
+}
+
+.official-jc-p2-delivery-inner {
+  border: 1px solid #000;
+  min-height: 64px;
+  height: 100%;
+  padding: 6px;
+  font-size: 8pt;
+  box-sizing: border-box;
+}
+
+.official-jc-p2-pack.official-jc-pack-table--grow .official-jc-p2-delivery {
+  height: 100%;
+}
+
+.official-jc-p2-pack-grid {
+  font-size: 7.5pt;
+}
+
+@media print {
+  @page official-a4 {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  #job-official-print-only,
+  #job-official-print-only * {
+    box-sizing: border-box !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  #job-official-print-only *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  aside,
+  header,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+
+  #job-official-print-only {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    height: auto !important;
+  }
+
+  #job-official-print-only .official-jc-root {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  #job-official-print-only table {
+    max-width: 100% !important;
+    table-layout: fixed;
+  }
+
+  #job-official-print-only .official-jc-workshop-table,
+  #job-official-print-only .official-jc-p2-pack-grid,
+  #job-official-print-only .official-jc-header-table,
+  #job-official-print-only .official-jc-p2-header {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  main,
+  main > div {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .no-print,
+  #job-card-print > .no-print {
+    display: none !important;
+  }
+
+  #job-card-print {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .official-jc-root {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  .official-jc-page,
+  .official-jc-page * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .official-jc-logo,
+  .official-jc-logo-img {
+    visibility: visible !important;
+    opacity: 1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .official-jc-logo-cell {
+    width: 22% !important;
+    min-width: 0 !important;
+    max-width: 22% !important;
+    overflow: visible !important;
+  }
+
+  #job-official-print-only th,
+  #job-official-print-only td {
+    overflow: hidden !important;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    hyphens: auto;
+  }
+
+  #job-official-print-only .official-jc-top-row th,
+  #job-official-print-only .official-jc-p2-header th,
+  #job-official-print-only .official-jc-workshop-table th {
+    white-space: normal !important;
+    line-height: 1.1 !important;
+  }
+
+  #job-official-print-only .official-jc-top-row td {
+    min-width: 0 !important;
+  }
+
+  #job-official-print-only .official-jc-check-item {
+    white-space: normal !important;
+    max-width: 100%;
+  }
+
+  #job-official-print-only .official-jc-p2-checklist {
+    flex-wrap: wrap !important;
+  }
+
+  #job-official-print-only .official-jc-block {
+    width: 33% !important;
+    max-width: 33% !important;
+  }
+
+  #job-official-print-only .official-jc-workshop-table {
+    font-size: 5.5pt !important;
+  }
+
+  #job-official-print-only .official-jc-workshop-table th,
+  #job-official-print-only .official-jc-workshop-table td {
+    padding: 1px 1px !important;
+    font-size: 5.5pt !important;
+  }
+
+  #job-official-print-only .official-jc-root {
+    max-width: 100%;
+    overflow: hidden !important;
+  }
+
+  /* Fixed A4 sheet — same height whether fields are empty or filled */
+  .official-jc-page {
+    page: official-a4;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    height: 281mm;
+    min-height: 281mm;
+    max-height: 281mm;
+    display: flex;
+    flex-direction: column;
+    overflow: clip !important;
+    padding: 0 5mm 4mm;
+    page-break-inside: avoid;
+    break-inside: avoid-page;
+  }
+
+  .official-jc-page--1 {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .official-jc-page--1 .official-jc-footer {
+    overflow: visible !important;
+    padding-right: 6px !important;
+    padding-left: 2px !important;
+  }
+
+  .official-jc-page--2 {
+    page-break-before: always;
+    break-before: page;
+    page-break-after: avoid;
+    break-after: avoid-page;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: clip !important;
+    font-size: 6.5pt;
+    page-break-inside: avoid;
+    break-inside: avoid-page;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 5mm 5mm !important;
+  }
+
+  .official-jc-page--2 .official-jc-footer {
+    display: grid !important;
+    grid-template-columns: 1fr auto auto !important;
+    align-items: center !important;
+    gap: 6px !important;
+    overflow: visible !important;
+    padding-right: 6px !important;
+    padding-left: 2px !important;
+  }
+
+  .official-jc-page--2 .official-jc-footer-left {
+    display: none !important;
+  }
+
+  .official-jc-page--2 .official-jc-footer-center {
+    grid-column: 2;
+    justify-self: center;
+    text-align: center;
+  }
+
+  .official-jc-page--2 .official-jc-footer-page {
+    grid-column: 3;
+    justify-self: end;
+    margin-left: 0 !important;
+  }
+
+  .official-jc-page .official-jc-footer-page {
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+    visibility: visible !important;
+    overflow: visible !important;
+    min-width: 3.5em !important;
+    text-align: right !important;
+  }
+
+  .official-jc-page--2 .official-jc-page-inner {
+    overflow: visible !important;
+    min-height: 0 !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-header th,
+  .official-jc-page--2 .official-jc-p2-header td {
+    padding: 1px 3px !important;
+    font-size: 6.5pt !important;
+    line-height: 1.15 !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-scope-head {
+    margin-top: 4px !important;
+    padding: 2px 4px !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-scope-title {
+    font-size: 8pt !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-scope-box {
+    min-height: 20px !important;
+    max-height: 36px !important;
+    padding: 2px 4px !important;
+    font-size: 6.5pt !important;
+    line-height: 1.2 !important;
+    overflow: hidden;
+  }
+
+  .official-jc-page--2 .official-jc-p2-checklist {
+    padding: 2px 4px !important;
+    gap: 1px 5px !important;
+    font-size: 5.75pt !important;
+    margin-bottom: 3px !important;
+    line-height: 1.2 !important;
+  }
+
+  .official-jc-page--2 .official-jc-checkbox {
+    width: 8px !important;
+    height: 8px !important;
+  }
+
+  .official-jc-page--2 .official-jc-workshop-block {
+    margin-bottom: 2px !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .official-jc-page--2 .official-jc-workshop-title {
+    padding: 2px 4px !important;
+    font-size: 7pt !important;
+  }
+
+  .official-jc-page--2 .official-jc-workshop-table th,
+  .official-jc-page--2 .official-jc-workshop-table td {
+    padding: 1px 2px !important;
+    font-size: 5.75pt !important;
+    line-height: 1.15 !important;
+  }
+
+  .official-jc-page--2 .official-jc-workshop-note {
+    font-size: 5.5pt !important;
+    line-height: 1.1 !important;
+    margin: 1px 0 0 !important;
+  }
+
+  .official-jc-page--2 .official-jc-section-bar {
+    margin-top: 3px !important;
+    padding: 2px 4px !important;
+    font-size: 7pt !important;
+  }
+
+  .official-jc-page--2 .official-jc-page-fill {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+  }
+
+  .official-jc-page--2 .official-jc-pack-table--grow {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-delivery-inner {
+    min-height: 40px !important;
+    padding: 3px !important;
+    font-size: 6.5pt !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-pack-grid {
+    font-size: 6pt !important;
+  }
+
+  .official-jc-page--2 .official-jc-p2-pack-grid th,
+  .official-jc-page--2 .official-jc-p2-pack-grid td {
+    padding: 1px 2px !important;
+  }
+
+  .official-jc-page--2 .official-jc-footer--pinned {
+    margin-top: 4px !important;
+    padding-top: 3px !important;
+    font-size: 7pt !important;
+  }
+
+  .official-jc-header-table,
+  .official-jc-p2-header {
+    border: 1px solid #000 !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  .official-jc-header-table > tbody > tr > .official-jc-spine,
+  .official-jc-p2-header > tbody > tr > .official-jc-spine {
+    border: 1px solid #000 !important;
+    border-left: 1px solid #000 !important;
+  }
+
+  .official-jc-top-band,
+  .official-jc-block {
+    border: 1px solid #000 !important;
+  }
+
+  .official-jc-page-inner {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: visible !important;
+  }
+
+  .official-jc-page--1 .official-jc-page-inner {
+    overflow: visible !important;
+  }
+
+  .official-jc-page--2 .official-jc-page-inner {
+    overflow: visible !important;
+  }
+
+  .official-jc-page-fill {
+    flex: 1 1 auto;
+    min-height: 100px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .official-jc-page-fill .official-jc-section-bar {
+    flex-shrink: 0;
+  }
+
+  .official-jc-pack-table--grow {
+    flex: 1 1 auto;
+    min-height: 120px;
+    height: 100%;
+  }
+
+  .official-jc-pack-table--grow tbody,
+  .official-jc-pack-table--grow .official-jc-pack-row {
+    height: 100%;
+  }
+
+  .official-jc-notes-box {
+    min-height: 40px;
+  }
+
+  .official-jc-delivery-box,
+  .official-jc-p2-delivery-inner {
+    min-height: 72px;
+  }
+
+  .official-jc-footer--pinned {
+    margin-top: auto;
+  }
+
+  #job-official-print-only .official-jc-page th,
+  #job-official-print-only .official-jc-page td,
+  #job-official-print-only .official-jc-page p,
+  #job-official-print-only .official-jc-page span,
+  #job-card-print .official-jc-page th,
+  #job-card-print .official-jc-page td,
+  #job-card-print .official-jc-page p,
+  #job-card-print .official-jc-page span {
+    color: #000 !important;
+  }
+}

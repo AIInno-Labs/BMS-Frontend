@@ -1,0 +1,38 @@
+{
+  "name": "bmsman",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "dev:reset": "node scripts/reset-dev.mjs",
+    "dev:clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next dev -p 3000",
+    "prebuild": "node scripts/prebuild-guard.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:seed": "tsx scripts/seed.ts",
+    "align:quotes": "tsx scripts/align-quotient-quotes.ts",
+    "test:webhook": "tsx scripts/test-webhook.ts"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^9.8.0",
+    "@supabase/supabase-js": "^2.49.8",
+    "buffer": "^6.0.3",
+    "framer-motion": "^12.40.0",
+    "geist": "^1.7.0",
+    "lucide-react": "^0.511.0",
+    "next": "^15.3.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^2.15.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.8",
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "tailwindcss": "^4.1.8",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

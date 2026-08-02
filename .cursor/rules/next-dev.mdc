@@ -1,0 +1,13 @@
+---
+description: Prevent Next.js CSS corruption in BMSMan
+globs: package.json, **/*
+alwaysApply: true
+---
+
+# BMSMan — dev server rules
+
+- Only **one** dev server: `npm run dev` → http://localhost:3000
+- **Never** run `npm run build` while `npm run dev` is running (shared `.next` → CSS 404 / unstyled page).
+- If CSS disappears: `npm run dev:reset` (kills ports 3000/3001, clears `.next`, restarts).
+- Do not start a second `npm run dev` in another terminal (causes port 3001 + corrupted cache).
+- Prefer `npm run dev:clean` over editing `.next` manually.

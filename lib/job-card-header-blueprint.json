@@ -1,0 +1,20 @@
+{
+  "targetWidth": 953,
+  "sectionWidths953": {
+    "spine": 67,
+    "info": 534,
+    "logo": 191,
+    "qa": 161
+  },
+  "sectionPercents": [7, 56, 20, 17],
+  "infoMetaColumnWidths953": [82, 47, 82, 47, 82, 47, 82, 65],
+  "headerHeight953": 136,
+  "metaRowHeight953": 32,
+  "dataRowHeights953": [17, 18, 17, 18, 17, 17],
+  "noticeHeight953": 48,
+  "qaLabelWidth953": 32,
+  "qaTitleHeight953": 14,
+  "qaRowHeights953": [30, 30, 30],
+  "logoImageWidth953": 88,
+  "logoColumnWidth953": 191
+}

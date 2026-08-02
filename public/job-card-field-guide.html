@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FRP Job Card — Field Guide</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #111;
+      padding: 24px 28px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 18px;
+      margin-bottom: 4px;
+      color: #2f3138;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #555;
+      margin-bottom: 18px;
+    }
+    h2 {
+      font-size: 13px;
+      background: #2f3138;
+      color: #fff;
+      padding: 6px 10px;
+      margin: 16px 0 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+    }
+    th, td {
+      border: 1px solid #666;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #2f3138;
+      color: #fff;
+      font-size: 10px;
+    }
+    .yes { color: #0a7; font-weight: bold; }
+    .partial { color: #c60; font-weight: bold; }
+    .no { color: #888; font-weight: bold; }
+    .steps {
+      margin: 8px 0 12px 18px;
+    }
+    .steps li { margin-bottom: 4px; }
+    .footer {
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #ccc;
+      font-size: 9px;
+      color: #666;
+    }
+    @page { size: A4 portrait; margin: 14mm; }
+    @media print {
+      body { padding: 0; max-width: none; }
+      h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+
+<h1>FRP Engineering — Job Card PDF Field Guide</h1>
+<p class="subtitle">What fills automatically from the app vs what is completed manually on the shop floor.</p>
+
+<h2>How to fill &amp; export</h2>
+<ol class="steps">
+  <li>Open the job (e.g. <strong>JOB-Q-17843</strong>) in BMSMan.</li>
+  <li>Click <strong>Edit details</strong>.</li>
+  <li>Scroll to <strong>Official job card (PDF fields)</strong> — fill specs, clips, packs, notes, etc.</li>
+  <li>On the main job card, set <strong>QA completed</strong> if QA name should appear on export.</li>
+  <li>Click <strong>Save</strong>, then <strong>Export PDF</strong>.</li>
+</ol>
+
+<h2>Header — customer &amp; transport</h2>
+<table>
+  <tr><th>PDF field</th><th>From app?</th><th>Where to edit</th></tr>
+  <tr><td>Job #, Date, Due Date, Raised by</td><td class="yes">Yes</td><td>Job card + Official PDF fields</td></tr>
+  <tr><td>Customer, Contact Name</td><td class="yes">Yes</td><td>Job card / customer modal</td></tr>
+  <tr><td>Contact Number, Email, PO No., Account Y/N</td><td class="yes">Yes</td><td>Official job card (PDF fields)</td></tr>
+  <tr><td>Transport, Transport Company, Account #</td><td class="yes">Yes</td><td>Official job card (PDF fields)</td></tr>
+  <tr><td>Consignment Note #, Despatch Date, Delivery Docket #</td><td class="yes">Yes</td><td>Official job card (PDF fields)</td></tr>
+</table>
+
+<h2>QA Sign Off</h2>
+<table>
+  <tr><th>PDF field</th><th>From app?</th><th>Notes</th></tr>
+  <tr><td>Name</td><td class="partial">Partly</td><td>Fills when <strong>QA completed = Yes</strong> (assigned worker name)</td></tr>
+  <tr><td>Sign</td><td class="no">Manual</td><td>Physical signature on paper / at packing</td></tr>
+  <tr><td>Date</td><td class="no">Manual</td><td>Signed on the shop floor when QA is done</td></tr>
+</table>
+
+<h2>Scope of work &amp; material specs</h2>
+<table>
+  <tr><th>PDF field</th><th>From app?</th><th>Where to edit</th></tr>
+  <tr><td>Scope text (left area)</td><td class="yes">Yes</td><td>Official PDF fields → Scope lines (or project name + instructions)</td></tr>
+  <tr><td>Type</td><td class="yes">Yes</td><td>Official PDF fields → Type</td></tr>
+  <tr><td>Thickness</td><td class="yes">Yes</td><td>Official PDF fields → Thickness (mm)</td></tr>
+  <tr><td>Mesh</td><td class="yes">Yes</td><td>Official PDF fields → Mesh</td></tr>
+  <tr><td>Resin</td><td class="yes">Yes</td><td>Job card → Resin type</td></tr>
+  <tr><td>Colour</td><td class="yes">Yes</td><td>Official PDF fields → Colour</td></tr>
+  <tr><td>Finish</td><td class="yes">Yes</td><td>Official PDF fields → Finish</td></tr>
+</table>
+
+<h2>CLIPS table</h2>
+<table>
+  <tr><th>PDF column</th><th>From app?</th><th>Where to edit</th></tr>
+  <tr><td>Clip type (fixed rows)</td><td class="yes">Yes</td><td>Predefined list on form — not typed per job</td></tr>
+  <tr><td>QTY</td><td class="yes">Yes</td><td>Official PDF fields → Clips table → QTY</td></tr>
+  <tr><td>Packed by</td><td class="yes">Yes</td><td>Official PDF fields → Clips table → Packed by</td></tr>
+</table>
+<p style="margin-bottom:10px;font-size:10px;color:#444;"><strong>Clip rows:</strong> NO CLIPS REQUIRED · Box 25mm M clips · Box 38mm M clips · Compression clips · 38mm Square top plate · 50mm Square top plate · W30/W45/W54 Clips · Loose 25/38/50mm M clip · C clips 25mm · C Clips 38mm · OTHER · 2 blank rows.</p>
+
+<h2>Photographs &amp; job checklist</h2>
+<table>
+  <tr><th>PDF area</th><th>From app?</th><th>Notes</th></tr>
+  <tr><td>Job Photos (Grating, Structure, Handrail, Clips, Ladder, Miscellaneous) — Initial &amp; Date</td><td class="no">Manual</td><td>Shop-floor checklist — not stored in app</td></tr>
+  <tr><td>Bolt List / Size — QTY, Date, Initial</td><td class="no">Manual</td><td>Completed on paper / PDF by workshop staff</td></tr>
+</table>
+
+<h2>Notes, packs &amp; delivery</h2>
+<table>
+  <tr><th>PDF field</th><th>From app?</th><th>Where to edit</th></tr>
+  <tr><td>NOTES</td><td class="yes">Yes</td><td>Workflow dashboard → Job card notes (saved in workflow extras)</td></tr>
+  <tr><td>PACK 1–3 — Length, Width, Height, Weight (KG)</td><td class="yes">Yes</td><td>Official PDF fields → Pack dimensions</td></tr>
+  <tr><td>Delivery instructions</td><td class="yes">Yes</td><td>Official PDF fields → Delivery instructions</td></tr>
+</table>
+
+<h2>Summary</h2>
+<table>
+  <tr><th>Fill in app before export</th><th>Manual on shop floor / paper</th></tr>
+  <tr>
+    <td>Header details · Scope &amp; specs · Clip QTY &amp; Packed by · Notes · Pack dimensions · Delivery instructions</td>
+    <td>QA Sign &amp; Date · Photo checklist initials/dates · Bolt list · Blank clip rows</td>
+  </tr>
+</table>
+
+<p class="footer">FRP Engineering — BMSMan Job Card · Generated reference · Open this page and use Print → Save as PDF to share.</p>
+
+</body>
+</html>

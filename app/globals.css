@@ -1,0 +1,246 @@
+@import "tailwindcss";
+@import "./job-card-official-print.css";
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --color-accent: #f97316;
+  --color-ai: #7c3aed;
+  --color-surface: #f5f7fa;
+  --color-card: #ffffff;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+body {
+  @apply bg-[#F5F7FA] text-[#111827] antialiased;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+/* Premium light enterprise surfaces */
+.app-mesh-bg {
+  @apply bg-[#F5F7FA];
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(249, 115, 22, 0.06), transparent),
+    linear-gradient(to bottom, #f7f8fb, #f3f5f8);
+}
+
+.app-mesh-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2394a3b8' fill-opacity='0.15'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.app-card {
+  @apply rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.06)] sm:p-8;
+}
+
+.app-card-interactive {
+  @apply rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-[0_8px_22px_rgba(15,23,42,0.06)] transition-all duration-200 ease-in-out hover:-translate-y-0.5 hover:border-orange-300/45 hover:shadow-[0_14px_30px_rgba(15,23,42,0.09)] sm:p-8;
+}
+
+@keyframes jta-node-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 18px rgba(249, 115, 22, 0.35), 0 0 32px rgba(251, 191, 36, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(249, 115, 22, 0.5), 0 0 44px rgba(253, 186, 116, 0.25);
+  }
+}
+
+@keyframes jta-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.jta-node-breathe {
+  animation: jta-node-breathe 2.4s ease-in-out infinite;
+}
+
+.jta-ring-spin {
+  animation: jta-ring-spin 8s linear infinite;
+}
+
+.glass-panel {
+  @apply border border-orange-200/55 bg-white/90 shadow-[0_14px_36px_rgba(15,23,42,0.16)] backdrop-blur-md;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-3 rounded-xl bg-[#F97316] px-8 py-4 text-base font-semibold text-white shadow-[0_8px_20px_rgba(249,115,22,0.28)] transition-all duration-200 ease-in-out hover:bg-[#EA580C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-3 rounded-xl border border-[#E5E7EB] bg-white px-8 py-4 text-base font-semibold text-[#111827] shadow-sm transition-all duration-150 ease-in-out hover:border-orange-200 hover:bg-orange-50/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-300;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-5 py-2.5 text-base font-medium text-[#374151] shadow-sm transition-all duration-150 ease-in-out hover:border-orange-200 hover:bg-orange-50/40 hover:text-[#111827];
+}
+
+@keyframes accent-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(251, 146, 60, 0.28);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes analytics-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes analytics-tile-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+@keyframes analytics-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes analytics-spark-draw {
+  from {
+    stroke-dashoffset: 80;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.analytics-live-dot {
+  animation: analytics-live-pulse 1.8s ease-in-out infinite;
+}
+
+.analytics-stat-tile--live {
+  border-color: rgba(37, 99, 235, 0.25);
+}
+
+.analytics-tile-pulse {
+  animation: analytics-tile-flash 0.65s ease-out;
+}
+
+.analytics-live-shimmer {
+  animation: analytics-shimmer 2.4s ease-in-out infinite;
+}
+
+.analytics-sparkline-line {
+  stroke-dasharray: 80;
+  animation: analytics-spark-draw 1s ease-out forwards;
+}
+
+.analytics-chart-card {
+  @apply rounded-xl border border-slate-200 bg-white p-3 shadow-sm;
+}
+
+.analytics-landing {
+  @apply border-b border-slate-200/80;
+}
+
+.btn-cta-glow {
+  animation: accent-glow 2.8s ease-in-out infinite;
+}
+
+.status-pill {
+  @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide shadow-sm;
+}
+
+.status-pill--not-started {
+  @apply border-red-200 bg-red-50 text-red-700 shadow-sm;
+}
+
+.status-pill--manufacturing {
+  @apply border-amber-200 bg-amber-50 text-amber-700 shadow-sm;
+}
+
+.status-pill--delivered {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm;
+}
+
+.worker-ui table td,
+.worker-ui table th {
+  font-size: 1.125rem;
+}
+
+.worker-ui article {
+  font-size: 1.125rem;
+}
+
+@media print {
+  html,
+  body {
+    background: white !important;
+    background-image: none !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  body > div {
+    min-height: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  * {
+    scrollbar-width: none !important;
+  }
+
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Official job card only — screen form must not spill into PDF */
+  #job-card-print .official-jc-root {
+    display: block !important;
+  }
+}
