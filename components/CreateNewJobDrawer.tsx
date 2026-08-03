@@ -38,10 +38,32 @@ type FormErrors = Partial<
     | "projectName"
     | "dateReceived"
     | "contactEmail"
+    | "status"
+    | "qaCompleted"
     | "submit",
     string
   >
 >;
+
+const WIZARD_STEPS = [
+  { id: "customer", label: "Customer" },
+  { id: "project", label: "Project" },
+  { id: "scope", label: "Scope" },
+  { id: "assignment", label: "Assignment" },
+] as const;
+
+type WizardStepId = (typeof WIZARD_STEPS)[number]["id"];
+
+/**
+ * Errors each step owns. Advancing is gated on the current step's fields only,
+ * so a problem later in the form never blocks progress through earlier steps.
+ */
+const STEP_FIELDS: Record<WizardStepId, (keyof FormErrors)[]> = {
+  customer: ["jobId", "clientName", "contactEmail"],
+  project: ["projectName", "dateReceived"],
+  scope: ["status", "qaCompleted"],
+  assignment: [],
+};
 
 interface PendingFile {
   id: string;
@@ -66,7 +88,12 @@ export interface CreateJobFormValues {
   assignedWorkerId: string;
   estimatedHours: string;
   alert: string;
-  manufacturingRequired: boolean;
+  /**
+   * PRD "Needs Job Card" flag (§2.1). `false` marks a delivery-docket-only job.
+   * Persisted to the existing `jobs.manufacturing_required` column until the
+   * backend migration gives it a dedicated `needs_job_card` field.
+   */
+  needsJobCard: boolean;
   installRequired: boolean;
   qaCompleted: boolean;
   transportCompany: string;
@@ -110,7 +137,7 @@ function buildInitialForm(jobs: Job[]): CreateJobFormValues {
     assignedWorkerId: "",
     estimatedHours: "",
     alert: "",
-    manufacturingRequired: true,
+    needsJobCard: true,
     installRequired: false,
     qaCompleted: false,
     transportCompany: "",
@@ -149,6 +176,20 @@ function validateForm(
     errors.contactEmail = "Enter a valid email address.";
   }
 
+  // Conditional flag rules (PRD §2.1 — "validation for conditional flags").
+  if (
+    !values.needsJobCard &&
+    (values.status === "Ready to Manufacture" || values.status === "In Fabrication")
+  ) {
+    errors.status =
+      "Delivery-docket-only jobs cannot start in a manufacturing status.";
+  }
+
+  if (values.qaCompleted && values.needsJobCard) {
+    errors.qaCompleted =
+      "QA cannot already be complete on a job that still needs fabrication.";
+  }
+
   return errors;
 }
 
@@ -175,7 +216,7 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
     status: values.status,
     priority: values.priority,
     alert: values.alert.trim() || null,
-    manufacturingRequired: values.manufacturingRequired,
+    manufacturingRequired: values.needsJobCard,
     installRequired: values.installRequired,
     qaCompleted: values.qaCompleted,
     clientContactName: values.clientContactName.trim(),
@@ -194,7 +235,7 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
       status: values.status,
       priority: values.priority,
       alert: null,
-      manufacturingRequired: values.manufacturingRequired,
+      manufacturingRequired: values.needsJobCard,
       installRequired: values.installRequired,
       qaCompleted: values.qaCompleted,
       clientContactName: values.clientContactName,
@@ -235,7 +276,11 @@ export function CreateNewJobDrawer({
   const [errors, setErrors] = useState<FormErrors>({});
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const currentStep = WIZARD_STEPS[stepIndex];
+  const isLastStep = stepIndex === WIZARD_STEPS.length - 1;
 
   const existingIds = useMemo(
     () => new Set(jobs.map((j) => j.id.trim().toUpperCase())),
@@ -249,6 +294,7 @@ export function CreateNewJobDrawer({
     setErrors({});
     setPendingFiles([]);
     setIsSubmitting(false);
+    setStepIndex(0);
   }, [jobs]);
 
   useEffect(() => {
@@ -282,10 +328,40 @@ export function CreateNewJobDrawer({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  /** Errors belonging to a given step, so Next only gates on that step. */
+  const errorsForStep = (all: FormErrors, step: WizardStepId): FormErrors => {
+    const owned: FormErrors = {};
+    for (const field of STEP_FIELDS[step]) {
+      if (all[field]) owned[field] = all[field];
+    }
+    return owned;
+  };
+
+  const handleNext = () => {
+    const all = validateForm(form, existingIds);
+    const blocking = errorsForStep(all, currentStep.id);
+    if (Object.keys(blocking).length > 0) {
+      setErrors(blocking);
+      return;
+    }
+    setErrors({});
+    setStepIndex((i) => Math.min(i + 1, WIZARD_STEPS.length - 1));
+  };
+
+  const handleBack = () => {
+    setErrors({});
+    setStepIndex((i) => Math.max(i - 1, 0));
+  };
+
   const handleSubmit = async () => {
     const nextErrors = validateForm(form, existingIds);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      // Surface the earliest step that still has a problem.
+      const firstBadStep = WIZARD_STEPS.findIndex(
+        (step) => Object.keys(errorsForStep(nextErrors, step.id)).length > 0
+      );
+      if (firstBadStep >= 0) setStepIndex(firstBadStep);
       return;
     }
 
@@ -313,21 +389,64 @@ export function CreateNewJobDrawer({
     <div className="flex items-center justify-between gap-3">
       <button
         type="button"
-        onClick={onClose}
+        onClick={stepIndex === 0 ? onClose : handleBack}
         disabled={isSubmitting}
         className="inline-flex min-h-[42px] items-center justify-center rounded-full border border-[#BFDBFE] bg-white px-5 text-sm font-semibold text-[#2563EB] transition-colors hover:bg-[#EFF6FF] disabled:opacity-50"
       >
-        Cancel
+        {stepIndex === 0 ? "Cancel" : "Back"}
       </button>
-      <button
-        type="button"
-        onClick={() => void handleSubmit()}
-        disabled={isSubmitting}
-        className="inline-flex min-h-[42px] items-center justify-center rounded-full bg-[#2563EB] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
-      >
-        {isSubmitting ? "Creating…" : "Create Job"}
-      </button>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-slate-500">
+          Step {stepIndex + 1} of {WIZARD_STEPS.length}
+        </span>
+        {isLastStep ? (
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting}
+            className="inline-flex min-h-[42px] items-center justify-center rounded-full bg-[#2563EB] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+          >
+            {isSubmitting ? "Creating…" : "Create Job"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleNext}
+            disabled={isSubmitting}
+            className="inline-flex min-h-[42px] items-center justify-center rounded-full bg-[#2563EB] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+          >
+            Next
+          </button>
+        )}
+      </div>
     </div>
+  );
+
+  const stepIndicator = (
+    <ol className="flex items-center gap-1.5" aria-label="Progress">
+      {WIZARD_STEPS.map((step, index) => {
+        const done = index < stepIndex;
+        const active = index === stepIndex;
+        return (
+          <li key={step.id} className="flex flex-1 flex-col gap-1">
+            <span
+              aria-hidden
+              className={`h-1 rounded-full transition-colors ${
+                done || active ? "bg-[#2563EB]" : "bg-[#E2E8F0]"
+              }`}
+            />
+            <span
+              className={`text-[10px] font-semibold uppercase tracking-wide ${
+                active ? "text-[#2563EB]" : "text-slate-400"
+              }`}
+              aria-current={active ? "step" : undefined}
+            >
+              {step.label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 
   return (
@@ -348,6 +467,8 @@ export function CreateNewJobDrawer({
         }}
         noValidate
       >
+        {stepIndicator}
+
         {errors.submit && (
           <p
             className="rounded-[14px] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
@@ -357,6 +478,7 @@ export function CreateNewJobDrawer({
           </p>
         )}
 
+        {currentStep.id === "customer" && (
         <FormSection title="Basic Info">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Job ID" error={errors.jobId} className="sm:col-span-2">
@@ -403,7 +525,9 @@ export function CreateNewJobDrawer({
             </Field>
           </div>
         </FormSection>
+        )}
 
+        {currentStep.id === "project" && (
         <FormSection title="Project Details">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Project Name" error={errors.projectName} className="sm:col-span-2">
@@ -467,7 +591,9 @@ export function CreateNewJobDrawer({
             </Field>
           </div>
         </FormSection>
+        )}
 
+        {currentStep.id === "scope" && (
         <FormSection title="Job Status">
           <div className="flex flex-wrap gap-2">
             {STATUS_PILLS.map((pill) => {
@@ -488,8 +614,77 @@ export function CreateNewJobDrawer({
               );
             })}
           </div>
-        </FormSection>
+          {errors.status && (
+            <p className="mt-2 text-xs text-red-600" role="alert">
+              {errors.status}
+            </p>
+          )}
 
+          <div className="mt-4 space-y-3 border-t border-[#E2E8F0] pt-4">
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={form.needsJobCard}
+                onChange={(e) => patch({ needsJobCard: e.target.checked })}
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-[#0F172A]">
+                  Needs Job Card
+                </span>
+                <span className="block text-xs text-slate-500">
+                  Full custom manufacturing job. Turn off for simple
+                  delivery-docket-only jobs.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={form.installRequired}
+                onChange={(e) => patch({ installRequired: e.target.checked })}
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-[#0F172A]">
+                  Installation required
+                </span>
+                <span className="block text-xs text-slate-500">
+                  Printed prominently on the job card.
+                </span>
+              </span>
+            </label>
+
+            <div>
+              <label className="flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={form.qaCompleted}
+                  onChange={(e) => patch({ qaCompleted: e.target.checked })}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-[#0F172A]">
+                    QA already complete
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    Only for jobs recorded after the fact.
+                  </span>
+                </span>
+              </label>
+              {errors.qaCompleted && (
+                <p className="mt-1 text-xs text-red-600" role="alert">
+                  {errors.qaCompleted}
+                </p>
+              )}
+            </div>
+          </div>
+        </FormSection>
+        )}
+
+        {currentStep.id === "assignment" && (
+        <>
         <FormSection title="Assignment">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Assigned Staff" className="sm:col-span-2">
@@ -647,32 +842,10 @@ export function CreateNewJobDrawer({
                 className={`${inputClass} min-h-[72px] resize-y`}
               />
             </Field>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.manufacturingRequired}
-                onChange={(e) => patch({ manufacturingRequired: e.target.checked })}
-              />
-              Manufacturing required
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.installRequired}
-                onChange={(e) => patch({ installRequired: e.target.checked })}
-              />
-              Install required
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.qaCompleted}
-                onChange={(e) => patch({ qaCompleted: e.target.checked })}
-              />
-              QA completed
-            </label>
           </div>
         </details>
+        </>
+        )}
       </form>
     </EnterpriseDrawer>
   );
