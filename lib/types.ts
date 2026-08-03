@@ -1,11 +1,21 @@
-export type JobStatus =
-  | "Pending"
-  | "Awaiting Manager Approval"
-  | "Ready to Manufacture"
-  | "In Fabrication"
-  | "On Hold"
-  | "Complete"
-  | "Cancelled";
+import type { AnyJobStatus } from "@/lib/jobStatus";
+
+/**
+ * Widened during the DEL-01 status-model migration.
+ *
+ * Accepts both the canonical PRD lifecycle and the seven legacy states the
+ * Supabase CHECK constraint still enforces, so existing call sites keep
+ * compiling while new work targets the canonical model. Import the precise
+ * unions (`JobStatus`, `LegacyJobStatus`) from `@/lib/jobStatus` directly when
+ * you need to exclude one or the other.
+ */
+export type JobStatus = AnyJobStatus;
+
+export type {
+  AnyJobStatus,
+  JobExceptionStatus,
+  LegacyJobStatus,
+} from "@/lib/jobStatus";
 
 export type ResinType =
   | "Isophthalic Polyester"

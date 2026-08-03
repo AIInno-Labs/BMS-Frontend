@@ -10,6 +10,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "api:lint": "npx --yes @redocly/cli@latest lint ${BMS_API_SPEC:-../BMS-backend/docs/api/bms-api.yaml}",
+    "api:mock": "npx --yes @stoplight/prism-cli@5.14.2 mock ${BMS_API_SPEC:-../BMS-backend/docs/api/bms-api.yaml} -p 4010",
+    "api:types": "npx --yes openapi-typescript@7 ${BMS_API_SPEC:-../BMS-backend/docs/api/bms-api.yaml} -o lib/frp/schema.d.ts",
     "db:seed": "tsx scripts/seed.ts",
     "align:quotes": "tsx scripts/align-quotient-quotes.ts",
     "test:webhook": "tsx scripts/test-webhook.ts"
