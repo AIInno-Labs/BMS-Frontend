@@ -75,7 +75,8 @@ export function SuperAdminDashboard() {
                   Privileges
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">
-                  View the catalog; create and edit MENU / FIELD privileges.
+                  Catalog: ACTION / MENU / FIELD. Create and edit MENU / FIELD
+                  only (ACTION is system-managed).
                 </p>
               </div>
             </div>

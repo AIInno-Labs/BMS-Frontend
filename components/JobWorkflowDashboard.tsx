@@ -12,7 +12,6 @@ import {
   Loader2,
   History,
   Mail,
-  MapPin,
   Package,
   Pencil,
   Phone,
@@ -189,10 +188,6 @@ export function JobWorkflowDashboard({
     clientContactName: job.clientContactName ?? "",
     contactPhone: pd.contactPhone ?? "",
     contactEmail: pd.contactEmail ?? "",
-    address:
-      pd.deliveryInstructions?.trim() ||
-      [pd.transportCompany, pd.freightAccount].filter(Boolean).join(" · ") ||
-      "",
   });
   const [jobDraft, setJobDraft] = useState({
     projectName: job.projectName,
@@ -261,10 +256,6 @@ export function JobWorkflowDashboard({
       clientContactName: job.clientContactName ?? "",
       contactPhone: nextPd.contactPhone ?? "",
       contactEmail: nextPd.contactEmail ?? "",
-      address:
-        nextPd.deliveryInstructions?.trim() ||
-        [nextPd.transportCompany, nextPd.freightAccount].filter(Boolean).join(" · ") ||
-        "",
     });
     const nextExtras = ensureWorkflowExtras(nextPd.workflowExtras, job);
     setJobDraft({
@@ -461,15 +452,6 @@ export function JobWorkflowDashboard({
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
-          <CustomerRow
-            icon={MapPin}
-            label="Address"
-            value={
-              pd.deliveryInstructions?.trim() ||
-              [pd.transportCompany, pd.freightAccount].filter(Boolean).join(" · ") ||
-              "—"
-            }
-          />
         </WidgetCard>
 
         <WidgetCard title="Job Details" icon={Settings} onEdit={() => setShowJobModal(true)}>
@@ -640,7 +622,6 @@ export function JobWorkflowDashboard({
           <ModalField label="Contact Name" value={customerDraft.clientContactName} onChange={(v) => setCustomerDraft((p) => ({ ...p, clientContactName: v }))} />
           <ModalField label="Phone" value={customerDraft.contactPhone} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactPhone: v }))} />
           <ModalField label="Email" value={customerDraft.contactEmail} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactEmail: v }))} />
-          <ModalField label="Address" value={customerDraft.address} onChange={(v) => setCustomerDraft((p) => ({ ...p, address: v }))} />
           <button
             className="btn-primary w-full"
             onClick={() =>
@@ -651,7 +632,6 @@ export function JobWorkflowDashboard({
                   ...ensurePrintDetails(job),
                   contactPhone: customerDraft.contactPhone.trim(),
                   contactEmail: customerDraft.contactEmail.trim(),
-                  deliveryInstructions: customerDraft.address.trim(),
                 },
               }).then(() => setShowCustomerModal(false))
             }

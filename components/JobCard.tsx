@@ -57,7 +57,8 @@ interface JobCardProps {
 }
 
 export function JobCard({ jobId }: JobCardProps) {
-  const { jobs, getJobById, updateJob, hydrated, loading, error } = useJobs();
+  const { jobs, getJobById, loadJobDetail, updateJob, hydrated, loading, error } =
+    useJobs();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isClearingAlert, setIsClearingAlert] = useState(false);
@@ -85,6 +86,22 @@ export function JobCard({ jobId }: JobCardProps) {
     setJob(sourceJob);
     if (!isEditing) setDraft(sourceJob);
   }, [sourceJob, isEditing, isSaving]);
+
+  // `getJobById` only ever has the `GET /jobs` list projection, which the
+  // backend deliberately strips of customer/contact detail to keep the list
+  // payload small. Fetch the full record once per job so customer contact,
+  // stages, etc. show up here. Guarded by a ref (not just the jobId dep)
+  // because `loadJobDetail`'s identity changes on every jobs-list update, and
+  // without the guard that would refetch on every list refresh.
+  const detailFetchedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hydrated || !jobId) return;
+    if (detailFetchedForRef.current === jobId) return;
+    detailFetchedForRef.current = jobId;
+    void loadJobDetail(jobId).catch(() => {
+      detailFetchedForRef.current = null;
+    });
+  }, [jobId, hydrated, loadJobDetail]);
 
   useEffect(() => {
     if (!isWorker) return;

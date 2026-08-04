@@ -68,6 +68,33 @@ export interface FrpJobDTO {
   jobCard?: FrpJobCardPayload | null;
   createdDate?: string;
   lastModifiedDate?: string;
+  /** `READ_ONLY`, detail view only (`GET /jobs/{id}`) — resolved `customerId` row. */
+  customer?: FrpCustomerDTO | null;
+  /** `READ_ONLY`, detail view only — every contact on file for `customer`. */
+  customerContacts?: FrpCustomerContactDTO[] | null;
+}
+
+/** `CustomerDTO` — nested on `JobDTO` in the detail view. */
+export interface FrpCustomerDTO {
+  id?: number;
+  companyId?: number | null;
+  companyName?: string;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  details?: string | null;
+}
+
+/** `CustomerContactDTO` — nested on `JobDTO` in the detail view. */
+export interface FrpCustomerContactDTO {
+  id?: number;
+  customerId?: number;
+  companyId?: number | null;
+  name?: string;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  details?: string | null;
 }
 
 /**
@@ -264,11 +291,16 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
   const spec = card?.productSpec;
+  // The job card carries its own snapshot of contact details for print, but a
+  // freshly created job has an empty card - fall back to the customer's first
+  // contact (and then the company itself) so the job screen isn't blank until
+  // someone fills in the card.
+  const primaryContact = dto.customerContacts?.[0];
 
   const printDetails: JobCardPrintDetails = {
     purchaseOrderNo: card?.purchaseOrderNo,
-    contactPhone: card?.contactPhone,
-    contactEmail: card?.contactEmail,
+    contactPhone: card?.contactPhone ?? primaryContact?.phone ?? dto.customer?.phone ?? undefined,
+    contactEmail: card?.contactEmail ?? primaryContact?.email ?? dto.customer?.email ?? undefined,
     accountYesNo: card?.accountCustomer,
     raisedBy: card?.raisedBy,
     transport: card?.transport,
@@ -314,7 +346,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     dbId: dto.id != null ? String(dto.id) : undefined,
     version: dto.version,
     id: dto.jobNumber ?? "",
-    clientName: dto.customerCompanyName ?? "",
+    clientName: dto.customerCompanyName ?? dto.customer?.companyName ?? "",
     projectName: dto.title ?? "",
     date: card?.dateRaised ?? dto.createdDate?.slice(0, 10) ?? "",
     dueDate: dto.dueDate ?? null,
@@ -328,9 +360,9 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
-    // Contact name is not readable back: `customerContactName` is WRITE_ONLY on
-    // JobDTO and lives on CustomerContact, which has no endpoint yet.
-    clientContactName: "",
+    // `customerContactName` on JobDTO is WRITE_ONLY (create only) - the
+    // readable copy is the customer's first contact, nested on the detail view.
+    clientContactName: primaryContact?.name ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
     manualInstructions: card?.manualInstructions ?? "",

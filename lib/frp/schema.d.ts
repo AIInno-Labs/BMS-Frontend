@@ -4,29 +4,199 @@
  */
 
 export interface paths {
-    "/auth/authenticate": {
+    "/users": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /**
-         * Sign in with email and password
-         * @description Returns tokens directly, or an MFA challenge when the organization has
-         *     `MFA_TOTP_ENABLED` **and** the user has enrolled TOTP. Both conditions
-         *     must hold — org-level alone does not force a challenge.
-         */
-        post: operations["authenticate"];
+        get: operations["findAll"];
+        put: operations["update"];
+        post: operations["create"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auth/mfa/verify": {
+    "/users/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["disable"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["findAll_1"];
+        put: operations["update_1"];
+        post: operations["create_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["findAll_2"];
+        put: operations["update_2"];
+        post: operations["create_2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privileges/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["update_3"];
+        post?: never;
+        delete: operations["delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["findAll_3"];
+        put: operations["update_4"];
+        post: operations["create_3"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listOrgEditableParameters"];
+        put: operations["upsertOrgParameter"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["findAll_4"];
+        put: operations["update_5"];
+        post: operations["create_4"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/stages/{stageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateStage"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/job-card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["saveJobCard"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listParameters"];
+        put: operations["upsertParameter"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privileges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listCatalog"];
+        put?: never;
+        post: operations["create_5"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/stages/{stageId}/scan": {
         parameters: {
             query?: never;
             header?: never;
@@ -35,11 +205,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Complete an MFA challenge
-         * @description Exchanges the short-lived `mfaToken` (5 min TTL) plus a 6-digit code for tokens.
-         */
-        post: operations["verifyMfa"];
+        post: operations["scanStage"];
         delete?: never;
         options?: never;
         head?: never;
@@ -55,15 +221,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rotate the session */
-        post: operations["refreshToken"];
+        post: operations["refresh"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auth/logout": {
+    "/auth/mfa/verify": {
         parameters: {
             query?: never;
             header?: never;
@@ -72,45 +237,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke a refresh token */
-        post: operations["logout"];
+        post: operations["verifyMfa"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The signed-in user, with resolved privileges
-         * @description The frontend's authority for role and privilege resolution. `organization`
-         *     is null for the platform Super Admin.
-         */
-        get: operations["getCurrentUser"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update your own profile
-         * @description **Not yet implemented — required by DEL-01 (profile settings screen).**
-         *
-         *     Self-service editing of your own display name and mobile number. Needed
-         *     because `PUT /users` is gated behind `USER_UPDATE`, which a plain org
-         *     user does not hold — today they cannot edit their own profile at all.
-         *
-         *     Must NOT accept `roleIds`, `enabled`, `email`, or `password`. Role
-         *     changes go through `PUT /users`; password changes need a separate
-         *     endpoint carrying the current password.
-         */
-        patch: operations["updateMyProfile"];
         trace?: never;
     };
     "/auth/mfa/setup": {
@@ -122,7 +253,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Begin TOTP enrolment */
         post: operations["setupMfa"];
         delete?: never;
         options?: never;
@@ -139,7 +269,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Confirm and activate TOTP */
         post: operations["enableMfa"];
         delete?: never;
         options?: never;
@@ -156,10 +285,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Disable TOTP
-         * @description Requires the account password and a current authenticator code.
-         */
         post: operations["disableMfa"];
         delete?: never;
         options?: never;
@@ -167,19 +292,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/users": {
+    "/auth/logout": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List users in the caller's organization */
-        get: operations["listUsers"];
-        /** Update a user */
-        put: operations["updateUser"];
-        /** Create a user */
-        post: operations["createUser"];
+        get?: never;
+        put?: never;
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/authenticate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["authenticate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -193,8 +331,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch a user */
-        get: operations["getUser"];
+        get: operations["findById"];
         put?: never;
         post?: never;
         delete?: never;
@@ -203,281 +340,17 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/users/{id}/disable": {
+    "/roles/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        /** Disable a user */
-        put: operations["disableUser"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/roles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List roles */
-        get: operations["listRoles"];
-        /** Update a role */
-        put: operations["updateRole"];
-        /** Create a role */
-        post: operations["createRole"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/privileges": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the privilege catalog
-         * @description ACTION privileges are synced from backend annotations on startup and are
-         *     read-only. MENU and FIELD entries are managed through this API and are
-         *     **not** enforced server-side in v1 — MENU drives UX only, FIELD is not a
-         *     field-level ACL. Do not rely on either as a security boundary.
-         */
-        get: operations["listPrivileges"];
-        put?: never;
-        /** Create a MENU or FIELD privilege */
-        post: operations["createPrivilege"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/organizations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List organizations */
-        get: operations["listOrganizations"];
-        put?: never;
-        /**
-         * Provision an organization
-         * @description Single transaction: creates the org, an ORG_ADMIN role holding every
-         *     non-platform ACTION privilege, and the first admin user.
-         */
-        post: operations["createOrganization"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/parameters": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List global parameters */
-        get: operations["listGlobalParameters"];
-        put?: never;
-        /** Create or update a global parameter */
-        post: operations["upsertGlobalParameter"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/org/parameters": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List parameters for the caller's organization
-         * @description Resolution is global → org override. `inherited: true` marks a value
-         *     coming from the global default rather than an org-specific row.
-         *
-         *     Carries the SharePoint and Quotient connection settings that DEL-01
-         *     requires to be admin-configurable rather than hardcoded.
-         */
-        get: operations["listOrgParameters"];
-        put?: never;
-        /** Set an org-level parameter override */
-        post: operations["upsertOrgParameter"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List jobs
-         * @description DEL-01 job list. Supports multi-attribute filtering and free-text search
-         *     across job number, name, PO number, and customer.
-         */
-        get: operations["listJobs"];
-        put?: never;
-        /**
-         * Create a job manually
-         * @description Manual creation wizard (DEL-01). Quotient-derived jobs are created by the
-         *     webhook processor, not here.
-         *
-         *     Conditional flag rules the backend must enforce — the frontend enforces
-         *     them too, but the API is the boundary that matters:
-         *     - `needsJobCard: false` (delivery-docket-only) cannot be created in a
-         *       manufacturing status.
-         *     - `qaCompleted: true` is invalid while `needsJobCard: true`.
-         */
-        post: operations["createJob"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/{jobNumber}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        /**
-         * Single Job View
-         * @description Full job metadata including linked POs, SharePoint state, and flags.
-         */
-        get: operations["getJob"];
+        get: operations["findById_1"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Partial job update
-         * @description Only supplied fields are applied. `auditAction` and `auditDetail` are
-         *     recorded against the change so the job audit trail attributes it.
-         *
-         *     Status transitions are validated against the state machine; an illegal
-         *     transition is a 400, not a silent no-op.
-         */
-        patch: operations["updateJob"];
-        trace?: never;
-    };
-    "/jobs/{jobNumber}/audit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Job audit trail */
-        get: operations["listJobAudit"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/dashboard/kpis": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * KPI dashboard counts
-         * @description Live job counts grouped by status and stage group (DEL-01).
-         */
-        get: operations["getJobKpis"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/customers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List customers */
-        get: operations["listCustomers"];
-        put?: never;
-        /** Create a customer */
-        post: operations["createCustomer"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/customers/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["IdPath"];
-            };
-            cookie?: never;
-        };
-        /** Customer profile with job history */
-        get: operations["getCustomer"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update a customer */
-        patch: operations["updateCustomer"];
-        trace?: never;
-    };
-    "/quotes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Quotient quotes */
-        get: operations["listQuotes"];
-        put?: never;
-        post?: never;
-        delete?: never;
+        delete: operations["delete_1"];
         options?: never;
         head?: never;
         patch?: never;
@@ -490,8 +363,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Quote detail with line items, questions, and event timeline */
-        get: operations["getQuote"];
+        get: operations["findByQuoteNumber"];
         put?: never;
         post?: never;
         delete?: never;
@@ -500,82 +372,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/webhooks/quotient": {
+    "/quotes/{quoteNumber}/events": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /**
-         * Quotient webhook ingestion
-         * @description **DEL-02.** Quotient permanently pauses a webhook after 3 consecutive
-         *     non-2xx responses or timeouts, so this endpoint must archive the raw
-         *     payload and return 200 immediately. All parsing happens asynchronously
-         *     on the JobRunr queue.
-         *
-         *     Requirements:
-         *     - Validate the shared secret before doing anything else. Reject with 401
-         *       on mismatch. **The current Next.js implementation has this check
-         *       commented out — it must not be carried across.**
-         *     - Persist the entire raw payload verbatim for replay and audit.
-         *     - Take a transactional lock on `quotientQuoteId` so duplicate deliveries
-         *       never produce duplicate jobs.
-         *     - Return 200 even when downstream processing fails; failures are
-         *       retried from the queue, never surfaced to Quotient.
-         */
-        post: operations["ingestQuotientWebhook"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/{jobNumber}/purchase-orders": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        /** POs linked to a job, newest version first */
-        get: operations["listJobPurchaseOrders"];
-        put?: never;
-        /**
-         * Link a PO to a job
-         * @description **DEL-03.** Creates v1, or the next version when `poNumber` already
-         *     exists on the job. Versions are immutable once created — an amendment is
-         *     a new version, never an edit.
-         *
-         *     On creation the variance engine compares the PO against the accepted
-         *     quote and attaches a field-level report.
-         */
-        post: operations["createPurchaseOrder"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/purchase-orders/{id}/variance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Field-level variance report against the accepted quote
-         * @description Drives the red-flagged discrepancy UI. Every differing field is returned
-         *     with both values so the frontend renders the comparison without
-         *     re-deriving anything.
-         */
-        get: operations["getPurchaseOrderVariance"];
+        get: operations["events"];
         put?: never;
         post?: never;
         delete?: never;
@@ -584,40 +388,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/purchase-orders/{id}/acknowledge": {
+    "/organizations/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /**
-         * Sign off on a variance report
-         * @description Records human review of flagged discrepancies (DEL-03).
-         */
-        post: operations["acknowledgePurchaseOrderVariance"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/{jobNumber}/sharepoint": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * SharePoint sync state and file tree for a job
-         * @description **DEL-04.** `syncStatus` drives the Single Job View indicator. Return
-         *     `NOT_CONFIGURED` when the org has no SharePoint credentials rather than
-         *     an error — the panel renders an empty state, not a failure.
-         */
-        get: operations["getJobSharePointState"];
+        get: operations["findById_2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -626,29 +404,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/jobs/{jobNumber}/sharepoint/provision": {
+    "/jobs/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["findById_3"];
         put?: never;
-        /**
-         * Provision the job folder hierarchy
-         * @description Creates `[jobName]-[jobNumber]/` with `/Drawings`, `/Photos`, and `/POs`.
-         *     Sanitizes special characters and truncates long paths safely. Idempotent
-         *     — re-provisioning an existing folder returns the existing state.
-         */
-        post: operations["provisionJobSharePointFolder"];
+        post?: never;
+        delete: operations["cancel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}/stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stages"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/jobs/{jobNumber}/sharepoint/upload-session": {
+    "/jobs/{id}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["counts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/validate-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["validateToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/refresh-cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["refreshCache"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/parameters/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -657,14 +525,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Open a chunked upload session
-         * @description For CAD and SmartCut files over 4 MB. Returns a Graph upload URL the
-         *     browser streams chunks to directly, so large files never transit the
-         *     VPS. The backend retries with backoff on Graph-side failures.
-         */
-        post: operations["createSharePointUploadSession"];
-        delete?: never;
+        post?: never;
+        delete: operations["deleteParameter"];
         options?: never;
         head?: never;
         patch?: never;
@@ -674,113 +536,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * @description The only error shape. Fields are omitted when empty, so treat every
-         *     property as optional.
-         */
-        ExceptionResponse: {
-            businessErrorCode?: number;
-            businessErrorDescription?: string;
-            error?: string;
-            validationErrors?: string[];
-            /** @description Field name → message. */
-            errors?: {
-                [key: string]: string;
-            };
-        };
-        SuccessResponse: {
-            /** @example 202 */
-            statusCode?: number;
-            /** @example Request accepted successfully */
-            message?: string;
-        };
-        /** @description Base envelope. Concrete types narrow `content`. */
-        PageResponse: {
-            /** @description 0-based page index. */
-            number?: number;
-            size?: number;
-            /** Format: int64 */
-            totalElements?: number;
-            totalPages?: number;
-            first?: boolean;
-            last?: boolean;
-        };
-        AuthenticationRequest: {
-            /** Format: email */
-            email: string;
-            /** Format: password */
-            password: string;
-        };
-        /**
-         * @description Either a token pair or an MFA challenge. When `requires2fa` is true,
-         *     `token` and `refreshToken` are absent and `mfaToken` is present.
-         */
-        AuthenticationResponse: {
-            token?: string;
-            refreshToken?: string;
-            /**
-             * Format: int64
-             * @description Access token lifetime in ms.
-             */
-            expiresIn?: number;
-            requires2fa?: boolean;
-            /** @description Short-lived challenge token, 5 min TTL. */
-            mfaToken?: string;
-        };
-        RefreshTokenRequest: {
-            refreshToken: string;
-        };
-        MfaVerifyRequest: {
-            mfaToken: string;
-            code: string;
-        };
-        MfaCodeRequest: {
-            code: string;
-        };
-        MfaDisableRequest: {
-            /** Format: password */
-            password: string;
-            code: string;
-        };
-        MfaSetupResponse: {
-            /** @description Manual entry key. */
-            secret?: string;
-            otpAuthUri?: string;
-            /** @description data:image/png;base64,… */
-            qrCodeDataUri?: string;
-        };
-        UserDTO: {
-            /** Format: int64 */
-            id?: number;
-            username?: string;
-            displayName?: string;
-            /** Format: email */
-            email?: string;
-            mobileNumber?: string;
-            locale?: string;
-            designation?: string;
-            /** @enum {string} */
-            authProvider?: "LOCAL" | "GOOGLE" | "MICROSOFT";
-            /** @description Null for the platform Super Admin. */
-            organization?: components["schemas"]["OrganizationDTO"] | null;
-            /** @description Flattened ACTION privilege codes. The frontend's authorization source. */
-            rolesPrivileges?: string[];
-            roleIds?: number[];
-            roleCodes?: string[];
-            enabled?: boolean;
-            totpEnabled?: boolean;
-            /** @description Org-level MFA_TOTP_ENABLED. */
-            mfaAvailable?: boolean;
-        };
-        CreateUserRequest: {
-            /** Format: email */
-            email: string;
-            /** Format: password */
-            password: string;
-            displayName: string;
-            mobileNumber?: string;
-            roleIds: number[];
-        };
         UpdateUserRequest: {
             /** Format: int64 */
             id: number;
@@ -788,24 +543,11 @@ export interface components {
             mobileNumber?: string;
             enabled?: boolean;
             roleIds: number[];
-            /**
-             * Format: password
-             * @description Omit to leave unchanged.
-             */
             password?: string;
-        };
-        /**
-         * @description Deliberately narrow. Adding `roleIds` or `enabled` here would let any
-         *     user escalate their own access.
-         */
-        UpdateMyProfileRequest: {
-            displayName: string;
-            mobileNumber?: string;
-            locale?: string;
         };
         OrganizationDTO: {
             /** Format: int64 */
-            id?: number;
+            id: number;
             companyName?: string;
             companyCode?: string;
             address?: string;
@@ -814,9 +556,274 @@ export interface components {
             postalCode?: string;
             phone?: string;
             mobileNumber?: string;
-            /** Format: email */
             email?: string;
             gstNo?: string;
+        };
+        UserDTO: {
+            /** Format: int64 */
+            id?: number;
+            username?: string;
+            displayName?: string;
+            email?: string;
+            mobileNumber?: string;
+            locale?: string;
+            designation?: string;
+            authProvider?: string;
+            organization?: components["schemas"]["OrganizationDTO"];
+            rolesPrivileges?: string[];
+            roleIds?: number[];
+            roleCodes?: string[];
+            enabled?: boolean;
+            totpEnabled?: boolean;
+            mfaAvailable?: boolean;
+        };
+        RoleDTO: {
+            /** Format: int64 */
+            id: number;
+            role: string;
+            roleCode: string;
+            privilegeCodes: string[];
+        };
+        QuotationDTO: {
+            /** Format: int64 */
+            id: number;
+            quoteNumber: string;
+            company?: string;
+            title?: string;
+            /** @enum {string} */
+            status?: "AWAITING_ACCEPTANCE" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "COMPLETED";
+            /** @enum {string} */
+            journeyStatus?: "OPEN" | "ACCEPTED" | "DECLINED" | "COMPLETED";
+            lastEvent?: string;
+            factoryStatus?: string;
+            quoteUrl?: string;
+            /** Format: int64 */
+            customerId?: number;
+            fromDetails?: {
+                [key: string]: Record<string, never>;
+            };
+            quoteFor?: {
+                [key: string]: Record<string, never>;
+            };
+            measurement?: {
+                [key: string]: Record<string, never>;
+            };
+            events?: components["schemas"]["QuotientEventDTO"][];
+        };
+        QuotientEventDTO: {
+            /** Format: int64 */
+            id?: number;
+            quoteNumber?: string;
+            /** @enum {string} */
+            entityType?: "QUOTE" | "CUSTOMER" | "PAYMENT";
+            eventCode?: string;
+            externalId?: string;
+            payload?: {
+                [key: string]: Record<string, never>;
+            };
+            processed?: boolean;
+            processError?: string;
+            /** Format: date-time */
+            occurredAt?: string;
+        };
+        PrivilegeDTO: {
+            /** Format: int64 */
+            id: number;
+            privilege: string;
+            privilegeCode: string;
+            /** @enum {string} */
+            privilegeType: "MENU" | "ACTION" | "FIELD";
+            domain?: string;
+            fieldKey?: string;
+            /** @enum {string} */
+            accessMode?: "READ" | "WRITE";
+            /** Format: int64 */
+            parentId?: number;
+            /** Format: int32 */
+            sortOrder?: number;
+            platformOnly?: boolean;
+            systemManaged?: boolean;
+            active?: boolean;
+        };
+        ApplicationParameterDTO: {
+            /** Format: int64 */
+            id?: number;
+            paramName: string;
+            paramValue?: string;
+            paramType?: string;
+            description?: string;
+            /** Format: int64 */
+            organizationId?: number;
+            orgEditable?: boolean;
+            readonly inherited?: boolean;
+        };
+        CustomerContactDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            customerId: number;
+            companyId?: string;
+            name: string;
+            address?: string;
+            phone?: string;
+            email?: string;
+            details?: {
+                [key: string]: Record<string, never>;
+            };
+        };
+        CustomerDTO: {
+            /** Format: int64 */
+            id?: number;
+            companyId?: string;
+            companyName: string;
+            address?: string;
+            phone?: string;
+            email?: string;
+            details?: {
+                [key: string]: Record<string, never>;
+            };
+        };
+        GroupChatDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            jobId?: number;
+            body: string;
+            /** @enum {string} */
+            tag?: "QUESTION" | "BLOCKER" | "UPDATE" | "HANDOVER";
+            received?: boolean;
+            readBy?: string;
+            /** Format: int64 */
+            sentBy?: number;
+            /** Format: date-time */
+            sentAt?: string;
+        };
+        JobDTO: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            version: number;
+            jobNumber?: string;
+            quoteNumber?: string;
+            /** @enum {string} */
+            readonly origin?: "QUOTE" | "FACTORY";
+            /** Format: int64 */
+            customerId?: number;
+            customerCompanyName?: string;
+            customerContactName?: string;
+            customerContactEmail?: string;
+            customerContactPhone?: string;
+            title?: string;
+            /** Format: date */
+            dueDate?: string;
+            /** @enum {string} */
+            readonly stageStatus?: "PENDING" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
+            /** @enum {string} */
+            priority?: "NORMAL" | "HIGH" | "RUSH";
+            stageStatusLabel?: string;
+            resinCode?: string;
+            /** Format: int64 */
+            assignedUserId?: number;
+            estimatedHours?: number;
+            alert?: string;
+            readonly jobCard?: {
+                [key: string]: Record<string, never>;
+            };
+            /** Format: int64 */
+            readonly currentStageId?: number;
+            readonly currentStageKey?: string;
+            /** Format: int32 */
+            readonly percentComplete?: number;
+            /** Format: date-time */
+            readonly createdDate?: string;
+            readonly stages?: components["schemas"]["JobStageDTO"][];
+            readonly documents?: components["schemas"]["JobDocumentDTO"][];
+            readonly payments?: components["schemas"]["JobPaymentDTO"][];
+            readonly messages?: components["schemas"]["GroupChatDTO"][];
+            readonly customer?: components["schemas"]["CustomerDTO"];
+            readonly customerContacts?: components["schemas"]["CustomerContactDTO"][];
+            readonly quotation?: components["schemas"]["QuotationDTO"];
+        };
+        JobDocumentDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            jobId?: number;
+            /** Format: int64 */
+            jobStageId?: number;
+            documentName?: string;
+            /** @enum {string} */
+            documentType?: "DRAWING" | "PHOTO" | "CERTIFICATE" | "DELIVERY_DOCKET" | "JOB_CARD_PDF" | "COI" | "OTHER";
+            mimeType?: string;
+            /** Format: int64 */
+            sizeBytes?: number;
+            remarks?: string;
+            /** Format: int32 */
+            documentVersion?: number;
+            /** Format: int64 */
+            uploadedBy?: number;
+            /** Format: date-time */
+            uploadedAt?: string;
+        };
+        JobPaymentDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            jobId?: number;
+            quoteNumber?: string;
+            amount: number;
+            currency?: string;
+            /** @enum {string} */
+            kind: "DEPOSIT" | "PROGRESS" | "FINAL";
+            /** @enum {string} */
+            status?: "DUE" | "RECEIVED" | "OVERDUE" | "WRITTEN_OFF";
+            /** Format: date */
+            dueDate?: string;
+            /** Format: date-time */
+            receivedAt?: string;
+            reference?: string;
+            /** Format: int64 */
+            recordedBy?: number;
+        };
+        JobStageDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            parentId?: number;
+            stageKey?: string;
+            stageName?: string;
+            /** @enum {string} */
+            stageType?: "MILESTONE" | "OPERATION";
+            /** @enum {string} */
+            status?: "PENDING" | "IN_PROGRESS" | "COMPLETE" | "SKIPPED" | "BLOCKED";
+            /** Format: int32 */
+            sortOrder?: number;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            completedAt?: string;
+            notes?: string;
+            /** Format: int64 */
+            dependsOnStageId?: number;
+            assignedTeam?: string;
+            /** Format: int32 */
+            percentComplete?: number;
+            children?: components["schemas"]["JobStageDTO"][];
+        };
+        JobStageUpdateRequest: {
+            /** @enum {string} */
+            status?: "PENDING" | "IN_PROGRESS" | "COMPLETE" | "SKIPPED" | "BLOCKED";
+            /** Format: int32 */
+            percentComplete?: number;
+            notes?: string;
+            assignedTeam?: string;
+        };
+        CreateUserRequest: {
+            email: string;
+            password: string;
+            displayName: string;
+            mobileNumber?: string;
+            roleIds: number[];
         };
         CreateOrganizationRequest: {
             companyName: string;
@@ -827,620 +834,205 @@ export interface components {
             postalCode?: string;
             phone?: string;
             mobileNumber?: string;
-            /** Format: email */
             email?: string;
             gstNo?: string;
-            /** Format: email */
-            adminEmail: string;
-            /** Format: password */
             adminPassword: string;
+            adminEmail: string;
             adminDisplayName: string;
             adminMobileNumber?: string;
         };
         OrganizationProvisionResponse: {
             organization?: components["schemas"]["OrganizationDTO"];
-            /** @description Login identity (email) for the provisioned admin. */
             adminUsername?: string;
         };
-        RoleDTO: {
+        RefreshTokenRequest: {
+            refreshToken: string;
+        };
+        AuthenticationResponse: {
+            token?: string;
+            refreshToken?: string;
             /** Format: int64 */
-            id?: number;
-            role: string;
-            /** @description Unique per organization. */
-            roleCode: string;
-            privilegeCodes: string[];
+            expiresIn?: number;
+            requires2fa?: boolean;
+            mfaToken?: string;
         };
-        PrivilegeDTO: {
-            /** Format: int64 */
-            id?: number;
-            privilege?: string;
-            privilegeCode: string;
-            /** @enum {string} */
-            privilegeType?: "ACTION" | "MENU" | "FIELD";
-            domain?: string;
-            fieldKey?: string;
-            /** @enum {string} */
-            accessMode?: "READ" | "WRITE";
-            parentId?: number | null;
-            sortOrder?: number;
-            platformOnly?: boolean;
-            /** @description Annotation-synced. Read-only. */
-            systemManaged?: boolean;
-            active?: boolean;
+        MfaVerifyRequest: {
+            mfaToken: string;
+            code: string;
         };
-        ApplicationParameterDTO: {
-            /** Format: int64 */
-            id?: number;
-            paramName: string;
-            paramValue?: string;
-            /** @enum {string} */
-            paramType?: "String" | "Boolean" | "Number" | "Json";
-            description?: string;
-            /** @description Null means the global default. */
-            organizationId?: number | null;
-            orgEditable?: boolean;
-            /** @description True when the value comes from the global default. */
-            inherited?: boolean;
+        MfaSetupResponse: {
+            secret?: string;
+            otpAuthUri?: string;
+            qrCodeDataUri?: string;
         };
-        /**
-         * @description Lifecycle from the PRD notification matrix, plus two exception states.
-         *
-         *     `On Hold` and `Cancelled` are not in the PRD matrix but are required —
-         *     the Quotient `quote_declined` handler transitions jobs to Cancelled.
-         *     Neither dispatches a client email.
-         *
-         *     **Open question for the backend team:** the tech spec lists 15 lifecycle
-         *     states; the contract's DEL-07 calls it a "13-State Matrix". Resolve
-         *     before the email driver is built.
-         * @enum {string}
-         */
-        JobStatus: "Quoted" | "Quote Accepted" | "Drawing – In Progress" | "Drawing – Approved by Client" | "Drawing – Engineering Approval" | "Workshop Notes Compiled" | "Ready to Manufacture" | "Manufacturing Complete" | "Packed" | "Photographed" | "Signed by Workshop Staff" | "QA Approved" | "Invoiced" | "Awaiting Delivery / Install / Pickup" | "Completed" | "On Hold" | "Cancelled";
-        /** @enum {string} */
-        JobPriority: "Normal" | "High" | "RUSH";
-        JobDTO: {
-            /** Format: int64 */
-            id?: number;
-            /** @description Public identifier, e.g. JOB-1001. */
-            jobNumber?: string;
-            jobName?: string;
-            /** @description Set for Quotient-derived jobs. Indexed. */
-            quotientQuoteId?: string | null;
-            customer?: components["schemas"]["CustomerDTO"];
-            status?: components["schemas"]["JobStatus"];
-            priority?: components["schemas"]["JobPriority"];
-            /**
-             * @description DEL-01 §3. False marks a delivery-docket-only job.
-             *
-             *     Must be its own column. The MVP frontend currently overloads
-             *     `manufacturing_required` for this; do not carry that conflation
-             *     across — DEL-09 delivery dockets key off this flag.
-             */
-            needsJobCard?: boolean;
-            installRequired?: boolean;
-            qaCompleted?: boolean;
-            /** Format: date */
-            dateRaised?: string;
-            dueDate?: string | null;
-            quoteValidUntil?: string | null;
-            estimatedHours?: number | null;
-            raisedBy?: string;
-            assignedTo?: string | null;
-            alert?: string | null;
-            purchaseOrders?: components["schemas"]["PurchaseOrderDTO"][];
-            sharePoint?: components["schemas"]["SharePointStateDTO"];
-            /** Format: date-time */
-            createdDate?: string;
-            /** Format: date-time */
-            lastModifiedDate?: string;
+        MfaCodeRequest: {
+            code: string;
         };
-        CreateJobRequest: {
-            /** @description Omit to let the backend allocate via SequenceGeneratorService. */
-            jobNumber?: string;
-            jobName: string;
-            /** Format: int64 */
-            customerId: number;
-            status?: components["schemas"]["JobStatus"];
-            priority?: components["schemas"]["JobPriority"];
-            needsJobCard: boolean;
-            /** @default false */
-            installRequired: boolean;
-            /** @default false */
-            qaCompleted: boolean;
-            /** Format: date */
-            dateRaised: string;
-            /** Format: date */
-            dueDate?: string;
-            /** Format: double */
-            estimatedHours?: number;
-            assignedTo?: string;
-            description?: string;
+        MfaDisableRequest: {
+            password: string;
+            code: string;
         };
-        /** @description Partial update. Absent fields are left untouched. */
-        UpdateJobRequest: {
-            jobName?: string;
-            /** Format: int64 */
-            customerId?: number;
-            status?: components["schemas"]["JobStatus"];
-            priority?: components["schemas"]["JobPriority"];
-            needsJobCard?: boolean;
-            installRequired?: boolean;
-            qaCompleted?: boolean;
-            /** Format: date */
-            dueDate?: string;
-            /** Format: double */
-            estimatedHours?: number;
-            assignedTo?: string;
-            alert?: string;
-            /**
-             * @description Attribution for the audit trail.
-             * @enum {string}
-             */
-            auditAction?: "job_card_saved" | "status_changed" | "assignment_changed" | "qa_signed_off" | "note_added";
-            auditDetail?: string;
+        AuthenticationRequest: {
+            email: string;
+            password: string;
         };
-        JobAuditEntryDTO: {
-            /** Format: int64 */
-            id?: number;
-            jobNumber?: string;
-            action?: string;
-            detail?: string;
-            performedBy?: string;
-            /** Format: date-time */
-            performedAt?: string;
-        };
-        JobKpiSummary: {
-            /** @description Status → count. Only non-zero statuses are returned. */
-            byStatus?: {
-                [key: string]: number;
-            };
-            byStageGroup?: {
-                notStarted?: number;
-                manufacturing?: number;
-                delivered?: number;
-            };
-            overdue?: number;
-            dueThisWeek?: number;
-        };
-        CustomerDTO: {
-            /** Format: int64 */
-            id?: number;
-            name: string;
-            contactName?: string;
-            /** Format: email */
-            email?: string;
-            phone?: string;
-            billingAddress?: string;
-            deliveryAddress?: string;
-            /**
-             * @description Cash customers require invoicing before dispatch (DEL-08).
-             * @enum {string}
-             */
-            accountType?: "CASH" | "ACCOUNT";
-            /**
-             * @description Master toggle disabling automated client emails (DEL-07).
-             * @default true
-             */
-            notificationsEnabled: boolean;
-            readonly activeJobCount?: number;
-        };
-        QuoteDTO: {
-            /** Format: int64 */
-            id?: number;
-            quoteNumber?: string;
-            /** @enum {string} */
-            status?: "sent" | "viewed" | "accepted" | "declined" | "expired";
-            customer?: components["schemas"]["CustomerDTO"];
-            /** Format: double */
-            totalAmount?: number;
-            currency?: string;
-            validUntil?: string | null;
-            linkedJobNumber?: string | null;
-            lineItems?: {
-                description?: string;
-                quantity?: number;
-                /** Format: double */
-                unitPrice?: number;
-                /** Format: double */
-                total?: number;
-            }[];
-            events?: {
-                eventName?: string;
-                /** Format: date-time */
-                occurredAt?: string;
-            }[];
-        };
-        /**
-         * @description Passed through verbatim to storage. Only `event_name` and the quote
-         *     identifier are read at ingestion; everything else is parsed
-         *     asynchronously.
-         *
-         *     **Open question:** DEL-02 requires all 6 Quotient events. The existing
-         *     implementation handles 5 (quote_sent, customer_viewed,
-         *     customer_question, quote_accepted, quote_declined). Confirm the sixth.
-         */
-        QuotientWebhookPayload: {
-            /** @enum {string} */
-            event_name: "quote_sent" | "customer_viewed" | "customer_question" | "quote_accepted" | "quote_declined";
-            quote_number?: string;
-        } & {
-            [key: string]: unknown;
-        };
-        PurchaseOrderDTO: {
-            /** Format: int64 */
-            id?: number;
-            jobNumber?: string;
-            /** @description Indexed for job search. */
-            poNumber?: string;
-            /** @description Immutable once created. */
-            version?: number;
-            issuedOn?: string | null;
-            /** Format: double */
-            totalAmount?: number;
-            currency?: string;
-            documentUrl?: string | null;
-            /** @description Flagged field count. 0 means clean. */
-            varianceCount?: number;
-            acknowledgedBy?: string | null;
-            acknowledgedAt?: string | null;
-            /** Format: date-time */
-            createdDate?: string;
-        };
-        VarianceReportDTO: {
-            /** Format: int64 */
-            purchaseOrderId?: number;
-            quoteNumber?: string;
-            /** Format: date-time */
-            comparedAt?: string;
-            fields?: {
-                /** @example totalAmount */
-                field?: string;
-                /** @enum {string} */
-                severity?: "PRICE" | "QUANTITY" | "SCOPE";
-                quoteValue?: string;
-                poValue?: string;
-                /** @description Human-readable difference, e.g. '+$420.00 (3.1%)'. */
-                delta?: string | null;
-            }[];
-        };
-        SharePointStateDTO: {
-            /**
-             * @description NOT_CONFIGURED when the org has no SharePoint credentials.
-             * @enum {string}
-             */
-            syncStatus?: "SUCCESS" | "PENDING" | "FAILED" | "NOT_CONFIGURED";
-            folderPath?: string | null;
-            webUrl?: string | null;
-            lastSyncedAt?: string | null;
-            lastError?: string | null;
-            files?: {
-                name?: string;
-                /** @enum {string} */
-                subfolder?: "Drawings" | "Photos" | "POs";
-                /** Format: int64 */
-                sizeBytes?: number;
-                webUrl?: string;
-                /** Format: date-time */
-                lastModified?: string;
-            }[];
-        };
-        UploadSessionDTO: {
-            /** @description Graph upload session URL. Stream chunks here. */
-            uploadUrl?: string;
-            /** Format: date-time */
-            expiresAt?: string;
-            /** @description Must be a multiple of 320 KiB per Graph. */
-            chunkSizeBytes?: number;
-        };
-        PageOfUser: components["schemas"]["PageResponse"] & {
+        PageResponseUserDTO: {
             content?: components["schemas"]["UserDTO"][];
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
         };
-        PageOfRole: components["schemas"]["PageResponse"] & {
+        PageResponseRoleDTO: {
             content?: components["schemas"]["RoleDTO"][];
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
         };
-        PageOfPrivilege: components["schemas"]["PageResponse"] & {
-            content?: components["schemas"]["PrivilegeDTO"][];
+        PageResponseQuotationDTO: {
+            content?: components["schemas"]["QuotationDTO"][];
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
         };
-        PageOfOrganization: components["schemas"]["PageResponse"] & {
+        PageResponseOrganizationDTO: {
             content?: components["schemas"]["OrganizationDTO"][];
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
         };
-        PageOfParameter: components["schemas"]["PageResponse"] & {
-            content?: components["schemas"]["ApplicationParameterDTO"][];
+        JobSummaryDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            version?: number;
+            jobNumber?: string;
+            quoteNumber?: string;
+            /** @enum {string} */
+            origin?: "QUOTE" | "FACTORY";
+            title?: string;
+            customerCompanyName?: string;
+            /** Format: date */
+            dueDate?: string;
+            /** @enum {string} */
+            stageStatus?: "PENDING" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
+            /** @enum {string} */
+            priority?: "NORMAL" | "HIGH" | "RUSH";
+            resinCode?: string;
+            /** Format: int64 */
+            assignedUserId?: number;
+            currentStageKey?: string;
+            /** Format: int32 */
+            percentComplete?: number;
+            /** Format: date-time */
+            createdDate?: string;
         };
-        PageOfJob: components["schemas"]["PageResponse"] & {
-            content?: components["schemas"]["JobDTO"][];
+        PageResponseJobSummaryDTO: {
+            content?: components["schemas"]["JobSummaryDTO"][];
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
         };
-        PageOfJobAudit: components["schemas"]["PageResponse"] & {
-            content?: components["schemas"]["JobAuditEntryDTO"][];
+        JobAuditHistoryDTO: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            jobId?: number;
+            /** @enum {string} */
+            eventCode?: "JOB_CREATED" | "STATUS_CHANGED" | "JOB_CARD_SAVED" | "JOB_CARD_DOWNLOADED" | "STAGE_COMPLETED" | "WORKER_ASSIGNED" | "PAYMENT_RECORDED" | "DOCUMENT_UPLOADED" | "JOB_CANCELLED";
+            statusFrom?: string;
+            statusTo?: string;
+            actor?: string;
+            actorRole?: string;
+            detail?: {
+                [key: string]: Record<string, never>;
+            };
+            /** Format: date-time */
+            occurredAt?: string;
         };
-        PageOfCustomer: components["schemas"]["PageResponse"] & {
-            content?: components["schemas"]["CustomerDTO"][];
+        PageResponseJobAuditHistoryDTO: {
+            content?: components["schemas"]["JobAuditHistoryDTO"][];
+            /** Format: int32 */
+            number?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
         };
-        PageOfQuote: components["schemas"]["PageResponse"] & {
-            content?: components["schemas"]["QuoteDTO"][];
+        JobCountsDTO: {
+            /** Format: int64 */
+            total?: number;
+            /** Format: int64 */
+            active?: number;
+            /** Format: int64 */
+            overdue?: number;
+            /** Format: int64 */
+            notStarted?: number;
+            /** Format: int64 */
+            awaitingApproval?: number;
+            /** Format: int64 */
+            ready?: number;
+            /** Format: int64 */
+            manufacturing?: number;
+            /** Format: int64 */
+            onHold?: number;
+            /** Format: int64 */
+            delivered?: number;
+            /** Format: int64 */
+            cancelled?: number;
         };
     };
-    responses: {
-        /** @description Request accepted. */
-        Accepted: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["SuccessResponse"];
-            };
-        };
-        /** @description Missing, expired, or invalid credentials. */
-        Unauthorized: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ExceptionResponse"];
-            };
-        };
-        /**
-         * @description Authenticated but lacking the required privilege. Also returned when an
-         *     endpoint has no privilege mapping at all — the interceptor is
-         *     deny-by-default, so an unmapped endpoint is closed, not open.
-         */
-        Forbidden: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ExceptionResponse"];
-            };
-        };
-        /** @description Not found, or outside the caller's organization. */
-        NotFound: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ExceptionResponse"];
-            };
-        };
-        /** @description Request failed validation. */
-        ValidationError: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                /**
-                 * @example {
-                 *       "businessErrorCode": 400,
-                 *       "error": "Validation failed",
-                 *       "errors": {
-                 *         "jobNumber": "must match JOB-<number>",
-                 *         "customerId": "must not be null"
-                 *       }
-                 *     }
-                 */
-                "application/json": components["schemas"]["ExceptionResponse"];
-            };
-        };
-    };
-    parameters: {
-        /** @description 0-based page index. */
-        Page: number;
-        Size: number;
-        IdPath: number;
-        /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-        JobNumberPath: string;
-    };
+    responses: never;
+    parameters: never;
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    authenticate: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AuthenticationRequest"];
-            };
-        };
-        responses: {
-            /** @description Authenticated, or an MFA challenge issued. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthenticationResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description Account locked after repeated failed attempts. */
-            423: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExceptionResponse"];
-                };
-            };
-        };
-    };
-    verifyMfa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MfaVerifyRequest"];
-            };
-        };
-        responses: {
-            /** @description Verified — tokens issued. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthenticationResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    refreshToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshTokenRequest"];
-            };
-        };
-        responses: {
-            /** @description New token pair. The presented refresh token is revoked. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthenticationResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    logout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshTokenRequest"];
-            };
-        };
-        responses: {
-            202: components["responses"]["Accepted"];
-        };
-    };
-    getCurrentUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current user. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserDTO"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    updateMyProfile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateMyProfileRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated user. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserDTO"];
-                };
-            };
-            400: components["responses"]["ValidationError"];
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    setupMfa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Secret and QR code. Not yet active until confirmed via enable. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MfaSetupResponse"];
-                };
-            };
-        };
-    };
-    enableMfa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MfaCodeRequest"];
-            };
-        };
-        responses: {
-            202: components["responses"]["Accepted"];
-            400: components["responses"]["ValidationError"];
-        };
-    };
-    disableMfa: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MfaDisableRequest"];
-            };
-        };
-        responses: {
-            202: components["responses"]["Accepted"];
-            400: components["responses"]["ValidationError"];
-        };
-    };
-    listUsers: {
+    findAll: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
+                page?: number;
+                size?: number;
             };
             header?: never;
             path?: never;
@@ -1448,19 +1040,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged users. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfUser"];
+                    "*/*": components["schemas"]["PageResponseUserDTO"];
                 };
             };
-            403: components["responses"]["Forbidden"];
         };
     };
-    updateUser: {
+    update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1473,20 +1064,18 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Updated user. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserDTO"];
+                    "*/*": components["schemas"]["UserDTO"];
                 };
             };
-            400: components["responses"]["ValidationError"];
-            403: components["responses"]["Forbidden"];
         };
     };
-    createUser: {
+    create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1499,71 +1088,44 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created user. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserDTO"];
+                    "*/*": components["schemas"]["UserDTO"];
                 };
             };
-            400: components["responses"]["ValidationError"];
-            403: components["responses"]["Forbidden"];
         };
     };
-    getUser: {
+    disable: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["IdPath"];
+                id: number;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description User. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserDTO"];
+                    "*/*": components["schemas"]["UserDTO"];
                 };
             };
-            404: components["responses"]["NotFound"];
         };
     };
-    disableUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["IdPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Disabled user. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserDTO"];
-                };
-            };
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    listRoles: {
+    findAll_1: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
+                page?: number;
+                size?: number;
             };
             header?: never;
             path?: never;
@@ -1571,18 +1133,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged roles. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfRole"];
+                    "*/*": components["schemas"]["PageResponseRoleDTO"];
                 };
             };
         };
     };
-    updateRole: {
+    update_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1595,10 +1157,18 @@ export interface operations {
             };
         };
         responses: {
-            202: components["responses"]["Accepted"];
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
         };
     };
-    createRole: {
+    create_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1611,17 +1181,22 @@ export interface operations {
             };
         };
         responses: {
-            202: components["responses"]["Accepted"];
-            400: components["responses"]["ValidationError"];
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
         };
     };
-    listPrivileges: {
+    findAll_2: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-                privilegeType?: "ACTION" | "MENU" | "FIELD";
+                page?: number;
+                size?: number;
             };
             header?: never;
             path?: never;
@@ -1629,22 +1204,72 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged privileges. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfPrivilege"];
+                    "*/*": components["schemas"]["PageResponseQuotationDTO"];
                 };
             };
         };
     };
-    createPrivilege: {
+    update_2: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuotationDTO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["QuotationDTO"];
+                };
+            };
+        };
+    };
+    create_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuotationDTO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["QuotationDTO"];
+                };
+            };
+        };
+    };
+    update_3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1653,23 +1278,44 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created privilege. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrivilegeDTO"];
+                    "*/*": components["schemas"]["PrivilegeDTO"];
                 };
             };
         };
     };
-    listOrganizations: {
+    delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    findAll_3: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
+                page?: number;
+                size?: number;
             };
             header?: never;
             path?: never;
@@ -1677,18 +1323,42 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged organizations. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfOrganization"];
+                    "*/*": components["schemas"]["PageResponseOrganizationDTO"];
                 };
             };
         };
     };
-    createOrganization: {
+    update_4: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationDTO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    create_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -1701,66 +1371,18 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Provisioned organization and admin login. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OrganizationProvisionResponse"];
+                    "*/*": components["schemas"]["OrganizationProvisionResponse"];
                 };
             };
         };
     };
-    listGlobalParameters: {
-        parameters: {
-            query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Paged parameters. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PageOfParameter"];
-                };
-            };
-        };
-    };
-    upsertGlobalParameter: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApplicationParameterDTO"];
-            };
-        };
-        responses: {
-            /** @description Saved parameter. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApplicationParameterDTO"];
-                };
-            };
-        };
-    };
-    listOrgParameters: {
+    listOrgEditableParameters: {
         parameters: {
             query?: never;
             header?: never;
@@ -1769,13 +1391,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Effective parameters. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApplicationParameterDTO"][];
+                    "*/*": components["schemas"]["ApplicationParameterDTO"][];
                 };
             };
         };
@@ -1793,33 +1415,28 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Saved parameter. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApplicationParameterDTO"];
+                    "*/*": components["schemas"]["ApplicationParameterDTO"];
                 };
             };
         };
     };
-    listJobs: {
+    findAll_4: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-                /** @description Free text across jobNumber, jobName, poNumber, customerName. */
+                status?: "PENDING" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
+                priority?: "NORMAL" | "HIGH" | "RUSH";
+                assignedTo?: number;
+                dueBefore?: string;
                 search?: string;
-                /** @description Repeatable. Filters to any of the supplied statuses. */
-                status?: components["schemas"]["JobStatus"][];
-                /** @description Coarse bucket used by dashboard deep links. */
-                stageGroup?: "not-started" | "manufacturing" | "delivered";
-                priority?: components["schemas"]["JobPriority"];
-                customerId?: number;
-                /** @description `field,asc|desc` — e.g. `dueDate,asc`. */
-                sort?: string;
+                sort?: "DUE_DATE" | "RECENT" | "OLDEST";
+                page?: number;
+                size?: number;
             };
             header?: never;
             path?: never;
@@ -1827,19 +1444,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged jobs. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfJob"];
+                    "*/*": components["schemas"]["PageResponseJobSummaryDTO"];
                 };
             };
-            403: components["responses"]["Forbidden"];
         };
     };
-    createJob: {
+    update_5: {
         parameters: {
             query?: never;
             header?: never;
@@ -1848,138 +1464,106 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateJobRequest"];
+                "application/json": components["schemas"]["JobDTO"];
             };
         };
         responses: {
-            /** @description Created job. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobDTO"];
-                };
-            };
-            400: components["responses"]["ValidationError"];
-            /** @description Job number already exists. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExceptionResponse"];
+                    "*/*": components["schemas"]["JobDTO"];
                 };
             };
         };
     };
-    getJob: {
+    create_4: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobDTO"];
+            };
+        };
         responses: {
-            /** @description Job. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobDTO"];
+                    "*/*": components["schemas"]["JobDTO"];
                 };
             };
-            404: components["responses"]["NotFound"];
         };
     };
-    updateJob: {
+    updateStage: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
+                id: number;
+                stageId: number;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateJobRequest"];
+                "application/json": components["schemas"]["JobStageUpdateRequest"];
             };
         };
         responses: {
-            /** @description Updated job. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobDTO"];
+                    "*/*": components["schemas"]["JobStageDTO"];
                 };
             };
-            400: components["responses"]["ValidationError"];
-            404: components["responses"]["NotFound"];
         };
     };
-    listJobAudit: {
+    saveJobCard: {
+        parameters: {
+            query: {
+                version: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: Record<string, never>;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["JobDTO"];
+                };
+            };
+        };
+    };
+    listParameters: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-            };
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Paged audit entries, newest first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PageOfJobAudit"];
-                };
-            };
-        };
-    };
-    getJobKpis: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Counts. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobKpiSummary"];
-                };
-            };
-        };
-    };
-    listCustomers: {
-        parameters: {
-            query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-                search?: string;
+                organizationId?: number;
             };
             header?: never;
             path?: never;
@@ -1987,18 +1571,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged customers. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfCustomer"];
+                    "*/*": components["schemas"]["ApplicationParameterDTO"][];
                 };
             };
         };
     };
-    createCustomer: {
+    upsertParameter: {
         parameters: {
             query?: never;
             header?: never;
@@ -2007,77 +1591,28 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CustomerDTO"];
+                "application/json": components["schemas"]["ApplicationParameterDTO"];
             };
         };
         responses: {
-            /** @description Created customer. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CustomerDTO"];
+                    "*/*": components["schemas"]["ApplicationParameterDTO"];
                 };
             };
         };
     };
-    getCustomer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["IdPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Customer. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CustomerDTO"];
-                };
-            };
-            404: components["responses"]["NotFound"];
-        };
-    };
-    updateCustomer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["IdPath"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CustomerDTO"];
-            };
-        };
-        responses: {
-            /** @description Updated customer. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CustomerDTO"];
-                };
-            };
-        };
-    };
-    listQuotes: {
+    listCatalog: {
         parameters: {
             query?: {
-                /** @description 0-based page index. */
-                page?: components["parameters"]["Page"];
-                size?: components["parameters"]["Size"];
-                status?: "sent" | "viewed" | "accepted" | "declined" | "expired";
+                type?: "MENU" | "ACTION" | "FIELD";
+                domain?: string;
+                active?: boolean;
+                grouped?: boolean;
             };
             header?: never;
             path?: never;
@@ -2085,18 +1620,295 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paged quotes. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PageOfQuote"];
+                    "*/*": Record<string, never>;
                 };
             };
         };
     };
-    getQuote: {
+    create_5: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivilegeDTO"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PrivilegeDTO"];
+                };
+            };
+        };
+    };
+    scanStage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                stageId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["JobStageDTO"];
+                };
+            };
+        };
+    };
+    refresh: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefreshTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AuthenticationResponse"];
+                };
+            };
+        };
+    };
+    verifyMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AuthenticationResponse"];
+                };
+            };
+        };
+    };
+    setupMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["MfaSetupResponse"];
+                };
+            };
+        };
+    };
+    enableMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    disableMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaDisableRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefreshTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    authenticate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthenticationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AuthenticationResponse"];
+                };
+            };
+        };
+    };
+    findById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["UserDTO"];
+                };
+            };
+        };
+    };
+    findById_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["RoleDTO"];
+                };
+            };
+        };
+    };
+    delete_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["RoleDTO"];
+                };
+            };
+        };
+    };
+    findByQuoteNumber: {
         parameters: {
             query?: never;
             header?: never;
@@ -2107,244 +1919,253 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Quote. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QuoteDTO"];
+                    "*/*": components["schemas"]["QuotationDTO"];
                 };
             };
-            404: components["responses"]["NotFound"];
         };
     };
-    ingestQuotientWebhook: {
+    events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quoteNumber: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["QuotientEventDTO"][];
+                };
+            };
+        };
+    };
+    findById_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["OrganizationDTO"];
+                };
+            };
+        };
+    };
+    findById_3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["JobDTO"];
+                };
+            };
+        };
+    };
+    cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    stages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["JobStageDTO"][];
+                };
+            };
+        };
+    };
+    audit: {
+        parameters: {
+            query?: {
+                since?: string;
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PageResponseJobAuditHistoryDTO"];
+                };
+            };
+        };
+    };
+    counts: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["QuotientWebhookPayload"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Payload archived and queued. Always returned on a valid secret. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        ok?: boolean;
-                        /** Format: uuid */
-                        eventId?: string;
-                    };
-                };
-            };
-            /** @description Missing or invalid shared secret. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExceptionResponse"];
+                    "*/*": components["schemas"]["JobCountsDTO"];
                 };
             };
         };
     };
-    listJobPurchaseOrders: {
+    validateToken: {
+        parameters: {
+            query?: never;
+            header: {
+                Authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": boolean;
+                };
+            };
+        };
+    };
+    me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["UserDTO"];
+                };
+            };
+        };
+    };
+    refreshCache: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": Record<string, never>;
+                };
+            };
+        };
+    };
+    deleteParameter: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
+                id: number;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Purchase orders. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PurchaseOrderDTO"][];
-                };
-            };
-        };
-    };
-    createPurchaseOrder: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    poNumber: string;
-                    /** Format: date */
-                    issuedOn?: string;
-                    /** Format: double */
-                    totalAmount?: number;
-                    /** @default AUD */
-                    currency?: string;
-                    /**
-                     * Format: binary
-                     * @description The PO PDF, stored alongside this version.
-                     */
-                    document?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Created PO version with variance report. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PurchaseOrderDTO"];
-                };
-            };
-            400: components["responses"]["ValidationError"];
-        };
-    };
-    getPurchaseOrderVariance: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["IdPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Variance report. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VarianceReportDTO"];
-                };
-            };
-        };
-    };
-    acknowledgePurchaseOrderVariance: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["IdPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": {
-                    note?: string;
-                };
-            };
-        };
-        responses: {
-            202: components["responses"]["Accepted"];
-        };
-    };
-    getJobSharePointState: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Sync state and folder contents. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharePointStateDTO"];
-                };
-            };
-        };
-    };
-    provisionJobSharePointFolder: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": {
-                    /** @description Admin override for the default path (DEL-04 §3). */
-                    folderPathOverride?: string;
-                };
-            };
-        };
-        responses: {
-            202: components["responses"]["Accepted"];
-            /** @description SharePoint not configured or Graph unreachable. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExceptionResponse"];
-                };
-            };
-        };
-    };
-    createSharePointUploadSession: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Public job number, e.g. `JOB-1001` or `JOB-Q-4821`. */
-                jobNumber: components["parameters"]["JobNumberPath"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    fileName: string;
-                    /** Format: int64 */
-                    sizeBytes: number;
-                    /** @enum {string} */
-                    subfolder: "Drawings" | "Photos" | "POs";
-                };
-            };
-        };
-        responses: {
-            /** @description Upload session. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadSessionDTO"];
+                    "*/*": Record<string, never>;
                 };
             };
         };
