@@ -27,7 +27,7 @@ export interface FrpJobSummaryDTO {
   jobNumber?: string;
   quoteNumber?: string | null;
   origin?: JobOrigin;
-  title?: string;
+  projectName?: string;
   customerCompanyName?: string;
   dueDate?: string | null;
   stageStatus?: string;
@@ -53,7 +53,7 @@ export interface FrpJobDTO {
   customerCompanyName?: string;
   /** One row per job — company, contact person and how to reach them. */
   customerDetails?: FrpJobCustomerDetailsDTO | null;
-  title?: string;
+  projectName?: string;
   dueDate?: string | null;
   /** `READ_ONLY`. Moves only by advancing a stage — see `job-status.ts`. */
   stageStatus?: string;
@@ -279,7 +279,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     version: dto.version,
     id: dto.jobNumber ?? "",
     clientName: dto.customerCompanyName ?? "",
-    projectName: dto.title ?? "",
+    projectName: dto.projectName ?? "",
     // Date raised. Was hardcoded empty because JobSummaryDTO carried no date
     // at all, which rendered as "Invalid Date" in the list.
     date: dto.createdDate?.slice(0, 10) ?? "",
@@ -365,7 +365,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     // The per-job details row is authoritative; the flat field is the
     // denormalised copy the list projection uses.
     clientName: dto.customerDetails?.companyName ?? dto.customerCompanyName ?? "",
-    projectName: dto.title ?? "",
+    projectName: dto.projectName ?? "",
     date: card?.dateRaised ?? dto.createdDate?.slice(0, 10) ?? "",
     dueDate: dto.dueDate ?? null,
     quoteValidUntil: card?.quoteValidUntil ?? null,
@@ -419,7 +419,7 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
       email: job.printDetails?.contactEmail || undefined,
       phone: job.printDetails?.contactPhone || undefined,
     },
-    title: job.projectName,
+    projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
     // Write-only, create only. Backend defaults to PENDING when absent.
@@ -460,7 +460,7 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
       email: job.printDetails?.contactEmail || undefined,
       phone: job.printDetails?.contactPhone || undefined,
     },
-    title: job.projectName,
+    projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
     stageStatusLabel: statusToBackend(job.status) ?? undefined,
