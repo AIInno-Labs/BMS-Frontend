@@ -140,8 +140,6 @@ export interface Job {
   printDetails?: JobCardPrintDetails;
   /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
-  /** Backend `customerId` — the FK the job row actually stores. */
-  customerId?: number | null;
   /** Set for quote-derived jobs; drives `origin` on the backend. */
   quoteNumber?: string | null;
   /** `QUOTE` when raised from a quote, `FACTORY` when raised in-house. */

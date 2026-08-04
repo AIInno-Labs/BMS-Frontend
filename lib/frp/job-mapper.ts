@@ -47,12 +47,10 @@ export interface FrpJobDTO {
   quoteNumber?: string | null;
   /** `READ_ONLY` — derived from whether `quoteNumber` is present. */
   origin?: JobOrigin;
-  /** The company master. Resolved from `customerDetails.companyName`. */
-  companyId?: number | null;
-  /** Read-only echo of the company name, for the list projection. */
+  /** Denormalised from the contact details, for the list and for search. */
   customerCompanyName?: string;
-  /** One row per job — company, contact person and how to reach them. */
-  customerDetails?: FrpJobCustomerDetailsDTO | null;
+  /** One row per job — company and contact together. */
+  contactDetails?: FrpJobContactDetailsDTO | null;
   projectName?: string;
   dueDate?: string | null;
   /** `READ_ONLY`. Moves only by advancing a stage — see `job-status.ts`. */
@@ -97,20 +95,22 @@ export interface FrpCustomerContactDTO {
 }
 
 /**
- * `JobCustomerDetailsDTO` — the customer as it applies to ONE job.
+ * `JobContactDetailsDTO` — who ONE job is for.
  *
- * Replaced the old per-company contacts: editing these cannot change what
- * another job for the same company shows.
+ * There is no company master behind this: the same company on two jobs is two
+ * rows, so editing one cannot change what the other shows.
  */
-export interface FrpJobCustomerDetailsDTO {
+export interface FrpJobContactDetailsDTO {
   id?: number;
   jobId?: number;
-  companyId?: number | null;
+  /** The customer's own business code. Free text, not a foreign key. */
+  companyId?: string | null;
   companyName?: string;
-  contactPerson?: string;
+  contactName?: string;
   email?: string;
   phone?: string;
   address?: string;
+  details?: Record<string, unknown> | null;
   updatedBy?: number | null;
 }
 
@@ -338,8 +338,8 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
 
   const printDetails: JobCardPrintDetails = {
     purchaseOrderNo: card?.purchaseOrderNo,
-    contactPhone: card?.contactPhone ?? dto.customerDetails?.phone ?? undefined,
-    contactEmail: card?.contactEmail ?? dto.customerDetails?.email ?? undefined,
+    contactPhone: card?.contactPhone ?? dto.contactDetails?.phone ?? undefined,
+    contactEmail: card?.contactEmail ?? dto.contactDetails?.email ?? undefined,
     accountYesNo: card?.accountCustomer,
     raisedBy: card?.raisedBy,
     transport: card?.transport,
@@ -387,7 +387,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     id: dto.jobNumber ?? "",
     // The per-job details row is authoritative; the flat field is the
     // denormalised copy the list projection uses.
-    clientName: dto.customerDetails?.companyName ?? dto.customerCompanyName ?? "",
+    clientName: dto.contactDetails?.companyName ?? dto.customerCompanyName ?? "",
     projectName: dto.projectName ?? "",
     date: card?.dateRaised ?? dto.createdDate?.slice(0, 10) ?? "",
     dueDate: dto.dueDate ?? null,
@@ -401,13 +401,12 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
-    clientContactName: dto.customerDetails?.contactPerson ?? "",
+    clientContactName: dto.contactDetails?.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
     manualInstructions: card?.manualInstructions ?? "",
     printDetails,
     createdAt: dto.createdDate,
-    customerId: dto.companyId ?? null,
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
   };
@@ -435,10 +434,9 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
   return {
     jobNumber: job.id?.trim() || undefined,
     quoteNumber: job.quoteNumber || undefined,
-    companyId: job.customerId ?? undefined,
-    customerDetails: {
+    contactDetails: {
       companyName: job.clientName || undefined,
-      contactPerson: job.clientContactName || undefined,
+      contactName: job.clientContactName || undefined,
       email: job.printDetails?.contactEmail || undefined,
       phone: job.printDetails?.contactPhone || undefined,
     },
@@ -476,10 +474,9 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     id: Number(job.dbId),
     version: job.version,
     quoteNumber: job.quoteNumber ?? undefined,
-    companyId: job.customerId ?? undefined,
-    customerDetails: {
+    contactDetails: {
       companyName: job.clientName || undefined,
-      contactPerson: job.clientContactName || undefined,
+      contactName: job.clientContactName || undefined,
       email: job.printDetails?.contactEmail || undefined,
       phone: job.printDetails?.contactPhone || undefined,
     },
