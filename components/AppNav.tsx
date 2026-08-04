@@ -30,6 +30,7 @@ const orgUserManagerLinks: NavLink[] = [
   { href: "/jobs", label: "Jobs", icon: ListChecks },
   { href: "/quotes", label: "Quotes", icon: PackageSearch },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/settings/profile", label: "Profile", icon: UserCircle },
   { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
 
@@ -38,6 +39,7 @@ const superAdminLinks: NavLink[] = [
   { href: "/admin/organizations", label: "Organizations", icon: Building2 },
   { href: "/admin/privileges", label: "Privileges", icon: KeyRound },
   { href: "/admin/parameters", label: "Parameters", icon: Settings2 },
+  { href: "/settings/profile", label: "Profile", icon: UserCircle },
   { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
 
@@ -46,6 +48,7 @@ const orgAdminLinks: NavLink[] = [
   { href: "/org/users", label: "Users", icon: Users },
   { href: "/org/roles", label: "Roles", icon: Shield },
   { href: "/org/integrations", label: "Integrations", icon: Settings2 },
+  { href: "/settings/profile", label: "Profile", icon: UserCircle },
   { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
 

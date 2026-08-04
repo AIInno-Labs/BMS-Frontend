@@ -282,6 +282,45 @@ export async function fetchMe(): Promise<UserDTO> {
   return frpFetch<UserDTO>("/auth/me");
 }
 
+/** Profile fields a user may edit about themselves. */
+export interface MyProfileUpdate {
+  displayName: string;
+  mobileNumber?: string;
+}
+
+/**
+ * Update the signed-in user's own profile.
+ *
+ * The backend has no self-service endpoint yet — `/auth/me` is GET-only and
+ * `PUT /users` is gated behind USER_UPDATE, so it only works for users who
+ * already hold that privilege (org admins, super admins). Callers should gate
+ * the UI on {@link canEditOwnProfile}.
+ *
+ * When the backend adds `PATCH /auth/me`, replace this body with a single
+ * frpFetch call and drop the privilege gate — no component changes needed.
+ */
+export async function updateMyProfile(
+  me: UserDTO,
+  patch: MyProfileUpdate
+): Promise<UserDTO> {
+  if (me.id == null) {
+    throw new FrpApiError(400, "Cannot update profile: missing user id");
+  }
+  return updateUser({
+    id: me.id,
+    displayName: patch.displayName,
+    mobileNumber: patch.mobileNumber,
+    enabled: me.enabled ?? true,
+    // Preserved as-is — self-service editing must never change own roles.
+    roleIds: me.roleIds ?? [],
+  });
+}
+
+/** Whether the current user can persist their own profile edits today. */
+export function canEditOwnProfile(me: UserDTO | null): boolean {
+  return Boolean(me?.id != null && me?.rolesPrivileges?.includes("USER_UPDATE"));
+}
+
 export async function listOrganizations(
   page = 0,
   size = 20
