@@ -70,7 +70,9 @@ export function EnterpriseDrawer({
               {title}
             </h2>
             {subtitle && (
-              <p className="mt-1 text-base text-slate-600">{subtitle}</p>
+              <p className="mt-1.5 text-sm leading-relaxed text-slate-600 sm:text-base">
+                {subtitle}
+              </p>
             )}
           </div>
           <button
@@ -83,7 +85,7 @@ export function EnterpriseDrawer({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#F8FAFC]">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#F8FAFC] px-5 py-5 sm:px-6 sm:py-6">
           {children}
         </div>
 

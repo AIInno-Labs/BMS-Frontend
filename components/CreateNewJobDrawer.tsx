@@ -460,7 +460,7 @@ export function CreateNewJobDrawer({
       ariaLabelledBy="create-job-title"
     >
       <form
-        className="space-y-4 p-4 sm:p-5"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSubmit();
