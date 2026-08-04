@@ -149,16 +149,16 @@ export function CreateRoleDrawer({
           ? "Update the role name and privileges for this organization."
           : "Define a role and assign ACTION privileges for this organization."
       }
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={handleClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={handleClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="role-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting}
           >
             {submitting
@@ -206,7 +206,7 @@ export function CreateRoleDrawer({
           {loadingPrivs ? (
             <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
           ) : (
-            <div className="mt-2 max-h-[50vh] space-y-3 overflow-y-auto rounded-xl border border-slate-200 p-3">
+            <div className="mt-2 space-y-3 rounded-xl border border-slate-200 p-3">
               {grouped.map(([domain, items]) => (
                 <div key={domain}>
                   <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">

@@ -97,16 +97,16 @@ export function EditPrivilegeDrawer({
           ? privilege?.privilegeCode
           : "System ACTION privileges cannot be modified"
       }
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={onClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="edit-privilege-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting || !editable}
           >
             {submitting ? "Saving…" : "Save changes"}

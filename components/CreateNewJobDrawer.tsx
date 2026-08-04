@@ -543,7 +543,7 @@ export function CreateNewJobDrawer({
                 value={form.description}
                 onChange={(e) => patch({ description: e.target.value })}
                 rows={3}
-                className={`${inputClass} min-h-[88px] resize-y`}
+                className={`${inputClass} min-h-[88px] resize-y p-2`}
                 placeholder="Scope, lay-up notes, site requirements…"
               />
             </Field>

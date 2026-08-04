@@ -131,8 +131,8 @@ export function OrganizationsAdminPage() {
         )}
 
         <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+          <div className="scrollbar-thin overflow-x-auto">
+            <table className="min-w-[720px] w-full text-left text-sm">
               <thead className="sticky top-0 bg-[#F8FAFC] text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Code</th>
@@ -188,10 +188,10 @@ export function OrganizationsAdminPage() {
                         {org.phone ?? org.mobileNumber ?? "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-nowrap gap-2">
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
                             onClick={() => setEditOrg(org)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -200,7 +200,7 @@ export function OrganizationsAdminPage() {
                           {org.id != null && (
                             <Link
                               href={`/admin/parameters?organizationId=${org.id}`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
                             >
                               Parameters
                             </Link>

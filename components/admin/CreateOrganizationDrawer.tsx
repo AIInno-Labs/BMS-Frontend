@@ -101,16 +101,16 @@ export function CreateOrganizationDrawer({
       onClose={handleClose}
       title="Create organization"
       subtitle="Provision a tenant and its organization admin."
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={handleClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={handleClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="create-org-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting}
           >
             {submitting ? "Creating…" : "Create organization"}
