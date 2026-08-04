@@ -613,7 +613,10 @@ export function JobWorkflowDashboard({
             <p className="text-xs text-slate-500">Recent actions and system events</p>
           </div>
           <div className="[&_section]:border-0 [&_section]:shadow-none [&_section]:rounded-none">
-            <ActivityAuditTrail jobId={job.id} refreshKey={auditRefreshKey} />
+            <ActivityAuditTrail
+              jobId={job.dbId ?? ""}
+              refreshKey={auditRefreshKey}
+            />
           </div>
         </div>
       </section>

@@ -1,6 +1,5 @@
 import { AlertTriangle, BriefcaseBusiness, CheckCircle2, Cog } from "lucide-react";
 import { useJobs } from "@/context/JobsContext";
-import type { Job } from "@/lib/types";
 
 const cardBase = "min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm";
 
@@ -16,21 +15,17 @@ function KpiValue({ children }: { children: React.ReactNode }) {
   return <p className="text-2xl font-semibold leading-none tracking-tight text-slate-900">{children}</p>;
 }
 
-function isActiveJob(job: Job): boolean {
-  return job.status !== "Complete" && job.status !== "Cancelled";
-}
-
 export function DashboardKpiCards() {
-  const { jobs } = useJobs();
-  const activeJobs = jobs.filter((j) => isActiveJob(j)).length;
-  const manufacturing = jobs.filter((j) => j.status === "In Fabrication").length;
-  const delivered = jobs.filter((j) => j.status === "Complete").length;
-  const now = Date.now();
-  const overdue = jobs.filter((j) => {
-    if (!isActiveJob(j) || !j.dueDate) return false;
-    const due = new Date(j.dueDate).getTime();
-    return Number.isFinite(due) && due < now;
-  }).length;
+  // Org-wide aggregates from GET /jobs/counts. Counting the loaded `jobs`
+  // array instead only counted the first page, so every tile under-reported
+  // once a tenant had more jobs than the list fetches.
+  const { counts } = useJobs();
+  const {
+    active: activeJobs,
+    manufacturing,
+    delivered,
+    overdue,
+  } = counts;
 
   return (
     <div className="grid w-full min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">

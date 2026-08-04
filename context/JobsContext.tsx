@@ -9,18 +9,31 @@ import {
   useState,
 } from "react";
 import {
+  advanceJobStatus,
   createJob,
-  findOrCreateCustomer,
+  getJob,
+  getJobCounts,
   listJobs,
+  listUsers,
+  saveJobCard,
   updateJobApi,
 } from "@/lib/frp/api";
 import {
+  countsFromDto,
+  deriveFromJobs,
+  EMPTY_JOB_COUNTS,
+  type JobCounts,
+} from "@/lib/frp/job-counts";
+import {
+  frpJobSummaryToUi,
   frpJobToUi,
   type JobUpdateAuditAction,
   uiJobToCreateRequest,
+  uiJobToJobCardPayload,
   uiJobToUpdateRequest,
 } from "@/lib/frp/job-mapper";
-import { FrpApiError } from "@/lib/frp/types";
+import { statusToBackend } from "@/lib/frp/job-status";
+import { FrpApiError, type UserDTO } from "@/lib/frp/types";
 import type { DbStaffRow } from "@/lib/floorOps";
 import { setStaffRoster } from "@/lib/workers";
 import type { Job } from "@/lib/types";
@@ -36,6 +49,11 @@ export interface DirectorRow {
 
 interface JobsContextValue {
   jobs: Job[];
+  /**
+   * Org-wide counts from `GET /jobs/counts` — the single source for every KPI
+   * tile, donut and stage card. Counting `jobs` instead counts one page.
+   */
+  counts: JobCounts;
   staff: DbStaffRow[];
   directors: DirectorRow[];
   directorsLoading: boolean;
@@ -49,6 +67,8 @@ interface JobsContextValue {
     jobs: Job[];
   }>;
   getJobById: (id: string) => Job | undefined;
+  /** Full record including the job card — the list projection omits it. */
+  loadJobDetail: (id: string) => Promise<Job>;
   createJobFromUi: (job: Job) => Promise<Job>;
   updateJob: (
     job: Job,
@@ -59,13 +79,40 @@ interface JobsContextValue {
 
 const JobsContext = createContext<JobsContextValue | null>(null);
 
-async function fetchJobsFromFrp(): Promise<Job[]> {
-  const page = await listJobs(0, 500, { sort: "createdDate,desc" });
-  return (page.content ?? []).map(frpJobToUi);
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * The staff roster comes from `GET /users`.
+ *
+ * Rev 2 §03 is explicit that this "replaces the prototype's staff / directors
+ * side-load". Certifications and shift capacity are placeholders until
+ * `fabricator_profile` (Rev 2 §01) is exposed — the fields exist on the UI type
+ * but no endpoint serves them yet.
+ */
+function usersToStaff(users: UserDTO[]): DbStaffRow[] {
+  return users
+    .filter((u) => u.id != null && u.enabled !== false)
+    .map((u) => {
+      const name = u.displayName?.trim() || u.email || `User ${u.id}`;
+      return {
+        id: String(u.id),
+        display_name: name,
+        initials: initialsOf(name),
+        certifications: [],
+        shift_hours_capacity: 8,
+        is_present: true,
+      };
+    });
 }
 
 export function JobsProvider({ children }: { children: React.ReactNode }) {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [counts, setCounts] = useState<JobCounts>(EMPTY_JOB_COUNTS);
   const [staff, setStaff] = useState<DbStaffRow[]>([]);
   const [directors, setDirectors] = useState<DirectorRow[]>([]);
   const [directorsLoading, setDirectorsLoading] = useState(false);
@@ -78,90 +125,182 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const list = await fetchJobsFromFrp();
+      // `sort` binds to the JobSort enum — "createdDate,desc" was a 400.
+      const page = await listJobs(0, 200, { sort: "RECENT" });
+      const list = (page.content ?? []).map(frpJobSummaryToUi);
       setJobs(list);
-      // Staff / directors move with DEL-01 floor features; empty until then.
-      setStaff([]);
-      setDirectors([]);
-      setStaffRoster([]);
+
+      // Counts are aggregated org-wide in the database, so they stay correct
+      // past the page cap. Falling back to the page keeps tiles plausible if
+      // the endpoint is missing, but they are then a floor, not a total.
+      try {
+        setCounts(countsFromDto(await getJobCounts()));
+      } catch {
+        setCounts(deriveFromJobs(list));
+      }
+
       return list;
     } catch (e) {
-      // Platform Super Admin has no org — jobs APIs require a tenant.
-      if (
-        e instanceof FrpApiError &&
-        (e.status === 403 || e.status === 401 || e.status === 500)
-      ) {
+      // A Platform Super Admin has no organization, so the job APIs have no
+      // tenant to scope to. That is the only case worth swallowing — every
+      // other failure must surface, including the 403 that means the org
+      // admin role predates the job module and never got JOB_READ.
+      if (e instanceof FrpApiError && e.status === 403) {
         setJobs([]);
-        setError(null);
+        setCounts(EMPTY_JOB_COUNTS);
+        setError(
+          "You do not have access to jobs. If you are an organization admin, the JOB_* privileges may not be granted to your role yet."
+        );
         return [];
       }
       setError(e instanceof Error ? e.message : "Could not load jobs");
       return [];
     } finally {
       if (!silent) setLoading(false);
-      setDirectorsLoading(false);
       setHydrated(true);
+    }
+  }, []);
+
+  const refreshStaff = useCallback(async () => {
+    setDirectorsLoading(true);
+    try {
+      const page = await listUsers(0, 200);
+      const roster = usersToStaff(page.content ?? []);
+      setStaff(roster);
+      setStaffRoster(roster);
+      setDirectors(
+        roster.map((s) => ({
+          id: s.id,
+          name: s.display_name,
+          display_name: s.display_name,
+          active: true,
+        }))
+      );
+    } catch {
+      // USER_READ is a separate privilege from JOB_READ; losing the roster
+      // must not blank the job list.
+      setStaff([]);
+      setStaffRoster([]);
+      setDirectors([]);
+    } finally {
+      setDirectorsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void refreshJobs();
-  }, [refreshJobs]);
+    void refreshStaff();
+  }, [refreshJobs, refreshStaff]);
 
   const getJobById = useCallback(
     (id: string) => jobs.find((j) => j.id === id),
     [jobs]
   );
 
+  const loadJobDetail = useCallback(
+    async (id: string): Promise<Job> => {
+      const known = jobs.find((j) => j.id === id);
+      if (!known?.dbId) {
+        throw new Error(`Job ${id} is not loaded — refresh the job list first.`);
+      }
+      const full = frpJobToUi(await getJob(known.dbId));
+      setJobs((prev) => prev.map((j) => (j.id === full.id ? full : j)));
+      return full;
+    },
+    [jobs]
+  );
+
   const rebalanceFloor = useCallback(async () => {
     return {
       reassignedCount: 0,
-      message: "Floor rebalance is not available until staff APIs move to Spring Boot.",
+      message:
+        "Floor rebalance needs POST /floor/rebalance (Rev 2 §13, FLOOR_REBALANCE) — not built on the backend yet.",
       jobs,
     };
   }, [jobs]);
 
+  /**
+   * Create, then save the job card.
+   *
+   * Two calls because `POST /jobs` does not accept a card — it seeds an empty
+   * one, and the card is replaced as a unit through its own endpoint. The
+   * customer is resolved backend-side from `customerCompanyName`; there is no
+   * `/customers` endpoint to call first.
+   */
   const createJobFromUi = useCallback(async (job: Job): Promise<Job> => {
-    const customer = await findOrCreateCustomer({
-      name: job.clientName,
-      contactName: job.clientContactName,
-      email: job.printDetails?.contactEmail,
-      phone: job.printDetails?.contactPhone,
-    });
-    if (customer.id == null) {
-      throw new Error("Customer was created without an id");
+    const created = await createJob(uiJobToCreateRequest(job));
+    if (created.id == null || created.version == null) {
+      throw new Error("Backend created the job without an id or version.");
     }
-    const created = await createJob(uiJobToCreateRequest(job, customer.id));
-    // Persist job-card fields that create doesn't accept.
-    const patched = await updateJobApi(
-      created.jobNumber ?? job.id,
-      uiJobToUpdateRequest(job, "job_card_saved")
+    const withCard = await saveJobCard(
+      created.id,
+      created.version,
+      uiJobToJobCardPayload(job)
     );
-    const ui = frpJobToUi(patched);
+    const ui = frpJobToUi(withCard);
     setJobs((prev) => [ui, ...prev.filter((j) => j.id !== ui.id)]);
     return ui;
   }, []);
 
+  /**
+   * Save a job.
+   *
+   * Field edits go through `PUT /jobs`; the card goes through its own endpoint;
+   * a status change goes through the stage service, because `stageStatus` is a
+   * cache with exactly one writer. Each step returns a fresh `version`, so they
+   * are chained rather than issued in parallel.
+   */
   const updateJob = useCallback(
     async (
       job: Job,
       audit?: JobUpdateAuditAction,
       auditDetail?: string | null
     ): Promise<Job> => {
+      const previous = jobs.find((j) => j.id === job.id);
+
+      const targetStatus = statusToBackend(job.status);
+      const currentStatus = statusToBackend(previous?.status);
+      const statusMoved =
+        Boolean(job.dbId) && Boolean(targetStatus) && targetStatus !== currentStatus;
+
+      let version = job.version;
+      if (statusMoved && job.dbId && targetStatus) {
+        await advanceJobStatus(job.dbId, targetStatus);
+        // A stage move recomputes stageStatus and bumps the row, so the token
+        // this edit was loaded with is now stale through no fault of the user.
+        // Re-read only in that case — re-reading unconditionally would refresh
+        // past a genuinely concurrent edit and defeat the optimistic lock.
+        version = (await getJob(job.dbId)).version ?? version;
+      }
+
       const saved = await updateJobApi(
-        job.id,
-        uiJobToUpdateRequest(job, audit, auditDetail)
+        uiJobToUpdateRequest({ ...job, version })
       );
-      const ui = frpJobToUi(saved);
+
+      let latest = saved;
+      if (job.printDetails && saved.id != null && saved.version != null) {
+        latest = await saveJobCard(
+          saved.id,
+          saved.version,
+          uiJobToJobCardPayload(job)
+        );
+      }
+
+      const ui = frpJobToUi(latest);
       setJobs((prev) => prev.map((j) => (j.id === ui.id ? ui : j)));
+      // `audit` / `auditDetail` are recorded by the backend from what changed
+      // (JobAuditEvent). Kept in the signature so call sites stay unchanged.
+      void audit;
+      void auditDetail;
       return ui;
     },
-    []
+    [jobs]
   );
 
   const value = useMemo(
     () => ({
       jobs,
+      counts,
       staff,
       directors,
       directorsLoading,
@@ -171,11 +310,13 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       refreshJobs,
       rebalanceFloor,
       getJobById,
+      loadJobDetail,
       createJobFromUi,
       updateJob,
     }),
     [
       jobs,
+      counts,
       staff,
       directors,
       directorsLoading,
@@ -185,6 +326,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       refreshJobs,
       rebalanceFloor,
       getJobById,
+      loadJobDetail,
       createJobFromUi,
       updateJob,
     ]
