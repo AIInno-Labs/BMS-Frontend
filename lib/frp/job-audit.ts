@@ -20,6 +20,9 @@ const JOB_AUDIT_EVENT_LABELS: Record<string, string> = {
   PAYMENT_RECORDED: "Payment recorded",
   DOCUMENT_UPLOADED: "Document uploaded",
   JOB_CANCELLED: "Job cancelled",
+  INVENTORY_CHANGED: "Inventory changed",
+  DRAWING_STAGE_CHANGED: "Drawing stage",
+  REQUIREMENT_CHANGED: "Requirement",
 };
 
 function iconForEvent(code: string): JobAuditEntry["icon"] {
