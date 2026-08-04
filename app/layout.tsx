@@ -17,7 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={GeistSans.variable}>
       <body
-        className={`${GeistSans.className} flex min-h-dvh flex-col overflow-x-hidden font-sans print:overflow-visible print:min-h-0`}
+        className={`${GeistSans.className} flex min-h-dvh flex-col overflow-x-clip font-sans print:overflow-visible print:min-h-0`}
       >
         <Providers>{children}</Providers>
       </body>

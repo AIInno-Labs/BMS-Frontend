@@ -95,16 +95,16 @@ export function CreatePrivilegeDrawer({
       onClose={handleClose}
       title="Create privilege"
       subtitle="API can create MENU or FIELD privileges only (ACTION codes are system-managed)."
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={handleClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={handleClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="create-privilege-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting}
           >
             {submitting ? "Creating…" : "Create privilege"}
