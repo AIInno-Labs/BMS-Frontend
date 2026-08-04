@@ -9,7 +9,6 @@ import {
   useState,
 } from "react";
 import {
-  advanceJobStatus,
   createJob,
   getJob,
   getJobCounts,
@@ -32,7 +31,6 @@ import {
   uiJobToJobCardPayload,
   uiJobToUpdateRequest,
 } from "@/lib/frp/job-mapper";
-import { statusToBackend } from "@/lib/frp/job-status";
 import { FrpApiError, type UserDTO } from "@/lib/frp/types";
 import type { DbStaffRow } from "@/lib/floorOps";
 import { setStaffRoster } from "@/lib/workers";
@@ -256,26 +254,10 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       audit?: JobUpdateAuditAction,
       auditDetail?: string | null
     ): Promise<Job> => {
-      const previous = jobs.find((j) => j.id === job.id);
-
-      const targetStatus = statusToBackend(job.status);
-      const currentStatus = statusToBackend(previous?.status);
-      const statusMoved =
-        Boolean(job.dbId) && Boolean(targetStatus) && targetStatus !== currentStatus;
-
-      let version = job.version;
-      if (statusMoved && job.dbId && targetStatus) {
-        await advanceJobStatus(job.dbId, targetStatus);
-        // A stage move recomputes stageStatus and bumps the row, so the token
-        // this edit was loaded with is now stale through no fault of the user.
-        // Re-read only in that case — re-reading unconditionally would refresh
-        // past a genuinely concurrent edit and defeat the optimistic lock.
-        version = (await getJob(job.dbId)).version ?? version;
-      }
-
-      const saved = await updateJobApi(
-        uiJobToUpdateRequest({ ...job, version })
-      );
+      // One call. PUT /jobs now applies a status change too — it rewrites the
+      // stages and recomputes the status from them — so this no longer moves a
+      // stage first and then re-reads the version the move had bumped.
+      const saved = await updateJobApi(uiJobToUpdateRequest(job));
 
       let latest = saved;
       if (job.printDetails && saved.id != null && saved.version != null) {
@@ -294,7 +276,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       void auditDetail;
       return ui;
     },
-    [jobs]
+    []
   );
 
   const value = useMemo(

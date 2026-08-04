@@ -384,8 +384,11 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
 /**
  * `PUT /jobs` — the id and the optimistic-lock token travel in the body.
  *
- * `stageStatus` is omitted on purpose. It is `READ_ONLY` and recomputed by the
- * stage service; status changes go through `advanceJobStatus` instead.
+ * `stageStatus` is still omitted: it is `READ_ONLY` and derived from the stage
+ * tree. `stageStatusLabel` is the writable channel — the backend applies it by
+ * rewriting the stages, then recomputing the status from them, so the badge and
+ * the tree cannot disagree. Sending the current status is a no-op server-side,
+ * so it goes unconditionally rather than being diffed here.
  */
 export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
   if (job.dbId == null) {
@@ -405,6 +408,7 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     title: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
+    stageStatusLabel: statusToBackend(job.status) ?? undefined,
     resinCode: resinToBackend(job.resinType),
     assignedUserId: userIdToBackend(job.assignedWorkerId),
     estimatedHours: job.estimatedHours ?? undefined,
