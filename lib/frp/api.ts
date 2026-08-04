@@ -13,6 +13,13 @@ import {
   type UpdateUserRequest,
   type UserDTO,
 } from "@/lib/frp/types";
+import type {
+  FrpCreateJobRequest,
+  FrpCustomerDTO,
+  FrpJobAuditEntryDTO,
+  FrpJobDTO,
+  FrpUpdateJobRequest,
+} from "@/lib/frp/job-mapper";
 
 const DEFAULT_BASE = "http://localhost:8080/api/v1";
 
@@ -418,4 +425,141 @@ export async function updatePrivilege(
     method: "PUT",
     body: JSON.stringify(body),
   });
+}
+
+/* ------------------------------------------------------------------ jobs */
+
+export async function listJobs(
+  page = 0,
+  size = 200,
+  params?: { search?: string; sort?: string }
+): Promise<PageResponse<FrpJobDTO>> {
+  const q = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+  });
+  if (params?.search) q.set("search", params.search);
+  if (params?.sort) q.set("sort", params.sort);
+  return frpFetch<PageResponse<FrpJobDTO>>(`/jobs?${q}`);
+}
+
+export async function getJob(jobNumber: string): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(jobNumber)}`);
+}
+
+export async function createJob(body: FrpCreateJobRequest): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>("/jobs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateJobApi(
+  jobNumber: string,
+  body: FrpUpdateJobRequest
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(jobNumber)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listJobAudit(
+  jobNumber: string,
+  page = 0,
+  size = 50
+): Promise<PageResponse<FrpJobAuditEntryDTO>> {
+  return frpFetch<PageResponse<FrpJobAuditEntryDTO>>(
+    `/jobs/${encodeURIComponent(jobNumber)}/audit?page=${page}&size=${size}`
+  );
+}
+
+/* ------------------------------------------------------------- customers */
+
+export async function listCustomers(
+  page = 0,
+  size = 50,
+  search?: string
+): Promise<PageResponse<FrpCustomerDTO>> {
+  const q = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+  });
+  if (search) q.set("search", search);
+  return frpFetch<PageResponse<FrpCustomerDTO>>(`/customers?${q}`);
+}
+
+export async function createCustomer(
+  body: FrpCustomerDTO
+): Promise<FrpCustomerDTO> {
+  return frpFetch<FrpCustomerDTO>("/customers", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Find a customer by exact name (case-insensitive), or create one. */
+export async function findOrCreateCustomer(input: {
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+}): Promise<FrpCustomerDTO> {
+  const name = input.name.trim();
+  const page = await listCustomers(0, 50, name);
+  const match = (page.content ?? []).find(
+    (c) => (c.name ?? "").trim().toLowerCase() === name.toLowerCase()
+  );
+  if (match?.id != null) return match;
+  return createCustomer({
+    name,
+    contactName: input.contactName,
+    email: input.email,
+    phone: input.phone,
+    accountType: "ACCOUNT",
+    notifyOnStatusChange: true,
+  });
+}
+
+/* --------------------------------------------------------------- quotes */
+
+/** DEL-02 — returns empty when the backend quote module is not live yet. */
+export async function listQuotes(
+  page = 0,
+  size = 100
+): Promise<PageResponse<Record<string, unknown>>> {
+  try {
+    return await frpFetch<PageResponse<Record<string, unknown>>>(
+      `/quotes?page=${page}&size=${size}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
+      return {
+        content: [],
+        number: 0,
+        size,
+        totalElements: 0,
+        totalPages: 0,
+        first: true,
+        last: true,
+      };
+    }
+    throw err;
+  }
+}
+
+/** DEL-02 — null when quote module is not live yet. */
+export async function getQuote(
+  quoteNumber: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await frpFetch<Record<string, unknown>>(
+      `/quotes/${encodeURIComponent(quoteNumber)}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
+      return null;
+    }
+    throw err;
+  }
 }

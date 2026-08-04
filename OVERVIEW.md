@@ -2,7 +2,7 @@
 
 Operational front end for **FRP Engineering** (fibre reinforced plastic: gratings, handrails, walkways). It covers the full path from an accepted Quotient quote to a printed factory job card, plus the platform/tenant administration surface.
 
-Package name: `bmsman`. See [README.md](./README.md) for quick start; this document covers how the app is put together.
+Package name: `bmsman`. See [README.md](./README.md) for quick start; this document covers how the app is put together. Progress vs deliverables: [`DEVELOPMENT_PLAN.md`](./DEVELOPMENT_PLAN.md).
 
 ---
 
@@ -16,22 +16,18 @@ Package name: `bmsman`. See [README.md](./README.md) for quick start; this docum
 | Charts | Recharts |
 | Icons | Lucide React |
 | Motion | Framer Motion |
-| Data | Supabase (`@supabase/supabase-js`) |
+| Data | Spring Boot (`NEXT_PUBLIC_FRP_API_BASE_URL`) via [`lib/frp/api.ts`](./lib/frp/api.ts) |
 | Scripts | `tsx`, plus Python helpers for print-layout measurement |
 
 ---
 
-## 2. Two backends, split by concern
-
-The app talks to **two independent backends**. Knowing which one owns what is the single most important thing about this codebase.
-
-### 2.1 Spring Boot — identity & tenancy
+## 2. Backend — Spring Boot (identity + domain)
 
 `BMS-backend`, reached directly from the browser at `NEXT_PUBLIC_FRP_API_BASE_URL` (default `http://localhost:8080/api/v1`).
 
-Owns: authentication, MFA, users, roles, privileges, organizations, application parameters.
+Owns: authentication, MFA, users, roles, privileges, organizations, application parameters, **jobs**, **customers**, and (DEL-02+) quotes / Quotient webhook.
 
-Client: [`lib/frp/api.ts`](./lib/frp/api.ts) — a hand-rolled fetch wrapper with token injection and transparent refresh-on-401.
+Client: [`lib/frp/api.ts`](./lib/frp/api.ts) — fetch wrapper with token injection and transparent refresh-on-401. Job DTO mapping lives in [`lib/frp/job-mapper.ts`](./lib/frp/job-mapper.ts); OpenAPI types in [`lib/frp/schema.d.ts`](./lib/frp/schema.d.ts).
 
 | Area | Endpoints |
 |---|---|
@@ -39,17 +35,12 @@ Client: [`lib/frp/api.ts`](./lib/frp/api.ts) — a hand-rolled fetch wrapper wit
 | MFA | `/auth/mfa/setup`, `/auth/mfa/enable`, `/auth/mfa/verify`, `/auth/mfa/disable` |
 | Tenancy | `/organizations`, `/users`, `/users/{id}/disable`, `/roles`, `/privileges` |
 | Config | `/admin/parameters`, `/org/parameters` |
+| Domain (DEL-01) | `/jobs`, `/jobs/{jobNumber}`, `/jobs/{jobNumber}/audit`, `/jobs/dashboard/kpis`, `/customers` |
+| Domain (DEL-02, pending) | `/quotes`, `/webhooks/quotient` |
 
-DTOs mirroring the Java side live in [`lib/frp/types.ts`](./lib/frp/types.ts) (`UserDTO`, `OrganizationDTO`, `RoleDTO`, `PrivilegeDTO`, `PageResponse<T>`, …).
+`JobsContext` talks to Spring Boot directly (JWT). Legacy Next.js `/api/jobs` / `/api/quotes` / `/api/analytics` handlers are retired stubs (410 / empty) so nothing asks for Supabase keys.
 
-### 2.2 Supabase — operational data
-
-Owns: jobs, quotes, quote events, staff, directors, inventory, materials, labour, audit log.
-
-The browser never queries Supabase directly for this data. Requests go through Next.js route handlers under [`app/api/`](./app/api/), which call repositories in [`lib/supabase/`](./lib/supabase/) using the **service-role** client. Two clients exist:
-
-- [`lib/supabase/client.ts`](./lib/supabase/client.ts) — anon-key browser client (memoized).
-- [`lib/supabase/server.ts`](./lib/supabase/server.ts) — `createSupabaseAdmin()`, service-role, bypasses RLS, no session persistence. Used by route handlers, the webhook, and seed scripts.
+> **Supabase is removed** from the runtime dependency tree (`@supabase/supabase-js` uninstalled). Quote/inventory analytics stay empty until DEL-02 lands on the backend.
 
 ---
 
@@ -124,50 +115,60 @@ Every route except `/login` is behind the auth gate. Print styles are threaded t
 
 ### API route handlers
 
+Most domain traffic goes **directly to Spring Boot** from the browser (`lib/frp/api.ts`). Only thin Next.js helpers remain:
+
 | Handler | Method | Notes |
 |---|---|---|
-| `/api/jobs` | GET | Jobs + staff + directors in one payload |
-| `/api/jobs/[jobNumber]` | GET, PATCH | Read/update a single job |
-| `/api/jobs/[jobNumber]/audit` | GET | Job audit trail |
-| `/api/jobs/[jobNumber]/job-card-html` | GET | Server-rendered print HTML |
-| `/api/quotes`, `/api/quotes/[quoteNumber]` | GET | Quote list / detail |
-| `/api/analytics` | GET | Analytics snapshot |
-| `/api/directors` | GET | "Raised by" director list |
-| `/api/floor/rebalance` | POST | Recompute worker assignments |
-| `/api/webhooks/quotient` | GET, POST | Health check / webhook ingest |
+| `/api/jobs/[jobNumber]/job-card-html` | GET | Print HTML proxy → Spring Boot `GET /jobs/{jobNumber}` (forwards Bearer) |
+| `/api/webhooks/quotient` | GET, POST | Stub until DEL-02 webhook moves fully to Spring Boot |
+
+Retired (no Supabase): `/api/jobs`, `/api/quotes`, `/api/analytics`, `/api/directors`, `/api/floor/rebalance` — return empty / 410.
 
 ---
 
 ## 6. Domain model
 
-[`lib/types.ts`](./lib/types.ts) is the contract between UI, repositories, and the print layer.
+[`lib/types.ts`](./lib/types.ts) is the UI job shape. Mapping to/from Spring Boot DTOs is in [`lib/frp/job-mapper.ts`](./lib/frp/job-mapper.ts).
 
-**Job status** (7 states): `Pending` → `Awaiting Manager Approval` → `Ready to Manufacture` → `In Fabrication` → `On Hold` → `Complete` / `Cancelled`.
+**Job status** — see [`lib/jobStatus.ts`](./lib/jobStatus.ts) (canonical PRD lifecycle + legacy aliases during migration).
 
 **Resin types**: Isophthalic Polyester · Vinyl Ester · Phenolic. **Priority**: Normal · High · RUSH.
 
-A `Job` carries a Supabase `dbId` plus a public `id` (`JOB-1001`, or `JOB-Q-<quote>` for Quotient-derived jobs), client/project, dates, hours, assignment, QA flags, and a nested `printDetails: JobCardPrintDetails`.
+A `Job` carries optional `dbId` (Spring Boot PK), public `id` (`JOB-1001`, or `JOB-Q-<quote>` for Quotient-derived jobs), client/project, dates, hours, assignment, QA flags, and nested `printDetails: JobCardPrintDetails` (job-card fields mapped from `JobCardDTO` on the backend).
 
-> **Schema note:** `JobWorkflowExtras` — the long tail of job-card fields (shipment method, billing/delivery address, material rows, program history, payment state, …) — is **serialized into the `pack_dimensions` JSON column** rather than given its own columns. [`lib/supabase/pack-dimensions-json.ts`](./lib/supabase/pack-dimensions-json.ts) packs and unpacks it; [`lib/supabase/job-mapper.ts`](./lib/supabase/job-mapper.ts) and [`job-field-normalize.ts`](./lib/supabase/job-field-normalize.ts) handle row ↔ domain conversion. Anything added to `JobWorkflowExtras` needs no migration but is also not queryable in SQL.
-
-### Database tables
-
-From [`supabase/schema.sql`](./supabase/schema.sql): `inventory`, `quote_events_history`, `quotes`, `staff`, `jobs`, `job_audit_log`, `job_materials`, `job_labor` — plus `quote_line_items`, `quote_questions`, and `directors` added by migrations. Ten migrations in [`supabase/migrations/`](./supabase/migrations/) dated 2026-05-23 → 2026-06-03.
+> **Database:** PostgreSQL is owned by **BMS-backend**. This frontend no longer ships a Supabase schema, client, or repositories. Domain tables (`jobs`, `customers`, …) live in the Spring Boot schema.
 
 ---
 
-## 7. Quotient integration
+## 7. Quotient & SharePoint (DEL-02)
 
-The largest subsystem. Quotes originate in [Quotient](https://www.quotientapp.com); accepted quotes become factory jobs.
+Quotes originate in [Quotient](https://www.quotientapp.com); accepted quotes become factory jobs. Job document folders live in SharePoint via Microsoft Graph.
 
-### Webhook design (deliberately minimal)
+**Direction:** ingestion and document APIs move to Spring Boot (`/webhooks/quotient`, `/jobs/{jobNumber}/sharepoint/*`). Until DEL-02 is live on the backend, the frontend keeps the env keys ready and org admins can still store the same names under **Org → Integrations** (`IntegrationParamCodes` on the backend).
 
-Quotient **permanently pauses** a webhook after 3 consecutive non-2xx responses or timeouts. The handler is built around that constraint ([`docs/QUOTIENT_WEBHOOK.md`](./docs/QUOTIENT_WEBHOOK.md)):
+### Env keys (frontend `.env` / deploy secrets)
 
-1. **Next.js (<10 ms target)** — validate the shared secret (`QUOTIENT_WEBHOOK_SECRET`, via bearer or `x-webhook-secret`), `INSERT` the full `raw_payload` into `quote_events_history`, return **200** immediately.
-2. **PostgreSQL (same transaction)** — `AFTER INSERT` trigger `trg_quotient_webhook_process` calls `process_quotient_webhook_payload()`, which parses specs by regex and populates `quotes`, `jobs`, `job_materials`, `job_labor`.
+| Variable | Purpose |
+|---|---|
+| `QUOTIENT_WEBHOOK_SECRET` | Shared secret Quotient sends as `Authorization: Bearer …` or `x-webhook-secret` |
+| `QUOTIENT_API_KEY` | Outbound Quotient REST API key |
+| `QUOTIENT_BASE_URL` | Quotient account / API base URL |
+| `QUOTIENT_ENABLED` | Feature toggle (`true` / `false`) |
+| `SHAREPOINT_ENABLED` | Feature toggle |
+| `SHAREPOINT_SITE_URL` | SharePoint site URL |
+| `SHAREPOINT_TENANT_ID` | Azure AD tenant ID |
+| `SHAREPOINT_CLIENT_ID` | Azure app (client) ID |
+| `SHAREPOINT_CLIENT_SECRET` | Azure app client secret (“API key”) |
+| `SHAREPOINT_DRIVE_ID` | Document library / drive ID |
 
-No queues, no Inngest, no `after()` background work. `quote_events_history` doubles as an immutable audit archive.
+Never prefix secrets with `NEXT_PUBLIC_` — they must stay server-side only.
+
+### Webhook behaviour (contract)
+
+Quotient **permanently pauses** a webhook after 3 consecutive non-2xx responses or timeouts ([`docs/QUOTIENT_WEBHOOK.md`](./docs/QUOTIENT_WEBHOOK.md)):
+
+1. Validate shared secret → acknowledge **200** quickly.
+2. Persist raw payload and process asynchronously on Spring Boot (JobRunr / durable queue per contract) — not in the Next.js process.
 
 ### Event handling
 
@@ -183,7 +184,7 @@ No queues, no Inngest, no `after()` background work. `quote_events_history` doub
 
 [`lib/quotient/`](./lib/quotient/): `mapQuote.ts`, `mapToJob.ts`, `processQuote.ts`, `specParser.ts` (free-text spec → structured fields), `formatContact.ts`, `demo-payloads.ts`, plus `types.ts` / `quote-types.ts`.
 
-Field-by-field mapping and migration order: [`docs/QUOTIENT_FIELD_MAPPING.md`](./docs/QUOTIENT_FIELD_MAPPING.md).
+Field-by-field mapping: [`docs/QUOTIENT_FIELD_MAPPING.md`](./docs/QUOTIENT_FIELD_MAPPING.md).
 
 ---
 
@@ -206,7 +207,7 @@ Changes to the job card layout should be validated against the blueprint, not ey
 
 Two providers hold shared state; there is no Redux/Zustand layer.
 
-**`JobsContext`** ([`context/JobsContext.tsx`](./context/JobsContext.tsx)) — fetches `/api/jobs` (`cache: "no-store"`) and exposes `jobs`, `staff`, `directors`, `hydrated`, `loading`, `error`, plus `refreshJobs()`, `getJobById()`, `updateJob(job, audit?, auditDetail?)`, and `rebalanceFloor()`. `updateJob` takes an optional `JobUpdateAuditAction` so writes are attributed in `job_audit_log`. On load it also seeds the module-level roster in [`lib/workers.ts`](./lib/workers.ts).
+**`JobsContext`** ([`context/JobsContext.tsx`](./context/JobsContext.tsx)) — loads jobs from Spring Boot `GET /jobs` and exposes `jobs`, `staff`, `directors`, `hydrated`, `loading`, `error`, plus `refreshJobs()`, `getJobById()`, `createJobFromUi()`, `updateJob(job, audit?, auditDetail?)`, and `rebalanceFloor()` (stub until staff APIs exist). Writes go to `PATCH /jobs/{jobNumber}` with optional audit attribution.
 
 **`PersonaContext`** — manager/worker toggle (see §3).
 
@@ -247,16 +248,30 @@ Admin surfaces (`components/admin/`, `components/org/`) follow a consistent page
 
 ## 12. Environment
 
-Copy [`.env.example`](./.env.example) to `.env.local` (never committed):
+Copy [`.env.example`](./.env.example) to `.env` (gitignored) or `.env.local`. Restart the Next.js dev server after changes.
+
+### Required now (DEL-01)
 
 | Variable | Purpose |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser client key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-side writes; bypasses RLS. Required for the webhook and `db:seed` |
-| `QUOTIENT_WEBHOOK_SECRET` | Webhook authentication |
-| `WEBHOOK_TEST_URL` | Override for `scripts/test-webhook.ts` |
-| `NEXT_PUBLIC_FRP_API_BASE_URL` | Spring Boot base URL |
+| `NEXT_PUBLIC_FRP_API_BASE_URL` | Spring Boot API base URL (default `http://localhost:8080/api/v1`) |
+
+### Required for DEL-02 (Quotient + SharePoint)
+
+| Variable | Purpose |
+|---|---|
+| `QUOTIENT_WEBHOOK_SECRET` | Inbound webhook shared secret |
+| `QUOTIENT_API_KEY` | Quotient REST API key |
+| `QUOTIENT_BASE_URL` | Quotient account / API base URL |
+| `QUOTIENT_ENABLED` | Enable Quotient integration |
+| `SHAREPOINT_ENABLED` | Enable SharePoint integration |
+| `SHAREPOINT_SITE_URL` | SharePoint site URL |
+| `SHAREPOINT_TENANT_ID` | Azure AD tenant ID |
+| `SHAREPOINT_CLIENT_ID` | Azure app client ID |
+| `SHAREPOINT_CLIENT_SECRET` | Azure app client secret (SharePoint “API key”) |
+| `SHAREPOINT_DRIVE_ID` | Drive / document library ID |
+
+These SharePoint / Quotient names match backend `IntegrationParamCodes` and the Org → Integrations UI. Fill real values in `.env` before turning the toggles on; leave blanks while DEL-02 backend work is still in progress.
 
 ---
 
@@ -268,9 +283,8 @@ Copy [`.env.example`](./.env.example) to `.env.local` (never committed):
 | `npm run dev:reset` | Kill ports 3000/3001, clear `.next`, restart |
 | `npm run dev:clean` | Clear `.next`, then start dev |
 | `npm run build` | Production build (runs `prebuild` guard first) |
-| `npm run db:seed` | Seed Supabase (`scripts/seed.ts`) |
-| `npm run align:quotes` | Reconcile local quotes with Quotient |
-| `npm run test:webhook` | Post a sample webhook payload |
+| `npm run api:types` | Regenerate `lib/frp/schema.d.ts` from backend OpenAPI |
+| `npm run api:mock` | Prism mock of the OpenAPI contract |
 
 ### Dev-server discipline
 

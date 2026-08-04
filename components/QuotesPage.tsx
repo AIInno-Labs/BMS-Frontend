@@ -7,9 +7,10 @@ import {
   factoryStatusLabel,
   isFactoryComplete,
   journeyOutcomeLabel,
-} from "@/lib/supabase/quotes-repository";
+} from "@/lib/quotes/labels";
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import { formatCreatedDate } from "@/lib/mockData";
+import { listQuotes } from "@/lib/frp/api";
 
 function JourneyBadge({ item }: { item: QuoteListItem }) {
   const complete = isFactoryComplete(
@@ -132,13 +133,39 @@ export function QuotesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/quotes");
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed (${res.status})`);
-      }
-      const data = (await res.json()) as { quotes: QuoteListItem[] };
-      setQuotes(data.quotes);
+      const page = await listQuotes(0, 200);
+      const quotes = (page.content ?? []).map((row) => {
+        const r = row as Record<string, unknown>;
+        return {
+          quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
+          title: (r.title as string | null) ?? null,
+          quote_for_company_name: String(
+            r.customerName ?? r.quote_for_company_name ?? ""
+          ),
+          quote_status: (r.quoteStatus ?? r.quote_status ?? null) as string | null,
+          progress: (r.progress as string | null) ?? null,
+          journey_outcome: (r.journeyOutcome ??
+            r.journey_outcome ??
+            "open") as QuoteListItem["journey_outcome"],
+          factory_job_status: (r.factoryJobStatus ??
+            r.factory_job_status ??
+            null) as string | null,
+          job_id: (r.jobId ?? r.job_id ?? null) as string | null,
+          total_includes_tax:
+            (r.totalIncludesTax as number | null) ??
+            (r.total_includes_tax as number | null) ??
+            null,
+          currency: String(r.currency ?? "AUD"),
+          last_event_name: (r.lastEventName ??
+            r.last_event_name ??
+            null) as string | null,
+          updated_at: String(
+            r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
+          ),
+          question_count: Number(r.questionCount ?? r.question_count ?? 0),
+        } satisfies QuoteListItem;
+      });
+      setQuotes(quotes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load quotes");
     } finally {
@@ -191,11 +218,11 @@ export function QuotesPage() {
         {error && (
           <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
-            {error.includes("column") && (
-              <span className="mt-1 block">
-                Run migration{" "}
-                <code className="text-xs">20260529_quotient_full_mirror.sql</code>{" "}
-                in Supabase SQL Editor.
+            {error.includes("not available") && (
+              <span className="mt-1 block text-slate-700">
+                Quotes load from Spring Boot <code className="text-xs">/quotes</code>{" "}
+                once DEL-02 is live. Jobs already use PostgreSQL via{" "}
+                <code className="text-xs">/jobs</code>.
               </span>
             )}
           </p>

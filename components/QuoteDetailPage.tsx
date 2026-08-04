@@ -7,10 +7,11 @@ import {
   factoryStatusLabel,
   isFactoryComplete,
   journeyOutcomeLabel,
-} from "@/lib/supabase/quotes-repository";
+} from "@/lib/quotes/labels";
 import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
+import { getQuote } from "@/lib/frp/api";
 
 function Field({
   label,
@@ -74,15 +75,13 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/quotes/${encodeURIComponent(quoteNumber)}`
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Failed (${res.status})`);
+      const raw = await getQuote(quoteNumber);
+      if (!raw) {
+        throw new Error(
+          "Quotes are not available yet — DEL-02 (Spring Boot quote module) is still in progress."
+        );
       }
-      const data = (await res.json()) as { quote: QuotientQuote };
-      setQuote(data.quote);
+      setQuote(raw as unknown as QuotientQuote);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load quote");
     } finally {

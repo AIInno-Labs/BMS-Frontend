@@ -27,11 +27,13 @@ import {
   jobsCreatedTrend,
   readyManufactureTrend,
 } from "@/lib/analytics/jobMetrics";
+import {
+  emptyAnalyticsSnapshot,
+  type AnalyticsSnapshot,
+} from "@/lib/analytics/types";
 import { formatCreatedDate } from "@/lib/jobData";
 import { STATUS_THEME } from "@/lib/statusColors";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { AnalyticsSnapshot } from "@/lib/supabase/analytics-repository";
-import { journeyOutcomeLabel } from "@/lib/supabase/quotes-repository";
+import { journeyOutcomeLabel } from "@/lib/quotes/labels";
 
 const STATUS_COLORS: Record<string, string> = {
   Pending: STATUS_THEME.notStarted.strong,
@@ -119,12 +121,8 @@ export function AnalyticsPage() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/analytics", { cache: "no-store" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? "Failed to load analytics");
-      }
-      const data = (await res.json()) as AnalyticsSnapshot;
+      // Quote/inventory analytics move with DEL-02; job KPIs come from JobsContext.
+      const data = emptyAnalyticsSnapshot();
       setSnapshot(data);
 
       const total = data.quotientTotal ?? 0;
@@ -194,46 +192,6 @@ export function AnalyticsPage() {
 
     return () => clearInterval(id);
   }, [autoRefresh, refreshAll]);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-
-    let supabase: ReturnType<typeof createSupabaseBrowserClient> | null = null;
-    try {
-      supabase = createSupabaseBrowserClient();
-    } catch {
-      return;
-    }
-
-    const channel = supabase
-      .channel("analytics-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "jobs" },
-        () => {
-          if (autoRefreshRef.current) void refreshAll(true);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "quote_events_history" },
-        () => {
-          if (autoRefreshRef.current) void loadAnalytics(true);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "inventory" },
-        () => {
-          if (autoRefreshRef.current) void loadAnalytics(true);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase?.removeChannel(channel);
-    };
-  }, [autoRefresh, refreshAll, loadAnalytics]);
 
   const createdTrend = useMemo(() => jobsCreatedTrend(jobs), [jobs]);
   const readyTrend = useMemo(() => readyManufactureTrend(jobs), [jobs]);

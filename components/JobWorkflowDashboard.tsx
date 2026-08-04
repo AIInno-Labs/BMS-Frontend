@@ -39,7 +39,7 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/supabase/jobs-repository";
+import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
 import {
   getAssignableWorkers,

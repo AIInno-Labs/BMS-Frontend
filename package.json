@@ -13,13 +13,12 @@
     "api:lint": "npx --yes @redocly/cli@latest lint ${BMS_API_SPEC:-../BMS-backend/docs/api/bms-api.yaml}",
     "api:mock": "npx --yes @stoplight/prism-cli@5.14.2 mock ${BMS_API_SPEC:-../BMS-backend/docs/api/bms-api.yaml} -p 4010",
     "api:types": "npx --yes openapi-typescript@7 ${BMS_API_SPEC:-../BMS-backend/docs/api/bms-api.yaml} -o lib/frp/schema.d.ts",
-    "db:seed": "tsx scripts/seed.ts",
-    "align:quotes": "tsx scripts/align-quotient-quotes.ts",
-    "test:webhook": "tsx scripts/test-webhook.ts"
+    "db:seed": "echo 'Supabase seed retired — seed via Spring Boot / DataSeeder'",
+    "align:quotes": "echo 'Supabase quote align retired — DEL-02'",
+    "test:webhook": "echo 'Supabase webhook test retired — DEL-02'"
   },
   "dependencies": {
     "@faker-js/faker": "^9.8.0",
-    "@supabase/supabase-js": "^2.49.8",
     "buffer": "^6.0.3",
     "framer-motion": "^12.40.0",
     "geist": "^1.7.0",

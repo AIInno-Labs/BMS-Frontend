@@ -43,7 +43,8 @@ import {
   jobStatuses,
   resinTypes,
 } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/supabase/jobs-repository";
+import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
+import { getQuote } from "@/lib/frp/api";
 import type { Job, JobPriority, JobStatus, ResinType } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -105,22 +106,33 @@ export function JobCard({ jobId }: JobCardProps) {
 
     const qMatch = /^JOB-Q-(.+)$/i.exec(sourceJob.id);
     if (!qMatch) return;
-    void fetch(`/api/quotes/${encodeURIComponent(qMatch[1])}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { quote?: { accepted_order_number?: string; quote_for_phone?: string; quote_for_email?: string; quote_for_contact_name?: string } } | null) => {
-        if (!data?.quote) return;
-        const q = data.quote;
+    void getQuote(qMatch[1])
+      .then((raw) => {
+        if (!raw) return;
+        const q = raw as {
+          accepted_order_number?: string;
+          acceptedOrderNumber?: string;
+          quote_for_phone?: string;
+          quoteForPhone?: string;
+          quote_for_email?: string;
+          quoteForEmail?: string;
+          quote_for_contact_name?: string;
+          quoteForContactName?: string;
+        };
         setDraft((d) => {
           if (!d) return d;
           const pd = { ...ensurePrintDetails(d) };
-          if (q.accepted_order_number && !pd.purchaseOrderNo) {
-            pd.purchaseOrderNo = q.accepted_order_number;
-          }
-          if (q.quote_for_phone && !pd.contactPhone) pd.contactPhone = q.quote_for_phone;
-          if (q.quote_for_email && !pd.contactEmail) pd.contactEmail = q.quote_for_email;
+          const po = q.accepted_order_number ?? q.acceptedOrderNumber;
+          const phone = q.quote_for_phone ?? q.quoteForPhone;
+          const email = q.quote_for_email ?? q.quoteForEmail;
+          const contact =
+            q.quote_for_contact_name ?? q.quoteForContactName;
+          if (po && !pd.purchaseOrderNo) pd.purchaseOrderNo = po;
+          if (phone && !pd.contactPhone) pd.contactPhone = phone;
+          if (email && !pd.contactEmail) pd.contactEmail = email;
           return {
             ...d,
-            clientContactName: d.clientContactName || q.quote_for_contact_name || "",
+            clientContactName: d.clientContactName || contact || "",
             printDetails: pd,
           };
         });
@@ -281,22 +293,33 @@ export function JobCard({ jobId }: JobCardProps) {
 
     const qMatch = /^JOB-Q-(.+)$/i.exec(job.id);
     if (!qMatch) return;
-    void fetch(`/api/quotes/${encodeURIComponent(qMatch[1])}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { quote?: { accepted_order_number?: string; quote_for_phone?: string; quote_for_email?: string; quote_for_contact_name?: string } } | null) => {
-        if (!data?.quote) return;
-        const q = data.quote;
+    void getQuote(qMatch[1])
+      .then((raw) => {
+        if (!raw) return;
+        const q = raw as {
+          accepted_order_number?: string;
+          acceptedOrderNumber?: string;
+          quote_for_phone?: string;
+          quoteForPhone?: string;
+          quote_for_email?: string;
+          quoteForEmail?: string;
+          quote_for_contact_name?: string;
+          quoteForContactName?: string;
+        };
         setDraft((d) => {
           if (!d) return d;
           const pd = { ...ensurePrintDetails(d) };
-          if (q.accepted_order_number && !pd.purchaseOrderNo) {
-            pd.purchaseOrderNo = q.accepted_order_number;
-          }
-          if (q.quote_for_phone && !pd.contactPhone) pd.contactPhone = q.quote_for_phone;
-          if (q.quote_for_email && !pd.contactEmail) pd.contactEmail = q.quote_for_email;
+          const po = q.accepted_order_number ?? q.acceptedOrderNumber;
+          const phone = q.quote_for_phone ?? q.quoteForPhone;
+          const email = q.quote_for_email ?? q.quoteForEmail;
+          const contact =
+            q.quote_for_contact_name ?? q.quoteForContactName;
+          if (po && !pd.purchaseOrderNo) pd.purchaseOrderNo = po;
+          if (phone && !pd.contactPhone) pd.contactPhone = phone;
+          if (email && !pd.contactEmail) pd.contactEmail = email;
           return {
             ...d,
-            clientContactName: d.clientContactName || q.quote_for_contact_name || "",
+            clientContactName: d.clientContactName || contact || "",
             printDetails: pd,
           };
         });

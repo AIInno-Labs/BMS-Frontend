@@ -269,7 +269,7 @@ export function CreateNewJobDrawer({
   jobs,
 }: CreateNewJobDrawerProps) {
   const router = useRouter();
-  const { updateJob, refreshJobs } = useJobs();
+  const { createJobFromUi, refreshJobs } = useJobs();
   const [form, setForm] = useState<CreateJobFormValues>(() =>
     buildInitialForm(jobs)
   );
@@ -369,10 +369,10 @@ export function CreateNewJobDrawer({
     setErrors({});
     try {
       const job = buildJobFromForm(form);
-      await updateJob(job, "job_card_saved");
+      const created = await createJobFromUi(job);
       await refreshJobs({ silent: true });
       onClose();
-      router.push(`/jobs/${encodeURIComponent(job.id)}`);
+      router.push(`/jobs/${encodeURIComponent(created.id)}`);
     } catch (e) {
       setErrors({
         submit:

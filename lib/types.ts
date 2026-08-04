@@ -3,11 +3,10 @@ import type { AnyJobStatus } from "@/lib/jobStatus";
 /**
  * Widened during the DEL-01 status-model migration.
  *
- * Accepts both the canonical PRD lifecycle and the seven legacy states the
- * Supabase CHECK constraint still enforces, so existing call sites keep
- * compiling while new work targets the canonical model. Import the precise
- * unions (`JobStatus`, `LegacyJobStatus`) from `@/lib/jobStatus` directly when
- * you need to exclude one or the other.
+ * Accepts both the canonical PRD lifecycle and the seven legacy states so
+ * existing call sites keep compiling while new work targets the canonical
+ * model. Import the precise unions (`JobStatus`, `LegacyJobStatus`) from
+ * `@/lib/jobStatus` directly when you need to exclude one or the other.
  */
 export type JobStatus = AnyJobStatus;
 
@@ -101,7 +100,7 @@ export interface JobCardPrintDetails {
 }
 
 export interface Job {
-  /** Supabase UUID (for updates). */
+  /** Spring Boot job primary key (stringified). */
   dbId?: string;
   /** Public job number, e.g. JOB-1001 */
   id: string;
@@ -122,10 +121,10 @@ export interface Job {
   qaCompleted: boolean;
   clientContactName: string;
   assignedWorkerId: string | null;
-  /** Stored in Supabase `assigned_worker_name` */
+  /** Assigned worker display name (`assignedTo` on Spring Boot). */
   assignedWorkerName?: string | null;
   manualInstructions: string;
   printDetails?: JobCardPrintDetails;
-  /** ISO timestamp from Supabase `created_at` (for sorting / display). */
+  /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
 }

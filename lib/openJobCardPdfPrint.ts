@@ -205,7 +205,14 @@ function fitJobCardToOnePage(doc: Document): void {
  */
 export async function printJobCardPdf(jobId: string): Promise<void> {
   const url = `/api/jobs/${encodeURIComponent(jobId)}/job-card-html`;
-  const response = await fetch(url);
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("frp_access_token")
+      : null;
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: "no-store",
+  });
 
   if (!response.ok) {
     throw new Error("Could not load job card for printing.");

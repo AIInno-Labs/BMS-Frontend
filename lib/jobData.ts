@@ -81,7 +81,7 @@ export function formatShortDate(isoDate: string | null | undefined): string {
   });
 }
 
-/** Supabase `created_at` — job record created in system (not customer received date). */
+/** Job record created timestamp (Spring Boot `createdDate`). */
 export function formatCreatedDate(createdAt: string | undefined): string {
   if (!createdAt) return "—";
   const d = new Date(createdAt);

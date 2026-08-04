@@ -5,12 +5,10 @@ import type { JobStageGroup } from "@/lib/jobStageGroups";
  *
  * The PRD status matrix (tech spec §3.3) defines the forward-looking lifecycle
  * used by the status engine, KPI metrics, and the DEL-07 client email driver.
- * The Supabase `jobs.workflow_status` CHECK constraint still enforces the
- * original seven states, so both sets are modelled here and both render.
- * Canonical statuses become authoritative when the Spring Boot backend lands.
+ * Legacy seven-state aliases remain for UI compatibility during migration.
+ * Canonical statuses are authoritative on Spring Boot / PostgreSQL.
  *
- * Do not hardcode status strings in components — import from this module so the
- * DB enum swap is a single-file change.
+ * Do not hardcode status strings in components — import from this module.
  */
 
 /** Ordered lifecycle from the PRD notification matrix. */
@@ -45,7 +43,7 @@ export const JOB_EXCEPTION_STATUSES = ["On Hold", "Cancelled"] as const;
 
 export type JobExceptionStatus = (typeof JOB_EXCEPTION_STATUSES)[number];
 
-/** Statuses enforced by the current Supabase CHECK constraint. */
+/** Statuses kept for UI compatibility with older job cards / demos. */
 export const LEGACY_JOB_STATUSES = [
   "Pending",
   "Awaiting Manager Approval",
