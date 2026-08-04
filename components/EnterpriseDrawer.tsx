@@ -77,7 +77,9 @@ export function EnterpriseDrawer({
               {title}
             </h2>
             {subtitle && (
-              <p className="mt-1 text-base text-slate-600">{subtitle}</p>
+              <p className="mt-1.5 text-sm leading-relaxed text-slate-600 sm:text-base">
+                {subtitle}
+              </p>
             )}
           </div>
           <button

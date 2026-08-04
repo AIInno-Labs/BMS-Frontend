@@ -97,7 +97,7 @@ export function EditOrganizationDrawer({
         </div>
       }
     >
-      <form id="edit-org-form" onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
+      <form id="edit-org-form" onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2 sm:gap-x-4 sm:gap-y-4">
         <div className="sm:col-span-2">
           <label className={labelClass} htmlFor="edit-companyName">
             Company name

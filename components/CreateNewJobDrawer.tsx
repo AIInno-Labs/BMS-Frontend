@@ -105,6 +105,18 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * A starting point for the operator, not an allocation.
+ *
+ * It reads only the jobs this browser has loaded — one page, and the list is
+ * capped — so with more jobs than that, or two people creating at once, it will
+ * propose a number that is already taken. That is why it is an editable field
+ * and why the server owns uniqueness: `uk_job_org_job_number` rejects a
+ * duplicate with a 409 no matter what this suggests.
+ *
+ * Leaving the field empty is also valid — the backend then allocates from the
+ * per-organization sequence, which is the only collision-free option.
+ */
 function suggestNextJobId(jobs: Job[]): string {
   let max = 1000;
   for (const job of jobs) {
@@ -153,11 +165,18 @@ function validateForm(
   const errors: FormErrors = {};
   const jobId = values.jobId.trim().toUpperCase();
 
+  // No prefix is required — any identifier the column can hold is valid. The
+  // character set and length mirror the server's own check in
+  // JobServiceImpl.normaliseJobNumber, which is the boundary that decides.
   if (!jobId) {
     errors.jobId = "Job ID is required.";
-  } else if (!/^JOB-[A-Z0-9-]+$/i.test(jobId)) {
-    errors.jobId = "Use format JOB-10421.";
+  } else if (jobId.length > 64) {
+    errors.jobId = "Use 64 characters or fewer.";
+  } else if (!/^[A-Z0-9._-]+$/i.test(jobId)) {
+    errors.jobId = "Use letters, digits, dot, underscore or hyphen only.";
   } else if (existingIds.has(jobId)) {
+    // Only catches jobs this browser has loaded. The authority is the
+    // per-organization unique constraint, which answers with a 409 on save.
     errors.jobId = "This job ID already exists.";
   }
 
@@ -460,7 +479,7 @@ export function CreateNewJobDrawer({
       ariaLabelledBy="create-job-title"
     >
       <form
-        className="space-y-4 p-4 sm:p-5"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSubmit();

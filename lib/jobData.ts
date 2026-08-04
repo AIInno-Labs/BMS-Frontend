@@ -63,8 +63,14 @@ export function getReadyToManufactureChartData(jobList: Job[]) {
   ];
 }
 
-export function formatDate(isoDate: string): string {
-  return new Date(isoDate + "T12:00:00").toLocaleDateString("en-US", {
+export function formatDate(isoDate: string | null | undefined): string {
+  // Unguarded, `new Date("" + "T12:00:00")` renders the literal string
+  // "Invalid Date" into the table. formatShortDate and formatCreatedDate
+  // already guard; this one did not.
+  if (!isoDate?.trim()) return "—";
+  const d = new Date(isoDate + "T12:00:00");
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
     weekday: "short",
     year: "numeric",
     month: "long",

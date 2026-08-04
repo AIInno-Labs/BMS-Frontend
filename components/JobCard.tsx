@@ -201,7 +201,11 @@ export function JobCard({ jobId }: JobCardProps) {
     if (isExporting) return;
     setIsExporting(true);
     try {
-      await printJobCardPdf(job.id);
+      if (!job.dbId) {
+        throw new Error("Job has no database id — reload the job list.");
+      }
+      // The print route resolves jobs by database id, not job number.
+      await printJobCardPdf(job.dbId);
     } catch {
       setSaveError("Could not open job card PDF. Please try again.");
     } finally {
@@ -894,7 +898,7 @@ export function JobCard({ jobId }: JobCardProps) {
 
             {isManager && (
               <ActivityAuditTrail
-                jobId={display.id}
+                jobId={display.dbId ?? ""}
                 refreshKey={auditRefreshKey}
               />
             )}

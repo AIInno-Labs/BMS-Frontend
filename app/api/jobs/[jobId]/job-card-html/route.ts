@@ -4,18 +4,35 @@ import { buildJobCardPrintHtml } from "@/lib/jobCardPrintHtml";
 import { frpJobToUi, type FrpJobDTO } from "@/lib/frp/job-mapper";
 
 interface RouteContext {
-  params: Promise<{ jobNumber: string }>;
+  /**
+   * Spring Boot job primary key, not the job number — `GET /jobs/{id}` takes a
+   * numeric `@PathVariable Long`, so `JOB-1001` is a 400.
+   */
+  params: Promise<{ jobId: string }>;
 }
 
 /**
- * Print HTML for a job card. Fetches the job from Spring Boot using the
- * caller's Bearer token (forwarded from the browser).
+ * Print HTML for a job card, fetched from Spring Boot with the caller's Bearer
+ * token forwarded from the browser.
+ *
+ * Rev 2 §13 puts this endpoint on the backend (`GET /jobs/{id}/job-card-html`,
+ * writing a `JOB_CARD_DOWNLOADED` audit row). Until that ships this proxy
+ * stands in — and that audit row is not written.
  */
 export async function GET(request: Request, context: RouteContext) {
-  const { jobNumber } = await context.params;
-  const decoded = decodeURIComponent(jobNumber);
+  const { jobId } = await context.params;
+  const decoded = decodeURIComponent(jobId);
   const autoprint =
     new URL(request.url).searchParams.get("autoprint") === "1";
+
+  if (!/^\d+$/.test(decoded)) {
+    return NextResponse.json(
+      {
+        error: `Expected a numeric job id, received "${decoded}". This route addresses jobs by database id.`,
+      },
+      { status: 400 }
+    );
+  }
 
   const base =
     process.env.NEXT_PUBLIC_FRP_API_BASE_URL?.replace(/\/$/, "") ||

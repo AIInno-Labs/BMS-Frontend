@@ -100,9 +100,22 @@ export interface JobCardPrintDetails {
 }
 
 export interface Job {
-  /** Spring Boot job primary key (stringified). */
+  /**
+   * Spring Boot job primary key (stringified).
+   *
+   * Every write path addresses the job by this, not by `id` — the backend
+   * routes are `/jobs/{id}` with a numeric `@PathVariable Long`.
+   */
   dbId?: string;
-  /** Public job number, e.g. JOB-1001 */
+  /**
+   * Optimistic-lock token echoed back on update.
+   *
+   * `JobDTO.version` is `@NotNull(groups = OnUpdate.class)`, and a stale value
+   * yields 409 rather than silently overwriting a concurrent edit. Any write
+   * without it is rejected by validation.
+   */
+  version?: number;
+  /** Public job number, e.g. JOB-1001. Server-allocated, read-only. */
   id: string;
   clientName: string;
   projectName: string;
@@ -127,4 +140,12 @@ export interface Job {
   printDetails?: JobCardPrintDetails;
   /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
+  /** Backend `customerId` — the FK the job row actually stores. */
+  customerId?: number | null;
+  /** Set for quote-derived jobs; drives `origin` on the backend. */
+  quoteNumber?: string | null;
+  /** `QUOTE` when raised from a quote, `FACTORY` when raised in-house. */
+  origin?: "QUOTE" | "FACTORY";
+  /** Stage-tree completion, served on the list projection only. */
+  percentComplete?: number | null;
 }
