@@ -2,7 +2,6 @@ import {
   DASHBOARD_STATS,
   RECENTLY_CREATED_USER_IDS,
   RECENT_ACTIVITY,
-  SYSTEM_STATUS,
   USER_DISTRIBUTION,
 } from "@/constants/administration/dashboard";
 import { USERS } from "@/constants/administration/users";
@@ -10,7 +9,6 @@ import type {
   AdminUser,
   DashboardStats,
   RecentActivity,
-  SystemStatusItem,
   UserDistributionSegment,
 } from "@/lib/administration/types";
 
@@ -20,10 +18,6 @@ export function getDashboardStats(): Promise<DashboardStats> {
 
 export function getUserDistribution(): Promise<UserDistributionSegment[]> {
   return Promise.resolve(USER_DISTRIBUTION);
-}
-
-export function getSystemStatus(): Promise<SystemStatusItem[]> {
-  return Promise.resolve(SYSTEM_STATUS);
 }
 
 export function getRecentlyCreatedUsers(): Promise<AdminUser[]> {

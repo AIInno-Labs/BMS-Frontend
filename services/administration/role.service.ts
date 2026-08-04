@@ -36,6 +36,7 @@ export function createRole(payload: CreateRolePayload): Promise<Role> {
     name: payload.name,
     description: payload.description,
     usersCount: 0,
+    permissions: payload.permissions,
     permissionsCount: countGrantedPermissions(payload.permissions),
     status: "active",
     isSystemAdmin: payload.isSystemAdmin,
@@ -43,6 +44,29 @@ export function createRole(payload: CreateRolePayload): Promise<Role> {
   };
   roleStore = [...roleStore, role];
   return Promise.resolve(role);
+}
+
+export function updateRolePermissions(
+  id: string,
+  permissions: PermissionModuleGroup[]
+): Promise<Role | null> {
+  return updateRole(id, {
+    permissions,
+    permissionsCount: countGrantedPermissions(permissions),
+  });
+}
+
+export function updateRoleDetails(id: string, payload: CreateRolePayload): Promise<Role | null> {
+  const existing = roleStore.find((r) => r.id === id);
+  const icon = payload.isSystemAdmin ? "shield" : existing?.icon ?? "briefcase";
+  return updateRole(id, {
+    name: payload.name,
+    description: payload.description,
+    isSystemAdmin: payload.isSystemAdmin,
+    icon,
+    permissions: payload.permissions,
+    permissionsCount: countGrantedPermissions(payload.permissions),
+  });
 }
 
 export function updateRole(id: string, patch: Partial<Role>): Promise<Role | null> {

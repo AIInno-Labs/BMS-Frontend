@@ -8,9 +8,12 @@ import { FilterChips } from "@/components/administration/ui/FilterDropdown";
 import { DataTable, type DataTableColumn } from "@/components/administration/ui/DataTable";
 import { StatusPill, type StatusPillTone } from "@/components/administration/ui/StatusPill";
 import { RoleChip } from "@/components/administration/ui/RoleChip";
+import { PrivilegeFormModal, type PrivilegeDraft } from "@/components/administration/PrivilegeFormModal";
 import {
+  createPrivilege,
   getPrivileges,
   getPrivilegeModules,
+  updatePrivilege,
 } from "@/services/administration/privilege.service";
 import type { Privilege } from "@/lib/administration/types";
 
@@ -32,6 +35,8 @@ export function PrivilegesPage() {
   const [module, setModule] = useState("All Modules");
   const [privileges, setPrivileges] = useState<Privilege[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingPrivilege, setEditingPrivilege] = useState<Privilege | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,6 +52,17 @@ export function PrivilegesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function handleSaveModal(draft: PrivilegeDraft) {
+    if (editingPrivilege) {
+      await updatePrivilege(editingPrivilege.id, draft);
+    } else {
+      await createPrivilege(draft);
+    }
+    setModalOpen(false);
+    setEditingPrivilege(null);
+    await load();
+  }
 
   const columns: DataTableColumn<Privilege>[] = [
     { key: "code", header: "Permission Name", render: (p) => <span className="font-semibold text-[#111827]">{p.code}</span> },
@@ -69,9 +85,13 @@ export function PrivilegesPage() {
     {
       key: "actions",
       header: "Actions",
-      render: () => (
+      render: (p) => (
         <button
           type="button"
+          onClick={() => {
+            setEditingPrivilege(p);
+            setModalOpen(true);
+          }}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -87,7 +107,14 @@ export function PrivilegesPage() {
         title="Privileges"
         subtitle="Manage and assign granular system permissions."
         actions={
-          <button type="button" className="btn-primary inline-flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setEditingPrivilege(null);
+              setModalOpen(true);
+            }}
+            className="btn-primary inline-flex items-center gap-2"
+          >
             <Plus className="h-4 w-4" />
             Create Privilege
           </button>
@@ -117,6 +144,17 @@ export function PrivilegesPage() {
           Showing {privileges.length === 0 ? 0 : 1} to {privileges.length} of {privileges.length}{" "}
           privileges
         </p>
+      )}
+
+      {modalOpen && (
+        <PrivilegeFormModal
+          privilege={editingPrivilege}
+          onSave={handleSaveModal}
+          onClose={() => {
+            setModalOpen(false);
+            setEditingPrivilege(null);
+          }}
+        />
       )}
     </div>
   );

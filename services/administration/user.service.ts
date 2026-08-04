@@ -87,16 +87,50 @@ export function createUser(payload: CreateUserPayload): Promise<AdminUser> {
 
 export function updateUser(
   id: string,
-  patch: Partial<Pick<AdminUser, "status" | "roleIds" | "roleNames">>
+  patch: Partial<
+    Pick<
+      AdminUser,
+      "status" | "roleIds" | "roleNames" | "firstName" | "lastName" | "email" | "phone" | "department"
+    >
+  >
 ): Promise<AdminUser | null> {
   const idx = userStore.findIndex((u) => u.id === id);
   if (idx === -1) return Promise.resolve(null);
-  userStore[idx] = { ...userStore[idx], ...patch };
+  const next = { ...userStore[idx], ...patch };
+  if (patch.firstName || patch.lastName) {
+    next.fullName = `${next.firstName} ${next.lastName}`;
+    next.avatarInitials = initials(next.firstName, next.lastName);
+  }
+  userStore[idx] = next;
   return Promise.resolve(userStore[idx]);
 }
 
 export function disableUser(id: string): Promise<AdminUser | null> {
   return updateUser(id, { status: "inactive" });
+}
+
+export interface EditUserPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  department: string;
+  roleId: string;
+  accountActive: boolean;
+}
+
+export function updateUserDetails(id: string, payload: EditUserPayload): Promise<AdminUser | null> {
+  const role = ROLES.find((r) => r.id === payload.roleId);
+  return updateUser(id, {
+    firstName: payload.firstName,
+    lastName: payload.lastName,
+    email: payload.email,
+    phone: payload.phone,
+    department: payload.department,
+    roleIds: role ? [role.id] : [],
+    roleNames: role ? [role.name] : [],
+    status: payload.accountActive ? "active" : "inactive",
+  });
 }
 
 export interface RegionDistribution {

@@ -2,41 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Activity,
-  Cloud,
-  Download,
-  Plug,
-  Plus,
-  ShieldCheck,
-  UserCheck,
-  Users,
-} from "lucide-react";
+import { Download, Plus, ShieldCheck, UserCheck, Users } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { PageHeader } from "@/components/administration/ui/PageHeader";
 import { StatCard } from "@/components/administration/ui/StatCard";
-import { InfoCard, InfoCardRow } from "@/components/administration/ui/InfoCard";
+import { InfoCard } from "@/components/administration/ui/InfoCard";
 import { LoadingState } from "@/components/administration/ui/EmptyState";
 import { StatusPill } from "@/components/administration/ui/StatusPill";
 import {
   getDashboardStats,
   getRecentActivity,
   getRecentlyCreatedUsers,
-  getSystemStatus,
   getUserDistribution,
 } from "@/services/administration/dashboard.service";
 import type {
   AdminUser,
   DashboardStats,
   RecentActivity,
-  SystemStatusItem,
   UserDistributionSegment,
 } from "@/lib/administration/types";
 
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [distribution, setDistribution] = useState<UserDistributionSegment[]>([]);
-  const [systemStatus, setSystemStatus] = useState<SystemStatusItem[]>([]);
   const [recentUsers, setRecentUsers] = useState<AdminUser[]>([]);
   const [activity, setActivity] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,13 +33,11 @@ export function DashboardPage() {
     Promise.all([
       getDashboardStats(),
       getUserDistribution(),
-      getSystemStatus(),
       getRecentlyCreatedUsers(),
       getRecentActivity(),
-    ]).then(([s, d, status, users, act]) => {
+    ]).then(([s, d, users, act]) => {
       setStats(s);
       setDistribution(d);
-      setSystemStatus(status);
       setRecentUsers(users);
       setActivity(act);
       setLoading(false);
@@ -61,9 +47,6 @@ export function DashboardPage() {
   if (loading || !stats) {
     return <LoadingState label="Loading dashboard…" />;
   }
-
-  const sharepoint = systemStatus.find((s) => s.name === "SharePoint");
-  const quotient = systemStatus.find((s) => s.name === "Quotient");
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -87,7 +70,7 @@ export function DashboardPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           icon={Users}
           label="Total Users"
@@ -118,28 +101,10 @@ export function DashboardPage() {
           trend={{ label: `${stats.rolesUpdated} Updated`, tone: "neutral" }}
           sub="Access Control Groups"
         />
-        <StatCard
-          icon={Activity}
-          iconClassName="bg-blue-50 text-blue-600"
-          label="System Health"
-          value={`${stats.systemHealthPercent}%`}
-          trend={{ label: "Operational", tone: "positive" }}
-        >
-          <div className="mt-3 space-y-1.5 text-xs text-slate-500">
-            <div className="flex items-center justify-between">
-              <span>SharePoint</span>
-              <span className="font-semibold text-emerald-600">Connected</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Quotient</span>
-              <span className="font-semibold text-emerald-600">Connected</span>
-            </div>
-          </div>
-        </StatCard>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <div className="app-card lg:col-span-2">
+      <div className="mt-6">
+        <div className="app-card">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-base font-semibold text-[#111827]">User Distribution</h3>
           </div>
@@ -182,29 +147,6 @@ export function DashboardPage() {
             </div>
           </div>
         </div>
-
-        <InfoCard title="System Status">
-          <InfoCardRow
-            icon={<Cloud className="h-4 w-4 text-slate-400" />}
-            label="SharePoint"
-            value={
-              <StatusPill
-                label={sharepoint?.connected ? "Connected" : "Disconnected"}
-                tone={sharepoint?.connected ? "success" : "danger"}
-              />
-            }
-          />
-          <InfoCardRow
-            icon={<Plug className="h-4 w-4 text-slate-400" />}
-            label="Quotient"
-            value={
-              <StatusPill
-                label={quotient?.connected ? "Connected" : "Disconnected"}
-                tone={quotient?.connected ? "success" : "danger"}
-              />
-            }
-          />
-        </InfoCard>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">

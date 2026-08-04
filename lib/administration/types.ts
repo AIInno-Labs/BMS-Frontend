@@ -33,6 +33,8 @@ export interface CreateUserPayload {
 
 export type RoleStatus = "active" | "inactive";
 
+export type RoleIcon = "shield" | "briefcase" | "wrench" | "eye" | "headset";
+
 export interface Role {
   id: string;
   name: string;
@@ -41,7 +43,8 @@ export interface Role {
   permissionsCount: number;
   status: RoleStatus;
   isSystemAdmin: boolean;
-  icon: "shield" | "briefcase" | "wrench" | "eye" | "headset";
+  icon: RoleIcon;
+  permissions: PermissionModuleGroup[];
 }
 
 export type PermissionAction =
@@ -71,7 +74,7 @@ export interface Privilege {
   id: string;
   code: string;
   description: string;
-  module: "Users" | "Jobs" | "Quotes" | "System";
+  module: "Organizations" | "Users" | "Roles" | "Privileges" | "System" | "Security";
   usedByRoles: string[];
   status: PrivilegeStatus;
 }
@@ -89,7 +92,14 @@ export interface AssignedRole {
   id: string;
   name: string;
   description: string;
-  icon: "shield" | "wrench" | "eye";
+  icon: RoleIcon;
+}
+
+export interface AssignableRole {
+  id: string;
+  name: string;
+  description: string;
+  icon: RoleIcon;
 }
 
 export interface RoleMappingUser {
@@ -135,18 +145,12 @@ export interface DashboardStats {
   totalRoles: number;
   accessControlGroups: number;
   rolesUpdated: number;
-  systemHealthPercent: number;
 }
 
 export interface UserDistributionSegment {
   label: string;
   count: number;
   color: string;
-}
-
-export interface SystemStatusItem {
-  name: "SharePoint" | "Quotient";
-  connected: boolean;
 }
 
 export interface RecentActivity {

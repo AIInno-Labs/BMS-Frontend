@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Eye, Plus, Shield, Wrench, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Briefcase, Eye, Headset, Plus, Shield, Wrench, X } from "lucide-react";
+import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { PageHeader } from "@/components/administration/ui/PageHeader";
 import { SearchBar } from "@/components/administration/ui/SearchBar";
 import { FilterChips } from "@/components/administration/ui/FilterDropdown";
@@ -13,14 +14,16 @@ import {
   getRoleMappingUsers,
   removeAssignedRole,
 } from "@/services/administration/roleMapping.service";
-import type { RoleMappingUser } from "@/lib/administration/types";
+import type { AssignableRole, RoleIcon, RoleMappingUser } from "@/lib/administration/types";
 
 const CATEGORIES = ["All Users", "Engineering", "Operations", "Admins"] as const;
 
-const ROLE_ICONS: Record<RoleMappingUser["assignedRoles"][number]["icon"], typeof Shield> = {
+const ROLE_ICONS: Record<RoleIcon, typeof Shield> = {
   shield: Shield,
+  briefcase: Briefcase,
   wrench: Wrench,
   eye: Eye,
+  headset: Headset,
 };
 
 const SCOPE_STYLES: Record<
@@ -37,15 +40,24 @@ export function UserRoleMappingPage() {
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<RoleMappingUser[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [assignableRoles, setAssignableRoles] = useState<string[]>([]);
+  const [assignableRoles, setAssignableRoles] = useState<AssignableRole[]>([]);
   const [roleSearch, setRoleSearch] = useState("");
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    getRoleMappingUsers().then((u) => {
-      setUsers(u);
-      setSelectedId((prev) => prev ?? u[1]?.id ?? u[0]?.id ?? null);
-    });
+    getRoleMappingUsers().then(setUsers);
     getAssignableRoles().then(setAssignableRoles);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
+        setRoleDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const filteredUsers = useMemo(() => {
@@ -67,7 +79,7 @@ export function UserRoleMappingPage() {
     const q = roleSearch.trim().toLowerCase();
     const assigned = new Set(selected?.assignedRoles.map((r) => r.name) ?? []);
     return assignableRoles.filter(
-      (r) => !assigned.has(r) && (!q || r.toLowerCase().includes(q))
+      (r) => !assigned.has(r.name) && (!q || r.name.toLowerCase().includes(q))
     );
   }, [assignableRoles, roleSearch, selected]);
 
@@ -77,12 +89,13 @@ export function UserRoleMappingPage() {
     if (updated) setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
   }
 
-  async function handleAssign(roleName: string) {
+  async function handleAssign(role: AssignableRole) {
     if (!selected) return;
-    const updated = await assignRoleToUser(selected.id, roleName);
+    const updated = await assignRoleToUser(selected.id, role);
     if (updated) {
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setRoleSearch("");
+      setRoleDropdownOpen(false);
     }
   }
 
@@ -93,63 +106,70 @@ export function UserRoleMappingPage() {
         subtitle="Manage roles and verify effective permissions across the organization."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-        <div>
-          <SearchBar
-            value={query}
-            onChange={setQuery}
-            placeholder="Search users by name, email, or department…"
-            className="mb-3"
-          />
-          <div className="mb-3">
-            <FilterChips value={category} options={CATEGORIES} onChange={(v) => setCategory(v as (typeof CATEGORIES)[number])} />
+      <SearchBar
+        value={query}
+        onChange={setQuery}
+        placeholder="Search users by name, email, or department…"
+        className="mb-3"
+      />
+      <div className="mb-3">
+        <FilterChips value={category} options={CATEGORIES} onChange={(v) => setCategory(v as (typeof CATEGORIES)[number])} />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {filteredUsers.map((u) => {
+          const active = u.id === selectedId;
+          return (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => setSelectedId(u.id)}
+              className={`flex items-center gap-3 rounded-xl border p-4 text-left transition-colors ${
+                active
+                  ? "border-orange-300 bg-orange-50/60"
+                  : "border-slate-200 bg-white hover:border-orange-200"
+              }`}
+            >
+              <Avatar
+                initials={u.avatarInitials}
+                colorClassName={u.avatarColor}
+                online={u.online}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-[#111827]">
+                  {u.fullName}
+                </span>
+                <span className="block truncate text-xs text-slate-500">{u.email}</span>
+                <span className="mt-1.5 flex flex-wrap gap-1.5">
+                  {u.roleNames.map((r) => (
+                    <RoleChip key={r} label={r} />
+                  ))}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <EnterpriseDrawer
+        open={Boolean(selected)}
+        onClose={() => setSelectedId(null)}
+        title={selected?.fullName ?? ""}
+        subtitle={selected ? `${selected.department} · ${selected.email}` : undefined}
+        panelClassName="md:w-[44%] md:max-w-[560px]"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setSelectedId(null)} className="btn-ghost">
+              Cancel
+            </button>
+            <button type="button" onClick={() => setSelectedId(null)} className="btn-primary">
+              Save Changes
+            </button>
           </div>
-
-          <div className="space-y-2">
-            {filteredUsers.map((u) => {
-              const active = u.id === selectedId;
-              return (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => setSelectedId(u.id)}
-                  className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors ${
-                    active
-                      ? "border-orange-300 bg-orange-50/60"
-                      : "border-slate-200 bg-white hover:border-orange-200"
-                  }`}
-                >
-                  <Avatar
-                    initials={u.avatarInitials}
-                    colorClassName={u.avatarColor}
-                    online={u.online}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-[#111827]">
-                      {u.fullName}
-                    </span>
-                    <span className="block truncate text-xs text-slate-500">{u.email}</span>
-                    <span className="mt-1.5 flex flex-wrap gap-1.5">
-                      {u.roleNames.map((r) => (
-                        <RoleChip key={r} label={r} />
-                      ))}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {selected ? (
-          <div className="app-card">
-            <div className="mb-5 border-b border-slate-100 pb-4">
-              <h2 className="text-lg font-bold text-[#111827]">{selected.fullName}</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                {selected.department} · {selected.email}
-              </p>
-            </div>
-
+        }
+      >
+        {selected && (
+          <div className="p-5 sm:p-6">
             <div className="mb-5">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Assigned Roles
@@ -185,7 +205,7 @@ export function UserRoleMappingPage() {
               </div>
             </div>
 
-            <div className="mb-5">
+            <div className="mb-5" ref={roleDropdownRef}>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Assign New Role
               </h3>
@@ -194,21 +214,39 @@ export function UserRoleMappingPage() {
                 <input
                   value={roleSearch}
                   onChange={(e) => setRoleSearch(e.target.value)}
+                  onFocus={() => setRoleDropdownOpen(true)}
                   placeholder="Search roles to add…"
                   className="h-10 w-full rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
                 />
-                {roleSearch && suggestedRoles.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                    {suggestedRoles.map((r) => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => void handleAssign(r)}
-                        className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-orange-50"
-                      >
-                        {r}
-                      </button>
-                    ))}
+                {roleDropdownOpen && (
+                  <div className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                    {suggestedRoles.length === 0 ? (
+                      <p className="px-3 py-3 text-sm text-slate-400">
+                        {roleSearch ? "No matching roles." : "All roles are already assigned."}
+                      </p>
+                    ) : (
+                      suggestedRoles.map((r) => {
+                        const Icon = ROLE_ICONS[r.icon];
+                        return (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => void handleAssign(r)}
+                            className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-orange-50"
+                          >
+                            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                              <Icon className="h-4 w-4" aria-hidden />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-[#111827]">
+                                {r.name}
+                              </span>
+                              <span className="block text-xs text-slate-500">{r.description}</span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 )}
               </div>
@@ -254,22 +292,9 @@ export function UserRoleMappingPage() {
                 })}
               </div>
             </div>
-
-            <div className="mt-6 flex justify-end gap-2 border-t border-slate-100 pt-4">
-              <button type="button" className="btn-ghost">
-                Cancel
-              </button>
-              <button type="button" className="btn-primary">
-                Save Changes
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="app-card flex items-center justify-center text-sm text-slate-500">
-            Select a user to view role assignments.
           </div>
         )}
-      </div>
+      </EnterpriseDrawer>
     </div>
   );
 }

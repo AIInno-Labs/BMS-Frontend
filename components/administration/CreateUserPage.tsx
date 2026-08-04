@@ -13,8 +13,12 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/administration/ui/PageHeader";
 import { ToggleSwitch } from "@/components/administration/ui/ToggleSwitch";
-import { getDepartments } from "@/services/administration/user.service";
-import { createUser } from "@/services/administration/user.service";
+import {
+  createUser,
+  getDepartments,
+  getUser,
+  updateUserDetails,
+} from "@/services/administration/user.service";
 import { getRoles } from "@/services/administration/role.service";
 import type { Role } from "@/lib/administration/types";
 
@@ -28,7 +32,7 @@ const SECTIONS = [
 const ROLE_ICONS: Record<string, typeof Shield> = {
   "role-field-engineer": ShieldCheck,
   "role-operations-manager": UserCog,
-  "role-administrator": Shield,
+  "role-org-admin": Shield,
   "role-guest-viewer": Eye,
 };
 
@@ -37,10 +41,13 @@ const inputClass =
 
 const labelClass = "block text-xs font-semibold uppercase tracking-wide text-slate-500";
 
-export function CreateUserPage() {
+export function CreateUserPage({ userId }: { userId?: string } = {}) {
   const router = useRouter();
+  const isEdit = Boolean(userId);
   const [departments, setDepartments] = useState<readonly string[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loaded, setLoaded] = useState(!isEdit);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -56,13 +63,31 @@ export function CreateUserPage() {
   useEffect(() => {
     getDepartments().then((d) => {
       setDepartments(d);
-      setDepartment(d[0] ?? "");
+      if (!isEdit) setDepartment(d[0] ?? "");
     });
     getRoles().then((r) => {
       setRoles(r);
-      setRoleId(r[0]?.id ?? "");
+      if (!isEdit) setRoleId(r[0]?.id ?? "");
     });
-  }, []);
+  }, [isEdit]);
+
+  useEffect(() => {
+    if (!userId) return;
+    getUser(userId).then((user) => {
+      if (!user) {
+        setNotFound(true);
+        return;
+      }
+      setFirstName(user.firstName);
+      setLastName(user.lastName);
+      setPhone(user.phone ?? "");
+      setDepartment(user.department);
+      setEmail(user.email);
+      setRoleId(user.roleIds[0] ?? "");
+      setAccountActive(user.status === "active");
+      setLoaded(true);
+    });
+  }, [userId]);
 
   const canSave = useMemo(
     () => firstName.trim() && lastName.trim() && email.trim() && roleId,
@@ -72,26 +97,50 @@ export function CreateUserPage() {
   async function handleSave() {
     if (!canSave) return;
     setSaving(true);
-    await createUser({
-      firstName,
-      lastName,
-      email,
-      phone: phone || undefined,
-      department,
-      generatePassword,
-      roleId,
-      accountActive,
-      requireMfa,
-    });
+    if (userId) {
+      await updateUserDetails(userId, {
+        firstName,
+        lastName,
+        email,
+        phone: phone || undefined,
+        department,
+        roleId,
+        accountActive,
+      });
+    } else {
+      await createUser({
+        firstName,
+        lastName,
+        email,
+        phone: phone || undefined,
+        department,
+        generatePassword,
+        roleId,
+        accountActive,
+        requireMfa,
+      });
+    }
     setSaving(false);
     router.push("/administration/users");
+  }
+
+  if (notFound) {
+    return <p className="py-12 text-center text-sm text-slate-500">User not found.</p>;
+  }
+
+  if (!loaded) {
+    return <p className="py-12 text-center text-sm text-slate-500">Loading…</p>;
   }
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Create New User"
-        subtitle="Add a new team member and assign their system access privileges."
+        title={isEdit ? "Edit User" : "Create New User"}
+        subtitle={
+          isEdit
+            ? "Update this team member's details and access privileges."
+            : "Add a new team member and assign their system access privileges."
+        }
         actions={
           <>
             <button
@@ -107,7 +156,7 @@ export function CreateUserPage() {
               onClick={() => void handleSave()}
               className="btn-primary disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save User"}
+              {saving ? "Saving…" : isEdit ? "Save Changes" : "Save User"}
             </button>
           </>
         }
@@ -181,18 +230,24 @@ export function CreateUserPage() {
             <input
               type="email"
               className={inputClass}
-              placeholder="user@bmsman.com"
+              placeholder="user@frpengineering.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
-            <div className="mt-4">
-              <ToggleSwitch
-                checked={generatePassword}
-                onChange={setGeneratePassword}
-                label="Generate Password Automatically"
-                description="System will email a secure setup link to the user."
-              />
-            </div>
+            {isEdit ? (
+              <button type="button" className="btn-ghost mt-4">
+                Send Password Reset Email
+              </button>
+            ) : (
+              <div className="mt-4">
+                <ToggleSwitch
+                  checked={generatePassword}
+                  onChange={setGeneratePassword}
+                  label="Generate Password Automatically"
+                  description="System will email a secure setup link to the user."
+                />
+              </div>
+            )}
           </section>
 
           <section id="role" className="app-card scroll-mt-6">

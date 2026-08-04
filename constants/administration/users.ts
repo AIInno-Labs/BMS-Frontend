@@ -35,10 +35,10 @@ const SEEDS: Seed[] = [
   {
     firstName: "Sarah",
     lastName: "Jenkins",
-    email: "s.jenkins@bmsman.corp",
+    email: "s.jenkins@frpengineering.com",
     department: "Admin / Accounts",
-    roleIds: ["role-administrator"],
-    roleNames: ["Administrator"],
+    roleIds: ["role-org-admin"],
+    roleNames: ["Org Admin"],
     status: "active",
     lastLogin: "2 mins ago",
     region: "North America",
@@ -47,7 +47,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Marcus",
     lastName: "Thorne",
-    email: "m.thorne@bmsman.corp",
+    email: "m.thorne@frpengineering.com",
     department: "Project Managers",
     roleIds: ["role-operations-manager"],
     roleNames: ["Operations Manager"],
@@ -59,7 +59,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "David",
     lastName: "Chen",
-    email: "d.chen@bmsman.corp",
+    email: "d.chen@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -71,7 +71,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Elena",
     lastName: "Rostova",
-    email: "e.rostova@bmsman.corp",
+    email: "e.rostova@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -83,7 +83,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "James",
     lastName: "Baxter",
-    email: "j.baxter@bmsman.corp",
+    email: "j.baxter@frpengineering.com",
     department: "Sales / QA",
     roleIds: ["role-guest-viewer"],
     roleNames: ["Guest Viewer"],
@@ -96,7 +96,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Rahul",
     lastName: "Sharma",
-    email: "r.sharma@bmsman.corp",
+    email: "r.sharma@frpengineering.com",
     department: "Draftsmen",
     roleIds: ["role-support-specialist"],
     roleNames: ["Support Specialist"],
@@ -108,7 +108,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Amit",
     lastName: "Kumar",
-    email: "a.kumar@bmsman.corp",
+    email: "a.kumar@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -120,7 +120,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Neha",
     lastName: "Singh",
-    email: "n.singh@bmsman.corp",
+    email: "n.singh@frpengineering.com",
     department: "Draftsmen",
     roleIds: ["role-support-specialist"],
     roleNames: ["Support Specialist"],
@@ -132,7 +132,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Michael",
     lastName: "Brown",
-    email: "m.brown@bmsman.corp",
+    email: "m.brown@frpengineering.com",
     department: "Project Managers",
     roleIds: ["role-operations-manager"],
     roleNames: ["Operations Manager"],
@@ -144,10 +144,10 @@ const SEEDS: Seed[] = [
   {
     firstName: "Sarah",
     lastName: "Wilson",
-    email: "s.wilson@bmsman.corp",
+    email: "s.wilson@frpengineering.com",
     department: "Admin / Accounts",
-    roleIds: ["role-administrator"],
-    roleNames: ["Administrator"],
+    roleIds: ["role-org-admin"],
+    roleNames: ["Org Admin"],
     status: "active",
     lastLogin: "Oct 24, 08:55 AM",
     region: "Europe",
@@ -156,7 +156,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "James",
     lastName: "Holden",
-    email: "j.holden@bmsman.com",
+    email: "j.holden@frpengineering.com",
     department: "Project Managers",
     roleIds: ["role-operations-manager"],
     roleNames: ["Operations Manager"],
@@ -168,7 +168,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Naomi",
     lastName: "Nagata",
-    email: "n.nagata@bmsman.com",
+    email: "n.nagata@frpengineering.com",
     department: "Draftsmen",
     roleIds: ["role-support-specialist"],
     roleNames: ["Support Specialist"],
@@ -180,7 +180,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Amos",
     lastName: "Burton",
-    email: "a.burton@bmsman.com",
+    email: "a.burton@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -192,7 +192,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Priya",
     lastName: "Iyer",
-    email: "p.iyer@bmsman.corp",
+    email: "p.iyer@frpengineering.com",
     department: "Sales / QA",
     roleIds: ["role-support-specialist"],
     roleNames: ["Support Specialist"],
@@ -204,7 +204,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Oliver",
     lastName: "Novak",
-    email: "o.novak@bmsman.corp",
+    email: "o.novak@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -216,7 +216,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Isabella",
     lastName: "Costa",
-    email: "i.costa@bmsman.corp",
+    email: "i.costa@frpengineering.com",
     department: "Draftsmen",
     roleIds: ["role-support-specialist"],
     roleNames: ["Support Specialist"],
@@ -228,7 +228,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Kenji",
     lastName: "Watanabe",
-    email: "k.watanabe@bmsman.corp",
+    email: "k.watanabe@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -240,7 +240,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Grace",
     lastName: "Okafor",
-    email: "g.okafor@bmsman.corp",
+    email: "g.okafor@frpengineering.com",
     department: "Project Managers",
     roleIds: ["role-operations-manager"],
     roleNames: ["Operations Manager"],
@@ -252,7 +252,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Liam",
     lastName: "Fraser",
-    email: "l.fraser@bmsman.corp",
+    email: "l.fraser@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -264,7 +264,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Fatima",
     lastName: "Haidari",
-    email: "f.haidari@bmsman.corp",
+    email: "f.haidari@frpengineering.com",
     department: "Sales / QA",
     roleIds: ["role-support-specialist"],
     roleNames: ["Support Specialist"],
@@ -276,10 +276,10 @@ const SEEDS: Seed[] = [
   {
     firstName: "David",
     lastName: "Kim",
-    email: "d.kim@bmsman.corp",
+    email: "d.kim@frpengineering.com",
     department: "Admin / Accounts",
-    roleIds: ["role-administrator"],
-    roleNames: ["Administrator"],
+    roleIds: ["role-org-admin"],
+    roleNames: ["Org Admin"],
     status: "active",
     lastLogin: "Oct 13, 09:10 AM",
     region: "Asia Pacific",
@@ -288,7 +288,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Chloe",
     lastName: "Bennett",
-    email: "c.bennett@bmsman.corp",
+    email: "c.bennett@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -300,7 +300,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Yusuf",
     lastName: "Demir",
-    email: "y.demir@bmsman.corp",
+    email: "y.demir@frpengineering.com",
     department: "Workshop / Field",
     roleIds: ["role-field-engineer"],
     roleNames: ["Field Engineer"],
@@ -312,7 +312,7 @@ const SEEDS: Seed[] = [
   {
     firstName: "Emma",
     lastName: "Larsen",
-    email: "e.larsen@bmsman.corp",
+    email: "e.larsen@frpengineering.com",
     department: "Sales / QA",
     roleIds: ["role-guest-viewer"],
     roleNames: ["Guest Viewer"],

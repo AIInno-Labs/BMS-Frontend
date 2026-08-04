@@ -7,6 +7,6 @@ export const SHAREPOINT_CONFIG: SharePointConfig = {
   clientSecret: "",
   siteUrl: "",
   documentLibrary: "Shared Documents",
-  defaultRootFolder: "BMSMan_Sync",
+  defaultRootFolder: "FRP_Sync",
   lastSynced: null,
 };

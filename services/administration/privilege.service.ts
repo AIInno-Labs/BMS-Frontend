@@ -31,13 +31,10 @@ export function getPrivilegeModules(): Promise<readonly string[]> {
   return Promise.resolve(PRIVILEGE_MODULES);
 }
 
-export function createPrivilege(
-  payload: Omit<Privilege, "id" | "usedByRoles">
-): Promise<Privilege> {
+export function createPrivilege(payload: Omit<Privilege, "id">): Promise<Privilege> {
   const privilege: Privilege = {
     ...payload,
     id: `priv-${privilegeStore.length + 1}-${Date.now()}`,
-    usedByRoles: [],
   };
   privilegeStore = [...privilegeStore, privilege];
   return Promise.resolve(privilege);

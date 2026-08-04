@@ -1,5 +1,5 @@
 import { ASSIGNABLE_ROLES, ROLE_MAPPING_USERS } from "@/constants/administration/roleMapping";
-import type { RoleMappingUser } from "@/lib/administration/types";
+import type { AssignableRole, RoleMappingUser } from "@/lib/administration/types";
 
 let mappingStore: RoleMappingUser[] = [...ROLE_MAPPING_USERS];
 
@@ -12,7 +12,7 @@ export function getRoleMappingUser(id: string): Promise<RoleMappingUser | null> 
   return Promise.resolve(mappingStore.find((u) => u.id === id) ?? null);
 }
 
-export function getAssignableRoles(): Promise<string[]> {
+export function getAssignableRoles(): Promise<AssignableRole[]> {
   return Promise.resolve(ASSIGNABLE_ROLES);
 }
 
@@ -33,20 +33,23 @@ export function removeAssignedRole(
 
 export function assignRoleToUser(
   userId: string,
-  roleName: string
+  role: AssignableRole
 ): Promise<RoleMappingUser | null> {
   const idx = mappingStore.findIndex((u) => u.id === userId);
   if (idx === -1) return Promise.resolve(null);
   const user = mappingStore[idx];
+  if (user.assignedRoles.some((r) => r.name === role.name)) {
+    return Promise.resolve(user);
+  }
   const updated: RoleMappingUser = {
     ...user,
     assignedRoles: [
       ...user.assignedRoles,
       {
-        id: `assigned-${roleName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
-        name: roleName,
-        description: "Newly assigned role.",
-        icon: "wrench",
+        id: `assigned-${role.id}-${Date.now()}`,
+        name: role.name,
+        description: role.description,
+        icon: role.icon,
       },
     ],
   };

@@ -1,194 +1,224 @@
-import type { RoleMappingUser } from "@/lib/administration/types";
+import { USERS } from "@/constants/administration/users";
+import { ROLES } from "@/constants/administration/roles";
+import type { AssignableRole, AssignedRole, RoleMappingUser } from "@/lib/administration/types";
+
+function roleDescription(name: string): string {
+  return ROLES.find((r) => r.name === name)?.description ?? "";
+}
+
+function assignedRole(name: string, icon: AssignedRole["icon"]): AssignedRole {
+  return {
+    id: `assigned-${name.toLowerCase().replace(/\s+/g, "-")}`,
+    name,
+    description: roleDescription(name),
+    icon,
+  };
+}
+
+function byId(id: string) {
+  const user = USERS.find((u) => u.id === id);
+  if (!user) throw new Error(`Unknown seed user id: ${id}`);
+  return user;
+}
+
+const sarahJenkins = byId("user-1");
+const marcusThorne = byId("user-2");
+const davidChen = byId("user-3");
+const rahulSharma = byId("user-6");
+const nehaSingh = byId("user-8");
 
 export const ROLE_MAPPING_USERS: RoleMappingUser[] = [
   {
-    id: "rm-sarah-jenkins",
-    fullName: "Sarah Jenkins",
-    email: "sarah.j@bmsman.com",
-    department: "Operations",
-    category: "Operations",
-    avatarInitials: "SJ",
-    avatarColor: "bg-slate-200 text-slate-700",
-    online: false,
-    roleNames: ["Plant Manager", "+1 Role"],
-    assignedRoles: [
-      {
-        id: "assigned-plant-manager",
-        name: "Plant Manager",
-        description: "Oversees daily plant operations and staff scheduling.",
-        icon: "shield",
-      },
-      {
-        id: "assigned-support-specialist",
-        name: "Support Specialist",
-        description: "View customer data, manage tickets and basic quotes.",
-        icon: "eye",
-      },
-    ],
-    effectivePermissions: [
-      {
-        module: "System Configuration",
-        scope: "manage",
-        scopeLabel: "Manage",
-        actions: [
-          { label: "Users", granted: true },
-          { label: "Roles", granted: false },
-          { label: "Settings", granted: true },
-        ],
-      },
-      {
-        module: "Work Orders",
-        scope: "full",
-        scopeLabel: "Full Access",
-        actions: [
-          { label: "Create", granted: true },
-          { label: "Approve", granted: true },
-          { label: "Delete", granted: false },
-        ],
-      },
-      {
-        module: "Financials",
-        scope: "none",
-        scopeLabel: "No Access",
-        actions: [],
-      },
-    ],
-  },
-  {
-    id: "rm-marcus-chen",
-    fullName: "Marcus Chen",
-    email: "m.chen@bmsman.com",
-    department: "Engineering",
-    category: "Engineering",
-    avatarInitials: "MC",
-    avatarColor: "bg-slate-200 text-slate-700",
-    online: true,
-    roleNames: ["System Admin", "Lead Technician"],
-    assignedRoles: [
-      {
-        id: "assigned-system-admin",
-        name: "System Admin",
-        description: "Full access to system configurations and user…",
-        icon: "shield",
-      },
-      {
-        id: "assigned-lead-technician",
-        name: "Lead Technician",
-        description: "Can approve work orders, manage inventory, and…",
-        icon: "wrench",
-      },
-    ],
-    effectivePermissions: [
-      {
-        module: "System Configuration",
-        scope: "full",
-        scopeLabel: "Full Access",
-        actions: [
-          { label: "Users", granted: true },
-          { label: "Roles", granted: true },
-          { label: "Settings", granted: true },
-        ],
-      },
-      {
-        module: "Work Orders",
-        scope: "manage",
-        scopeLabel: "Manage",
-        actions: [
-          { label: "Create", granted: true },
-          { label: "Approve", granted: true },
-          { label: "Delete", granted: false },
-        ],
-      },
-      {
-        module: "Financials",
-        scope: "none",
-        scopeLabel: "No Access",
-        actions: [],
-      },
-    ],
-  },
-  {
-    id: "rm-elena-rodriguez",
-    fullName: "Elena Rodriguez",
-    email: "elena.r@bmsman.com",
-    department: "Operations",
-    category: "Operations",
-    avatarInitials: "ER",
-    avatarColor: "bg-slate-200 text-slate-700",
-    online: false,
-    roleNames: ["Auditor"],
-    assignedRoles: [
-      {
-        id: "assigned-auditor",
-        name: "Auditor",
-        description: "Read-only access across all modules for compliance review.",
-        icon: "eye",
-      },
-    ],
-    effectivePermissions: [
-      {
-        module: "System Configuration",
-        scope: "none",
-        scopeLabel: "No Access",
-        actions: [],
-      },
-      {
-        module: "Work Orders",
-        scope: "none",
-        scopeLabel: "View Only",
-        actions: [{ label: "View", granted: true }],
-      },
-      {
-        module: "Financials",
-        scope: "none",
-        scopeLabel: "View Only",
-        actions: [{ label: "View", granted: true }],
-      },
-    ],
-  },
-  {
-    id: "rm-david-kim",
-    fullName: "David Kim",
-    email: "dkim@bmsman.com",
-    department: "Admins",
+    id: sarahJenkins.id,
+    fullName: sarahJenkins.fullName,
+    email: sarahJenkins.email,
+    department: sarahJenkins.department,
     category: "Admins",
-    avatarInitials: "DK",
-    avatarColor: "bg-emerald-100 text-emerald-700",
+    avatarInitials: sarahJenkins.avatarInitials,
+    avatarColor: sarahJenkins.avatarColor,
     online: true,
-    roleNames: ["Dispatcher", "+1 Role"],
-    assignedRoles: [
-      {
-        id: "assigned-dispatcher",
-        name: "Dispatcher",
-        description: "Assigns field jobs and coordinates technician schedules.",
-        icon: "wrench",
-      },
-      {
-        id: "assigned-support-specialist-2",
-        name: "Support Specialist",
-        description: "View customer data, manage tickets and basic quotes.",
-        icon: "eye",
-      },
-    ],
+    roleNames: ["Org Admin"],
+    assignedRoles: [assignedRole("Org Admin", "shield")],
     effectivePermissions: [
       {
-        module: "System Configuration",
-        scope: "none",
-        scopeLabel: "No Access",
-        actions: [],
+        module: "Administration",
+        scope: "full",
+        scopeLabel: "Full Access",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Create", granted: true },
+          { label: "Edit", granted: true },
+          { label: "Delete", granted: true },
+        ],
       },
       {
-        module: "Work Orders",
+        module: "Jobs & Work Orders",
         scope: "manage",
         scopeLabel: "Manage",
         actions: [
+          { label: "View", granted: true },
           { label: "Create", granted: true },
-          { label: "Approve", granted: false },
+          { label: "Edit", granted: true },
           { label: "Delete", granted: false },
         ],
       },
       {
-        module: "Financials",
+        module: "Settings",
+        scope: "full",
+        scopeLabel: "Full Access",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Edit", granted: true },
+        ],
+      },
+    ],
+  },
+  {
+    id: marcusThorne.id,
+    fullName: marcusThorne.fullName,
+    email: marcusThorne.email,
+    department: marcusThorne.department,
+    category: "Operations",
+    avatarInitials: marcusThorne.avatarInitials,
+    avatarColor: marcusThorne.avatarColor,
+    online: true,
+    roleNames: ["Operations Manager"],
+    assignedRoles: [assignedRole("Operations Manager", "wrench")],
+    effectivePermissions: [
+      {
+        module: "Jobs & Work Orders",
+        scope: "full",
+        scopeLabel: "Full Access",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Create", granted: true },
+          { label: "Edit", granted: true },
+          { label: "Approve", granted: true },
+        ],
+      },
+      {
+        module: "Quotes & Invoicing",
+        scope: "manage",
+        scopeLabel: "Manage",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Create", granted: true },
+          { label: "Edit", granted: true },
+        ],
+      },
+      {
+        module: "Administration",
+        scope: "none",
+        scopeLabel: "No Access",
+        actions: [],
+      },
+    ],
+  },
+  {
+    id: davidChen.id,
+    fullName: davidChen.fullName,
+    email: davidChen.email,
+    department: davidChen.department,
+    category: "Engineering",
+    avatarInitials: davidChen.avatarInitials,
+    avatarColor: davidChen.avatarColor,
+    online: false,
+    roleNames: ["Field Engineer"],
+    assignedRoles: [assignedRole("Field Engineer", "wrench")],
+    effectivePermissions: [
+      {
+        module: "Jobs & Work Orders",
+        scope: "manage",
+        scopeLabel: "Manage",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Edit", granted: true },
+        ],
+      },
+      {
+        module: "Quotes & Invoicing",
+        scope: "none",
+        scopeLabel: "View Only",
+        actions: [{ label: "View", granted: true }],
+      },
+      {
+        module: "Administration",
+        scope: "none",
+        scopeLabel: "No Access",
+        actions: [],
+      },
+    ],
+  },
+  {
+    id: rahulSharma.id,
+    fullName: rahulSharma.fullName,
+    email: rahulSharma.email,
+    department: rahulSharma.department,
+    category: "Engineering",
+    avatarInitials: rahulSharma.avatarInitials,
+    avatarColor: rahulSharma.avatarColor,
+    online: false,
+    roleNames: ["Support Specialist"],
+    assignedRoles: [assignedRole("Support Specialist", "eye")],
+    effectivePermissions: [
+      {
+        module: "Quotes & Invoicing",
+        scope: "manage",
+        scopeLabel: "Manage",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Create", granted: true },
+        ],
+      },
+      {
+        module: "Jobs & Work Orders",
+        scope: "none",
+        scopeLabel: "View Only",
+        actions: [{ label: "View", granted: true }],
+      },
+      {
+        module: "Administration",
+        scope: "none",
+        scopeLabel: "No Access",
+        actions: [],
+      },
+    ],
+  },
+  {
+    id: nehaSingh.id,
+    fullName: nehaSingh.fullName,
+    email: nehaSingh.email,
+    department: nehaSingh.department,
+    category: "Engineering",
+    avatarInitials: nehaSingh.avatarInitials,
+    avatarColor: nehaSingh.avatarColor,
+    online: true,
+    roleNames: ["Support Specialist", "+1 Role"],
+    assignedRoles: [
+      assignedRole("Support Specialist", "eye"),
+      assignedRole("Field Engineer", "wrench"),
+    ],
+    effectivePermissions: [
+      {
+        module: "Quotes & Invoicing",
+        scope: "manage",
+        scopeLabel: "Manage",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Create", granted: true },
+        ],
+      },
+      {
+        module: "Jobs & Work Orders",
+        scope: "manage",
+        scopeLabel: "Manage",
+        actions: [
+          { label: "View", granted: true },
+          { label: "Edit", granted: true },
+        ],
+      },
+      {
+        module: "Administration",
         scope: "none",
         scopeLabel: "No Access",
         actions: [],
@@ -197,11 +227,9 @@ export const ROLE_MAPPING_USERS: RoleMappingUser[] = [
   },
 ];
 
-export const ASSIGNABLE_ROLES = [
-  "System Admin",
-  "Lead Technician",
-  "Plant Manager",
-  "Dispatcher",
-  "Support Specialist",
-  "Auditor",
-];
+export const ASSIGNABLE_ROLES: AssignableRole[] = ROLES.map((r) => ({
+  id: r.id,
+  name: r.name,
+  description: r.description,
+  icon: r.icon,
+}));

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Eye, Headset, Plus, Shield, ShieldCheck, Wrench } from "lucide-react";
+import { Eye, Headset, Pencil, Plus, Shield, ShieldCheck, Wrench } from "lucide-react";
 import { PageHeader } from "@/components/administration/ui/PageHeader";
 import { DataTable, type DataTableColumn } from "@/components/administration/ui/DataTable";
 import { StatusPill } from "@/components/administration/ui/StatusPill";
@@ -52,6 +52,19 @@ export function RolesPage() {
       header: "Status",
       render: (r) => (
         <StatusPill label={r.status === "active" ? "Active" : "Inactive"} tone={r.status === "active" ? "success" : "neutral"} />
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (r) => (
+        <Link
+          href={`/administration/roles/${r.id}/edit`}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Edit
+        </Link>
       ),
     },
   ];

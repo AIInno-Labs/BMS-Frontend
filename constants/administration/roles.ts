@@ -1,57 +1,9 @@
-import type { CreateRolePayload, PermissionModuleGroup, Role } from "@/lib/administration/types";
+import type { CreateRolePayload, PermissionAction, PermissionModuleGroup, Role } from "@/lib/administration/types";
+import { USERS } from "@/constants/administration/users";
 
-export const ROLES: Role[] = [
-  {
-    id: "role-administrator",
-    name: "Administrator",
-    description: "Full access to all system features and settings.",
-    usersCount: 3,
-    permissionsCount: 132,
-    status: "active",
-    isSystemAdmin: true,
-    icon: "shield",
-  },
-  {
-    id: "role-operations-manager",
-    name: "Operations Manager",
-    description: "Manage jobs, quotes, and view analytics.",
-    usersCount: 12,
-    permissionsCount: 84,
-    status: "active",
-    isSystemAdmin: false,
-    icon: "briefcase",
-  },
-  {
-    id: "role-field-engineer",
-    name: "Field Engineer",
-    description: "Update job status and view assigned tasks.",
-    usersCount: 46,
-    permissionsCount: 28,
-    status: "active",
-    isSystemAdmin: false,
-    icon: "wrench",
-  },
-  {
-    id: "role-support-specialist",
-    name: "Support Specialist",
-    description: "View customer data, manage tickets and basic quotes.",
-    usersCount: 34,
-    permissionsCount: 45,
-    status: "active",
-    isSystemAdmin: false,
-    icon: "headset",
-  },
-  {
-    id: "role-guest-viewer",
-    name: "Guest Viewer",
-    description: "Read-only access to selected public dashboards.",
-    usersCount: 0,
-    permissionsCount: 5,
-    status: "inactive",
-    isSystemAdmin: false,
-    icon: "eye",
-  },
-];
+function usersWithRole(roleId: string): number {
+  return USERS.filter((u) => u.roleIds.includes(roleId)).length;
+}
 
 export const PERMISSION_MODULE_TEMPLATE: PermissionModuleGroup[] = [
   {
@@ -85,6 +37,123 @@ export const PERMISSION_MODULE_TEMPLATE: PermissionModuleGroup[] = [
     actions: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
   },
 ];
+
+function countGrantedPermissions(groups: PermissionModuleGroup[]): number {
+  return groups.reduce(
+    (sum, group) => sum + Object.values(group.actions).filter(Boolean).length,
+    0
+  );
+}
+
+function buildPermissions(
+  grants: Record<string, PermissionAction[]>
+): PermissionModuleGroup[] {
+  return PERMISSION_MODULE_TEMPLATE.map((group) => {
+    const granted = new Set(grants[group.module] ?? []);
+    return {
+      ...group,
+      actions: {
+        view: granted.has("view"),
+        create: granted.has("create"),
+        edit: granted.has("edit"),
+        delete: granted.has("delete"),
+        approve: granted.has("approve"),
+        export: granted.has("export"),
+      },
+    };
+  });
+}
+
+interface RoleSeed {
+  id: string;
+  name: string;
+  description: string;
+  status: Role["status"];
+  isSystemAdmin: boolean;
+  icon: Role["icon"];
+  permissions: PermissionModuleGroup[];
+}
+
+const ROLE_SEEDS: RoleSeed[] = [
+  {
+    id: "role-org-admin",
+    name: "Org Admin",
+    description: "Full administrative access within your organization — manage users, roles, and integrations.",
+    status: "active",
+    isSystemAdmin: true,
+    icon: "shield",
+    permissions: buildPermissions({
+      Dashboard: ["view", "export"],
+      "Jobs & Work Orders": ["view", "create", "edit", "approve", "export"],
+      "Quotes & Invoicing": ["view", "create", "edit", "approve", "export"],
+      Administration: ["view", "create", "edit", "delete"],
+      Analytics: ["view", "export"],
+      Settings: ["view", "edit"],
+    }),
+  },
+  {
+    id: "role-operations-manager",
+    name: "Operations Manager",
+    description: "Manage jobs, quotes, and view analytics.",
+    status: "active",
+    isSystemAdmin: false,
+    icon: "briefcase",
+    permissions: buildPermissions({
+      Dashboard: ["view", "export"],
+      "Jobs & Work Orders": ["view", "create", "edit", "approve"],
+      "Quotes & Invoicing": ["view", "create", "edit"],
+      Analytics: ["view", "export"],
+      Settings: ["view"],
+    }),
+  },
+  {
+    id: "role-field-engineer",
+    name: "Field Engineer",
+    description: "Update job status and view assigned tasks.",
+    status: "active",
+    isSystemAdmin: false,
+    icon: "wrench",
+    permissions: buildPermissions({
+      Dashboard: ["view"],
+      "Jobs & Work Orders": ["view", "edit"],
+      "Quotes & Invoicing": ["view"],
+      Settings: ["view"],
+    }),
+  },
+  {
+    id: "role-support-specialist",
+    name: "Support Specialist",
+    description: "View customer data, manage tickets and basic quotes.",
+    status: "active",
+    isSystemAdmin: false,
+    icon: "headset",
+    permissions: buildPermissions({
+      Dashboard: ["view"],
+      "Jobs & Work Orders": ["view"],
+      "Quotes & Invoicing": ["view", "create"],
+      Analytics: ["view"],
+      Settings: ["view"],
+    }),
+  },
+  {
+    id: "role-guest-viewer",
+    name: "Guest Viewer",
+    description: "Read-only access to selected public dashboards.",
+    status: "inactive",
+    isSystemAdmin: false,
+    icon: "eye",
+    permissions: buildPermissions({
+      Dashboard: ["view"],
+      "Jobs & Work Orders": ["view"],
+    }),
+  },
+];
+
+export const ROLES: Role[] = ROLE_SEEDS.map((role) => ({
+  ...role,
+  usersCount: usersWithRole(role.id),
+  permissionsCount: countGrantedPermissions(role.permissions),
+}));
 
 export const DEFAULT_CREATE_ROLE_PAYLOAD: CreateRolePayload = {
   name: "",

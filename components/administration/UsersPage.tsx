@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Globe2, Plus } from "lucide-react";
+import { Globe2, Pencil, Plus, ShieldOff, ShieldCheck as ShieldEnable } from "lucide-react";
 import { PageHeader } from "@/components/administration/ui/PageHeader";
 import { SearchBar } from "@/components/administration/ui/SearchBar";
 import { FilterDropdown } from "@/components/administration/ui/FilterDropdown";
@@ -11,6 +11,7 @@ import { StatusPill, type StatusPillTone } from "@/components/administration/ui/
 import {
   getRegionDistribution,
   getUsers,
+  updateUser,
   type RegionDistribution,
 } from "@/services/administration/user.service";
 import { getRoles } from "@/services/administration/role.service";
@@ -84,6 +85,11 @@ export function UsersPage() {
     setPage(1);
   }, [query, status, roleId]);
 
+  async function handleToggleStatus(u: AdminUser) {
+    await updateUser(u.id, { status: u.status === "active" ? "inactive" : "active" });
+    void load();
+  }
+
   const columns: DataTableColumn<AdminUser>[] = [
     { key: "name", header: "Full Name", render: (u) => <span className="font-medium text-[#111827]">{u.fullName}</span> },
     { key: "email", header: "Email", render: (u) => <span className="text-slate-600">{u.email}</span> },
@@ -101,6 +107,38 @@ export function UsersPage() {
       ),
     },
     { key: "lastLogin", header: "Last Login", render: (u) => u.lastLogin ?? "—" },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (u) => (
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/administration/users/${u.id}/edit`}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Link>
+          <button
+            type="button"
+            onClick={() => void handleToggleStatus(u)}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
+          >
+            {u.status === "active" ? (
+              <>
+                <ShieldOff className="h-3.5 w-3.5" />
+                Disable
+              </>
+            ) : (
+              <>
+                <ShieldEnable className="h-3.5 w-3.5" />
+                Enable
+              </>
+            )}
+          </button>
+        </div>
+      ),
+    },
   ];
 
   const start = (page - 1) * PAGE_SIZE + 1;

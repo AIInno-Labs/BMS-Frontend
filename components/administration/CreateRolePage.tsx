@@ -7,6 +7,8 @@ import { ToggleSwitch } from "@/components/administration/ui/ToggleSwitch";
 import {
   createRole,
   getDefaultCreateRolePayload,
+  getRole,
+  updateRoleDetails,
 } from "@/services/administration/role.service";
 import type { CreateRolePayload, PermissionAction } from "@/lib/administration/types";
 
@@ -22,17 +24,38 @@ const ACTIONS: { key: PermissionAction; label: string }[] = [
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-xl border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#F97316] focus:ring-2 focus:ring-orange-200/40";
 
-export function CreateRolePage() {
+export function CreateRolePage({ roleId }: { roleId?: string } = {}) {
   const router = useRouter();
+  const isEdit = Boolean(roleId);
   const [payload, setPayload] = useState<CreateRolePayload | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (roleId) {
+      getRole(roleId).then((role) => {
+        if (!role) {
+          setNotFound(true);
+          return;
+        }
+        setPayload({
+          name: role.name,
+          description: role.description,
+          isSystemAdmin: role.isSystemAdmin,
+          permissions: role.permissions.map((g) => ({ ...g, actions: { ...g.actions } })),
+        });
+      });
+      return;
+    }
     getDefaultCreateRolePayload().then((p) =>
       setPayload({ ...p, permissions: p.permissions.map((g) => ({ ...g, actions: { ...g.actions } })) })
     );
-  }, []);
+  }, [roleId]);
+
+  if (notFound) {
+    return <p className="py-12 text-center text-sm text-slate-500">Role not found.</p>;
+  }
 
   if (!payload) {
     return <p className="py-12 text-center text-sm text-slate-500">Loading…</p>;
@@ -59,13 +82,30 @@ export function CreateRolePage() {
   async function handleSave() {
     if (!payload || !payload.name.trim()) return;
     setSaving(true);
-    await createRole(payload);
+    if (roleId) {
+      await updateRoleDetails(roleId, payload);
+    } else {
+      await createRole(payload);
+    }
     setSaving(false);
     setDirty(false);
     router.push("/administration/roles");
   }
 
   async function handleDiscard() {
+    if (roleId) {
+      const role = await getRole(roleId);
+      if (role) {
+        setPayload({
+          name: role.name,
+          description: role.description,
+          isSystemAdmin: role.isSystemAdmin,
+          permissions: role.permissions.map((g) => ({ ...g, actions: { ...g.actions } })),
+        });
+      }
+      setDirty(false);
+      return;
+    }
     const fresh = await getDefaultCreateRolePayload();
     setPayload({ ...fresh, permissions: fresh.permissions.map((g) => ({ ...g, actions: { ...g.actions } })) });
     setDirty(false);
@@ -74,8 +114,12 @@ export function CreateRolePage() {
   return (
     <div className="mx-auto max-w-6xl pb-20">
       <PageHeader
-        title="Create Role"
-        subtitle="Define capabilities and access levels for this new role."
+        title={isEdit ? "Edit Role" : "Create Role"}
+        subtitle={
+          isEdit
+            ? "Update this role's details and permission mapping."
+            : "Define capabilities and access levels for this new role."
+        }
         actions={
           <>
             <button
@@ -91,7 +135,7 @@ export function CreateRolePage() {
               onClick={() => void handleSave()}
               className="btn-primary disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save Role"}
+              {saving ? "Saving…" : isEdit ? "Save Changes" : "Save Role"}
             </button>
           </>
         }

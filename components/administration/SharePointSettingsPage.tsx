@@ -46,7 +46,7 @@ export function SharePointSettingsPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         title="SharePoint Integration"
-        subtitle="Configure your Microsoft SharePoint tenant settings to enable document syncing and management within BMSMan."
+        subtitle="Configure your Microsoft SharePoint tenant settings to enable document syncing and management within FRP Engineering."
         actions={
           <StatusPill label={config.connected ? "Connected" : "Disconnected"} tone={config.connected ? "success" : "danger"} />
         }
