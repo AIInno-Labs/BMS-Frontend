@@ -19,6 +19,7 @@ import { parseNaturalLanguageQuery } from "@/lib/aiMock";
 import {
   formatCreatedDate,
   formatDate,
+  formatShortDate,
   formatEstimatedHours,
   hasSchedulingBlockAlert,
 } from "@/lib/mockData";
@@ -492,7 +493,7 @@ function JobsTable({
                       <p className="truncate text-xs text-slate-700">{job.clientContactName}</p>
                     </td>
                   )}
-                  {!workerMode && <td className={`${TD} text-left tabular-nums`}>{formatDate(job.date)}</td>}
+                  {!workerMode && <td className={`${TD} text-left tabular-nums`}>{formatShortDate(job.dueDate)}</td>}
                   {!workerMode && (
                     <td className={`${TD} text-left`}>
                       <span
@@ -506,7 +507,7 @@ function JobsTable({
                       </span>
                     </td>
                   )}
-                  {workerMode && <td className={`${TD} text-left tabular-nums`}>{formatDate(job.date)}</td>}
+                  {workerMode && <td className={`${TD} text-left tabular-nums`}>{formatShortDate(job.dueDate)}</td>}
                 </tr>
           ))}
         </tbody>

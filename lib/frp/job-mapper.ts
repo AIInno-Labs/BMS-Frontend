@@ -35,6 +35,7 @@ export interface FrpJobSummaryDTO {
   resinCode?: string | null;
   assignedUserId?: number | null;
   percentComplete?: number | null;
+  createdDate?: string;
 }
 
 /** `JobDTO` — the full record returned by `GET /jobs/{id}`. */
@@ -235,7 +236,9 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     id: dto.jobNumber ?? "",
     clientName: dto.customerCompanyName ?? "",
     projectName: dto.title ?? "",
-    date: "",
+    // Date raised. Was hardcoded empty because JobSummaryDTO carried no date
+    // at all, which rendered as "Invalid Date" in the list.
+    date: dto.createdDate?.slice(0, 10) ?? "",
     dueDate: dto.dueDate ?? null,
     quoteValidUntil: null,
     estimatedHours: null,
@@ -250,6 +253,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
     manualInstructions: "",
+    createdAt: dto.createdDate,
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
     percentComplete: dto.percentComplete ?? null,
