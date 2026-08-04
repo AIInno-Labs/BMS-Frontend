@@ -169,6 +169,29 @@ export interface FrpJobCardPayload {
   manualInstructions?: string;
 }
 
+/**
+ * `DrawingStageDTO` — one line of the drawing checklist.
+ *
+ * The backend returns all five whether ticked or not, and owns the label, so
+ * the client no longer keeps its own copy of the list.
+ */
+export interface FrpDrawingStageDTO {
+  stage: FrpDrawingStage;
+  label?: string;
+  completed: boolean;
+  updatedBy?: number | null;
+  updatedAt?: string | null;
+  remarks?: string | null;
+}
+
+/** Pinned by `ck_drawing_stage`; sending anything else is a 400. */
+export type FrpDrawingStage =
+  | "MEASUREMENTS_TAKEN"
+  | "DRAWING_CREATED"
+  | "CLIENT_APPROVED"
+  | "ENGINEER_APPROVED"
+  | "REV_A_ISSUED";
+
 /** `JobCountsDTO` — `GET /jobs/counts`. */
 export interface FrpJobCountsDTO {
   total?: number;
