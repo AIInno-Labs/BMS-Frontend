@@ -16,6 +16,7 @@ import {
   User,
   UserCircle,
   StickyNote,
+  Truck,
   Wrench,
   X,
 } from "lucide-react";
@@ -46,7 +47,14 @@ import {
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote } from "@/lib/frp/api";
-import type { Job, JobPriority, JobStatus, ResinType } from "@/lib/types";
+import type {
+  Job,
+  JobPriority,
+  JobSchedulingLogistics,
+  JobStatus,
+  ResinType,
+  ShipmentMethod,
+} from "@/lib/types";
 import {
   getAssignableWorkers,
   getWorkerDisplayName,
@@ -309,6 +317,41 @@ export function JobCard({ jobId }: JobCardProps) {
 
   const patchPrintDetails = (printDetails: JobCardPrintDetails) =>
     setDraft((d) => (d ? { ...d, printDetails } : d));
+
+  const EMPTY_SCHEDULING_LOGISTICS: JobSchedulingLogistics = {
+    jobStatus: null,
+    responsiblePersonId: null,
+    accountable: null,
+    contactId: null,
+    shipDate: null,
+    shipmentMethod: null,
+    freightAccount: null,
+    carrierAccount: null,
+    billingAddress: null,
+    deliveryAddress: null,
+  };
+
+  const patchSchedulingLogistics = (patch: Partial<JobSchedulingLogistics>) =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            schedulingLogistics: {
+              ...EMPTY_SCHEDULING_LOGISTICS,
+              ...(d.schedulingLogistics ?? {}),
+              ...patch,
+            },
+          }
+        : d
+    );
+
+  const SHIPMENT_METHOD_OPTIONS: { value: ShipmentMethod; label: string }[] = [
+    { value: "INHOUSE_DELIVERY", label: "In-house delivery" },
+    { value: "CUSTOMER_COLLECT", label: "Customer collect" },
+    { value: "THIRD_PARTY_COURIER", label: "Third-party courier" },
+    { value: "FREIGHT_FORWARDER", label: "Freight forwarder" },
+    { value: "OTHER", label: "Other" },
+  ];
 
   const startEditing = () => {
     setSaveSuccess(false);
@@ -934,6 +977,179 @@ export function JobCard({ jobId }: JobCardProps) {
                 <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
                   {display.notes || "—"}
                 </p>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <Truck className="h-4 w-4" aria-hidden />
+                Scheduling &amp; logistics
+              </h2>
+              {isEditing ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-sm">
+                    <span className="text-slate-500">Logistics status</span>
+                    <select
+                      value={draft.schedulingLogistics?.jobStatus ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({ jobStatus: e.target.value || null })
+                      }
+                      className={`${inputClass} mt-1`}
+                    >
+                      <option value="">—</option>
+                      {[
+                        "PENDING",
+                        "AWAITING_MANAGER_APPROVAL",
+                        "READY_TO_MANUFACTURE",
+                        "IN_FABRICATION",
+                        "ON_HOLD",
+                        "COMPLETE",
+                        "CANCELLED",
+                      ].map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Shipment method</span>
+                    <select
+                      value={draft.schedulingLogistics?.shipmentMethod ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          shipmentMethod:
+                            (e.target.value as ShipmentMethod) || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    >
+                      <option value="">—</option>
+                      {SHIPMENT_METHOD_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Ship date</span>
+                    <input
+                      type="date"
+                      value={draft.schedulingLogistics?.shipDate ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({ shipDate: e.target.value || null })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Responsible person (user id)</span>
+                    <input
+                      type="number"
+                      value={draft.schedulingLogistics?.responsiblePersonId ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          responsiblePersonId: e.target.value
+                            ? Number(e.target.value)
+                            : null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Accountable</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.accountable ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({ accountable: e.target.value || null })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Freight account</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.freightAccount ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          freightAccount: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Carrier account</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.carrierAccount ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          carrierAccount: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm sm:col-span-2">
+                    <span className="text-slate-500">Billing address</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.billingAddress ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          billingAddress: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm sm:col-span-2">
+                    <span className="text-slate-500">Delivery address</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.deliveryAddress ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          deliveryAddress: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  {(
+                    [
+                      ["Logistics status", display.schedulingLogistics?.jobStatus],
+                      ["Shipment method", display.schedulingLogistics?.shipmentMethod],
+                      ["Ship date", display.schedulingLogistics?.shipDate],
+                      [
+                        "Responsible person",
+                        display.schedulingLogistics?.responsiblePersonId ?? null,
+                      ],
+                      ["Accountable", display.schedulingLogistics?.accountable],
+                      ["Freight account", display.schedulingLogistics?.freightAccount],
+                      ["Carrier account", display.schedulingLogistics?.carrierAccount],
+                      ["Billing address", display.schedulingLogistics?.billingAddress],
+                      ["Delivery address", display.schedulingLogistics?.deliveryAddress],
+                    ] as [string, string | number | null | undefined][]
+                  ).map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-4">
+                      <dt className="text-slate-500">{label}</dt>
+                      <dd className="text-right text-slate-700">
+                        {value === null || value === undefined || value === ""
+                          ? "—"
+                          : value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
               )}
             </section>
 

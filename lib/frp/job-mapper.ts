@@ -7,7 +7,12 @@
  * `./job-status`, not here.
  */
 
-import type { Job, JobCardPrintDetails } from "@/lib/types";
+import type {
+  Job,
+  JobCardPrintDetails,
+  JobSchedulingLogistics,
+  ShipmentMethod,
+} from "@/lib/types";
 import type { JobOrigin } from "@/lib/frp/job-status";
 import {
   priorityToBackend,
@@ -53,6 +58,7 @@ export interface FrpJobDTO {
   customerCompanyName?: string;
   /** One row per job — company and contact together. */
   contactDetails?: FrpJobContactDetailsDTO | null;
+  schedulingLogistics?: FrpJobSchedulingLogisticsDTO | null;
   projectName?: string;
   dueDate?: string | null;
   /** `READ_ONLY`. Moves only by advancing a stage — see `job-status.ts`. */
@@ -117,6 +123,25 @@ export interface FrpJobContactDetailsDTO {
   address?: string;
   details?: Record<string, unknown> | null;
   updatedBy?: number | null;
+}
+
+/**
+ * `JobSchedulingLogisticsDTO` — how and when ONE job ships. One-to-one with the
+ * job; `jobStatus` is a local logistics status, not the job's stage status.
+ */
+export interface FrpJobSchedulingLogisticsDTO {
+  id?: number;
+  jobId?: number;
+  jobStatus?: string | null;
+  responsiblePersonId?: number | null;
+  accountable?: string | null;
+  contactId?: number | null;
+  shipDate?: string | null;
+  shipmentMethod?: string | null;
+  freightAccount?: string | null;
+  carrierAccount?: string | null;
+  billingAddress?: string | null;
+  deliveryAddress?: string | null;
 }
 
 /**
@@ -333,6 +358,44 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
   };
 }
 
+/** Scheduling & logistics is near pass-through — both sides use raw backend
+ *  enum values, so there is nothing to translate. */
+function schedulingLogisticsToUi(
+  dto: FrpJobSchedulingLogisticsDTO | null | undefined
+): JobSchedulingLogistics | null {
+  if (!dto) return null;
+  return {
+    jobStatus: dto.jobStatus ?? null,
+    responsiblePersonId: dto.responsiblePersonId ?? null,
+    accountable: dto.accountable ?? null,
+    contactId: dto.contactId ?? null,
+    shipDate: dto.shipDate ?? null,
+    shipmentMethod: (dto.shipmentMethod ?? null) as ShipmentMethod | null,
+    freightAccount: dto.freightAccount ?? null,
+    carrierAccount: dto.carrierAccount ?? null,
+    billingAddress: dto.billingAddress ?? null,
+    deliveryAddress: dto.deliveryAddress ?? null,
+  };
+}
+
+function schedulingLogisticsToBackend(
+  sl: JobSchedulingLogistics | null | undefined
+): FrpJobSchedulingLogisticsDTO | undefined {
+  if (!sl) return undefined;
+  return {
+    jobStatus: sl.jobStatus ?? undefined,
+    responsiblePersonId: sl.responsiblePersonId ?? undefined,
+    accountable: sl.accountable ?? undefined,
+    contactId: sl.contactId ?? undefined,
+    shipDate: sl.shipDate ?? undefined,
+    shipmentMethod: sl.shipmentMethod ?? undefined,
+    freightAccount: sl.freightAccount ?? undefined,
+    carrierAccount: sl.carrierAccount ?? undefined,
+    billingAddress: sl.billingAddress ?? undefined,
+    deliveryAddress: sl.deliveryAddress ?? undefined,
+  };
+}
+
 /** Full record, including everything carried in the job-card document. */
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
@@ -405,6 +468,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
+    schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
@@ -457,6 +521,7 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
+    schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
   };
 }
 
@@ -497,6 +562,7 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
+    schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
   };
 }
 

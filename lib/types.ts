@@ -139,6 +139,8 @@ export interface Job {
   /** Assigned worker display name (`assignedTo` on Spring Boot). */
   assignedWorkerName?: string | null;
   manualInstructions: string;
+  /** How and when the job ships — one row per job, saved on the job. */
+  schedulingLogistics?: JobSchedulingLogistics | null;
   printDetails?: JobCardPrintDetails;
   /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
@@ -148,4 +150,28 @@ export interface Job {
   origin?: "QUOTE" | "FACTORY";
   /** Stage-tree completion, served on the list projection only. */
   percentComplete?: number | null;
+}
+
+export type ShipmentMethod =
+  | "INHOUSE_DELIVERY"
+  | "CUSTOMER_COLLECT"
+  | "THIRD_PARTY_COURIER"
+  | "FREIGHT_FORWARDER"
+  | "OTHER";
+
+/**
+ * How and when one job ships. One-to-one with the job. `jobStatus` is a local
+ * logistics status (raw backend value) — it does not move the job's stage.
+ */
+export interface JobSchedulingLogistics {
+  jobStatus: string | null;
+  responsiblePersonId: number | null;
+  accountable: string | null;
+  contactId: number | null;
+  shipDate: string | null;
+  shipmentMethod: ShipmentMethod | null;
+  freightAccount: string | null;
+  carrierAccount: string | null;
+  billingAddress: string | null;
+  deliveryAddress: string | null;
 }
