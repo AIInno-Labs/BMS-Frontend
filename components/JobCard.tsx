@@ -44,7 +44,7 @@ import {
   resinTypes,
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import { getQuote } from "@/lib/frp/api";
+import { downloadJobCard, getQuote } from "@/lib/frp/api";
 import type { Job, JobPriority, JobStatus, ResinType } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -223,6 +223,9 @@ export function JobCard({ jobId }: JobCardProps) {
       }
       // The print route resolves jobs by database id, not job number.
       await printJobCardPdf(job.dbId);
+      // Log the pull for the audit trail (JOB_CARD_DOWNLOADED). Best-effort:
+      // the card is already open, so a failed audit must not surface an error.
+      void downloadJobCard(job.dbId).catch(() => {});
     } catch {
       setSaveError("Could not open job card PDF. Please try again.");
     } finally {

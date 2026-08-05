@@ -531,6 +531,20 @@ export async function saveJobCard(
   );
 }
 
+/**
+ * `GET /jobs/{id}/job-card` — fetches the card and records a
+ * `JOB_CARD_DOWNLOADED` audit row against the caller. Call this when the user
+ * downloads/prints the card so the pull is tracked; the returned DTO is the
+ * same shape as {@link getJob}'s but carries the card without the detail joins.
+ */
+export async function downloadJobCard(
+  dbId: string | number
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`
+  );
+}
+
 /** `DELETE /jobs/{id}` — soft cancel, sets `stageStatus = CANCELLED`. */
 export async function cancelJob(dbId: string | number): Promise<void> {
   await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}`, {
