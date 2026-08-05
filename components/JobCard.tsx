@@ -15,6 +15,7 @@ import {
   Save,
   User,
   UserCircle,
+  StickyNote,
   Wrench,
   X,
 } from "lucide-react";
@@ -910,6 +911,28 @@ export function JobCard({ jobId }: JobCardProps) {
               ) : (
                 <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
                   {display.manualInstructions || "—"}
+                </p>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <StickyNote className="h-4 w-4" aria-hidden />
+                Notes
+              </h2>
+              {isEditing ? (
+                <textarea
+                  value={draft.notes ?? ""}
+                  onChange={(e) =>
+                    patchDraft({ notes: e.target.value || null })
+                  }
+                  rows={4}
+                  className={`${inputClass} mt-2 min-h-[100px] resize-y`}
+                  placeholder="Working notes for this job…"
+                />
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
+                  {display.notes || "—"}
                 </p>
               )}
             </section>

@@ -129,6 +129,8 @@ export interface Job {
   status: JobStatus;
   priority: JobPriority;
   alert: string | null;
+  /** Free working notes on the job. Distinct from the short `alert` flag. */
+  notes: string | null;
   manufacturingRequired: boolean;
   installRequired: boolean;
   qaCompleted: boolean;

@@ -88,6 +88,7 @@ export interface CreateJobFormValues {
   assignedWorkerId: string;
   estimatedHours: string;
   alert: string;
+  notes: string;
   /**
    * PRD "Needs Job Card" flag (§2.1). `false` marks a delivery-docket-only job.
    * Persisted to the existing `jobs.manufacturing_required` column until the
@@ -149,6 +150,7 @@ function buildInitialForm(jobs: Job[]): CreateJobFormValues {
     assignedWorkerId: "",
     estimatedHours: "",
     alert: "",
+    notes: "",
     needsJobCard: true,
     installRequired: false,
     qaCompleted: false,
@@ -235,6 +237,7 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
     status: values.status,
     priority: values.priority,
     alert: values.alert.trim() || null,
+    notes: values.notes.trim() || null,
     manufacturingRequired: values.needsJobCard,
     installRequired: values.installRequired,
     qaCompleted: values.qaCompleted,
@@ -254,6 +257,7 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
       status: values.status,
       priority: values.priority,
       alert: null,
+      notes: null,
       manufacturingRequired: values.needsJobCard,
       installRequired: values.installRequired,
       qaCompleted: values.qaCompleted,
@@ -834,6 +838,14 @@ export function CreateNewJobDrawer({
                 type="text"
                 value={form.alert}
                 onChange={(e) => patch({ alert: e.target.value })}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Notes" className="sm:col-span-2">
+              <textarea
+                value={form.notes}
+                onChange={(e) => patch({ notes: e.target.value })}
+                rows={3}
                 className={inputClass}
               />
             </Field>

@@ -34,6 +34,8 @@ export interface FrpJobSummaryDTO {
   priority?: string;
   resinCode?: string | null;
   assignedUserId?: number | null;
+  /** Free working notes; shown as a preview in the list. */
+  notes?: string | null;
   percentComplete?: number | null;
   createdDate?: string;
 }
@@ -62,6 +64,9 @@ export interface FrpJobDTO {
   assignedUserId?: number | null;
   estimatedHours?: number | null;
   alert?: string | null;
+  /** Free working notes, saved through the normal job update. Distinct from
+   *  the short `alert` flag; print-only text stays in `jobCard`. */
+  notes?: string | null;
   /** `READ_ONLY` here — written via `PUT /jobs/{id}/job-card`. */
   jobCard?: FrpJobCardPayload | null;
   createdDate?: string;
@@ -313,6 +318,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     status: statusToUi(dto.stageStatus),
     priority: priorityToUi(dto.priority),
     alert: null,
+    notes: dto.notes ?? null,
     manufacturingRequired: true,
     installRequired: false,
     qaCompleted: false,
@@ -398,6 +404,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     status: statusToUi(dto.stageStatus),
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
+    notes: dto.notes ?? null,
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
@@ -449,6 +456,7 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     assignedUserId: userIdToBackend(job.assignedWorkerId) ?? undefined,
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
+    notes: job.notes ?? undefined,
   };
 }
 
@@ -488,6 +496,7 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     assignedUserId: userIdToBackend(job.assignedWorkerId),
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
+    notes: job.notes ?? undefined,
   };
 }
 
