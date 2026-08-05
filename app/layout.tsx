@@ -15,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={GeistSans.variable}>
+    <html lang="en" className={GeistSans.variable} suppressHydrationWarning>
       <body
         className={`${GeistSans.className} flex min-h-dvh flex-col overflow-x-clip font-sans print:overflow-visible print:min-h-0`}
       >
