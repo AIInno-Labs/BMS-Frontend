@@ -7,10 +7,11 @@ import { CreatePrivilegeDrawer } from "@/components/admin/CreatePrivilegeDrawer"
 import { EditPrivilegeDrawer } from "@/components/admin/EditPrivilegeDrawer";
 import { useAuth } from "@/context/AuthContext";
 import { listPrivileges } from "@/lib/frp/api";
+import { PRIVILEGE_TYPES, type PrivilegeType } from "@/lib/frp/privilege-types";
 import type { PrivilegeDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 
-type TypeFilter = "ALL" | "ACTION" | "MENU" | "FIELD";
+type TypeFilter = "ALL" | PrivilegeType;
 
 export function PrivilegesAdminPage() {
   const { loading: authLoading, isAuthenticated, appRole } = useAuth();
@@ -46,8 +47,8 @@ export function PrivilegesAdminPage() {
         err instanceof FrpApiError
           ? err.message
           : err instanceof Error
-            ? err.message
-            : "Failed to load privileges"
+          ? err.message
+          : "Failed to load privileges"
       );
       setItems([]);
     } finally {
@@ -92,8 +93,8 @@ export function PrivilegesAdminPage() {
               Privileges
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              View the catalog. Create and edit MENU / FIELD privileges
-              (ACTION privileges are system-managed).
+              Catalog types: ACTION, MENU, FIELD. Create/edit MENU and FIELD
+              only — ACTION codes are synced from the API and system-managed.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -102,7 +103,9 @@ export function PrivilegesAdminPage() {
               className="btn-secondary inline-flex items-center gap-2"
               onClick={() => void load()}
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              />
               Refresh
             </button>
             <button
@@ -124,7 +127,7 @@ export function PrivilegesAdminPage() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="flex flex-wrap gap-1.5">
-            {(["ALL", "ACTION", "MENU", "FIELD"] as TypeFilter[]).map((t) => (
+            {(["ALL", ...PRIVILEGE_TYPES] as TypeFilter[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -163,7 +166,10 @@ export function PrivilegesAdminPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                    <td
+                      colSpan={6}
+                      className="px-4 py-10 text-center text-slate-500"
+                    >
                       Loading privileges…
                     </td>
                   </tr>

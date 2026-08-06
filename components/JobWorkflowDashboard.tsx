@@ -12,7 +12,6 @@ import {
   Loader2,
   History,
   Mail,
-  MapPin,
   Package,
   Pencil,
   Phone,
@@ -39,7 +38,12 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/supabase/jobs-repository";
+import type {
+  FrpDrawingStage,
+  FrpDrawingStageDTO,
+  JobUpdateAuditAction,
+} from "@/lib/frp/job-mapper";
+import { listDrawingStages, setDrawingStage } from "@/lib/frp/api";
 import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -61,37 +65,14 @@ interface JobWorkflowDashboardProps {
   ) => Promise<void>;
 }
 
-const DRAWING_CHECKLIST = [
-  { key: "measurements", label: "Measurements taken" },
-  { key: "drawingCreated", label: "Drawing created" },
-  { key: "clientApproved", label: "Client approved" },
-  { key: "engineerApproved", label: "Engineer approved" },
-  { key: "revAIssued", label: "Rev A issued" },
-] as const;
-
-type DrawingCheckKey = (typeof DRAWING_CHECKLIST)[number]["key"];
-
-type DrawingCheckState = Record<DrawingCheckKey, boolean>;
-
-const DEFAULT_DRAWING: DrawingCheckState = {
-  measurements: false,
-  drawingCreated: false,
-  clientApproved: false,
-  engineerApproved: false,
-  revAIssued: false,
-};
+/**
+ * The checklist comes from the server now, labels and all — it owns the five
+ * values its CHECK constraint accepts, so the client keeping a parallel copy
+ * could only ever drift from it.
+ */
+const DRAWING_STAGE_COUNT = 5;
 
 type JobFile = JobFileRecord;
-
-function loadDrawingChecklist(jobId: string): DrawingCheckState {
-  const raw = window.localStorage.getItem(`frp-drawing-${jobId}`);
-  if (!raw) return { ...DEFAULT_DRAWING };
-  try {
-    return { ...DEFAULT_DRAWING, ...(JSON.parse(raw) as DrawingCheckState) };
-  } catch {
-    return { ...DEFAULT_DRAWING };
-  }
-}
 
 function defaultDemoFiles(job: Job): JobFile[] {
   const pd = ensurePrintDetails(job);
@@ -179,7 +160,9 @@ export function JobWorkflowDashboard({
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
-  const [drawingChecklist, setDrawingChecklist] = useState<DrawingCheckState>(DEFAULT_DRAWING);
+  const [drawingStages, setDrawingStages] = useState<FrpDrawingStageDTO[]>([]);
+  const [drawingError, setDrawingError] = useState<string | null>(null);
+  const [drawingBusy, setDrawingBusy] = useState<FrpDrawingStage | null>(null);
   const [fileUploadDraft, setFileUploadDraft] = useState({
     fileName: "",
     category: "Specification",
@@ -189,10 +172,6 @@ export function JobWorkflowDashboard({
     clientContactName: job.clientContactName ?? "",
     contactPhone: pd.contactPhone ?? "",
     contactEmail: pd.contactEmail ?? "",
-    address:
-      pd.deliveryInstructions?.trim() ||
-      [pd.transportCompany, pd.freightAccount].filter(Boolean).join(" · ") ||
-      "",
   });
   const [jobDraft, setJobDraft] = useState({
     projectName: job.projectName,
@@ -214,7 +193,6 @@ export function JobWorkflowDashboard({
 
   useEffect(() => {
     setFiles(loadFiles(job));
-    setDrawingChecklist(loadDrawingChecklist(job.id));
     const savedSort = window.localStorage.getItem(`frp-files-sort-${job.id}`);
     if (
       savedSort === "recents" ||
@@ -247,12 +225,24 @@ export function JobWorkflowDashboard({
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
   }, [job.id, fileSort]);
 
+  // The checklist lives on the server. Keyed on dbId because the API
+  // addresses jobs by their database id, not the job number.
   useEffect(() => {
-    window.localStorage.setItem(
-      `frp-drawing-${job.id}`,
-      JSON.stringify(drawingChecklist)
-    );
-  }, [job.id, drawingChecklist]);
+    if (!job.dbId) return;
+    let cancelled = false;
+    void listDrawingStages(job.dbId)
+      .then((stages) => {
+        if (!cancelled) setDrawingStages(stages);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setDrawingError(e instanceof Error ? e.message : "Could not load the drawing checklist");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId]);
 
   useEffect(() => {
     const nextPd = ensurePrintDetails(job);
@@ -261,10 +251,6 @@ export function JobWorkflowDashboard({
       clientContactName: job.clientContactName ?? "",
       contactPhone: nextPd.contactPhone ?? "",
       contactEmail: nextPd.contactEmail ?? "",
-      address:
-        nextPd.deliveryInstructions?.trim() ||
-        [nextPd.transportCompany, nextPd.freightAccount].filter(Boolean).join(" · ") ||
-        "",
     });
     const nextExtras = ensureWorkflowExtras(nextPd.workflowExtras, job);
     setJobDraft({
@@ -285,8 +271,8 @@ export function JobWorkflowDashboard({
   }, [job]);
 
   const drawingDoneCount = useMemo(
-    () => DRAWING_CHECKLIST.filter((item) => drawingChecklist[item.key]).length,
-    [drawingChecklist]
+    () => drawingStages.filter((s) => s.completed).length,
+    [drawingStages]
   );
 
   const sortedFiles = useMemo(
@@ -298,17 +284,30 @@ export function JobWorkflowDashboard({
     ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
     : "Job created and added to the fabrication queue";
 
-  const handleDrawingToggle = (key: DrawingCheckKey, checked: boolean) => {
-    const next = { ...drawingChecklist, [key]: checked };
-    setDrawingChecklist(next);
+  const handleDrawingToggle = async (stage: FrpDrawingStage, checked: boolean) => {
+    if (!job.dbId || drawingBusy) return;
+    setDrawingBusy(stage);
+    setDrawingError(null);
+    try {
+      // The server returns the whole checklist, so state is replaced rather
+      // than patched - no chance of the other four going stale.
+      const next = await setDrawingStage(job.dbId, stage, checked);
+      setDrawingStages(next);
 
-    const done = DRAWING_CHECKLIST.filter((item) => next[item.key]).length;
-    if (done >= 5) {
-      void onSavePatch({ status: "Ready to Manufacture" });
-      return;
-    }
-    if (next.engineerApproved && next.clientApproved) {
-      void onSavePatch({ status: "Awaiting Manager Approval" });
+      const done = next.filter((s) => s.completed).length;
+      const by = (k: FrpDrawingStage) => next.find((s) => s.stage === k)?.completed;
+
+      if (done >= DRAWING_STAGE_COUNT) {
+        await onSavePatch({ status: "Ready to Manufacture" });
+      } else if (by("ENGINEER_APPROVED") && by("CLIENT_APPROVED")) {
+        await onSavePatch({ status: "Awaiting Manager Approval" });
+      }
+    } catch (e) {
+      // The tick is not applied locally first, so a failure leaves the boxes
+      // showing what the server actually holds rather than a lie.
+      setDrawingError(e instanceof Error ? e.message : "Could not save that tick");
+    } finally {
+      setDrawingBusy(null);
     }
   };
 
@@ -461,15 +460,6 @@ export function JobWorkflowDashboard({
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
-          <CustomerRow
-            icon={MapPin}
-            label="Address"
-            value={
-              pd.deliveryInstructions?.trim() ||
-              [pd.transportCompany, pd.freightAccount].filter(Boolean).join(" · ") ||
-              "—"
-            }
-          />
         </WidgetCard>
 
         <WidgetCard title="Job Details" icon={Settings} onEdit={() => setShowJobModal(true)}>
@@ -497,20 +487,29 @@ export function JobWorkflowDashboard({
 
         <WidgetCard title="Drawing" icon={ClipboardList}>
           <div className="space-y-2">
-            {DRAWING_CHECKLIST.map((item) => (
+            {drawingStages.map((item) => (
               <label
-                key={item.key}
+                key={item.stage}
+                title={
+                  item.completed && item.updatedAt
+                    ? `Ticked ${formatCreatedDate(item.updatedAt)}`
+                    : undefined
+                }
                 className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
               >
                 <input
                   type="checkbox"
-                  checked={drawingChecklist[item.key]}
-                  onChange={(e) => handleDrawingToggle(item.key, e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                  checked={item.completed}
+                  disabled={drawingBusy !== null}
+                  onChange={(e) => void handleDrawingToggle(item.stage, e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                 />
-                {item.label}
+                {item.label ?? item.stage}
               </label>
             ))}
+            {drawingError && (
+              <p className="col-span-full text-xs text-red-600">{drawingError}</p>
+            )}
           </div>
         </WidgetCard>
 
@@ -613,7 +612,10 @@ export function JobWorkflowDashboard({
             <p className="text-xs text-slate-500">Recent actions and system events</p>
           </div>
           <div className="[&_section]:border-0 [&_section]:shadow-none [&_section]:rounded-none">
-            <ActivityAuditTrail jobId={job.id} refreshKey={auditRefreshKey} />
+            <ActivityAuditTrail
+              jobId={job.dbId ?? ""}
+              refreshKey={auditRefreshKey}
+            />
           </div>
         </div>
       </section>
@@ -637,7 +639,6 @@ export function JobWorkflowDashboard({
           <ModalField label="Contact Name" value={customerDraft.clientContactName} onChange={(v) => setCustomerDraft((p) => ({ ...p, clientContactName: v }))} />
           <ModalField label="Phone" value={customerDraft.contactPhone} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactPhone: v }))} />
           <ModalField label="Email" value={customerDraft.contactEmail} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactEmail: v }))} />
-          <ModalField label="Address" value={customerDraft.address} onChange={(v) => setCustomerDraft((p) => ({ ...p, address: v }))} />
           <button
             className="btn-primary w-full"
             onClick={() =>
@@ -648,7 +649,6 @@ export function JobWorkflowDashboard({
                   ...ensurePrintDetails(job),
                   contactPhone: customerDraft.contactPhone.trim(),
                   contactEmail: customerDraft.contactEmail.trim(),
-                  deliveryInstructions: customerDraft.address.trim(),
                 },
               }).then(() => setShowCustomerModal(false))
             }

@@ -61,34 +61,18 @@ export function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRebalanceFocus, setDrawerRebalanceFocus] = useState(false);
   const { isManager } = usePersona();
-  const { jobs } = useJobs();
+  const { jobs, counts } = useJobs();
   const recentJobs = useMemo(() => pickRecentJobs(jobs), [jobs]);
   const recentUpdates = useMemo(() => recentJobs.slice(0, 3), [recentJobs]);
   const upcomingJobs = useMemo(() => pickUpcomingJobs(jobs), [jobs]);
   const priorityQueue = useMemo(() => pickPriorityQueue(jobs), [jobs]);
-  const delayedCount = useMemo(() => {
-    const now = Date.now();
-    return jobs.filter((job) => {
-      const due = parseDueDate(job);
-      return due != null && due < now && isActiveJob(job);
-    }).length;
-  }, [jobs]);
-  const readyCount = useMemo(
-    () => jobs.filter((job) => job.status === "Ready to Manufacture").length,
-    [jobs]
-  );
-  const fabricationCount = useMemo(
-    () => jobs.filter((job) => job.status === "In Fabrication").length,
-    [jobs]
-  );
-  const awaitingCount = useMemo(
-    () => jobs.filter((job) => job.status === "Awaiting Manager Approval").length,
-    [jobs]
-  );
-  const totalActive = useMemo(
-    () => jobs.filter((job) => isActiveJob(job)).length || 1,
-    [jobs]
-  );
+  // Every count below is org-wide, from GET /jobs/counts — not a tally of the
+  // page this browser happens to have loaded.
+  const delayedCount = counts.overdue;
+  const readyCount = counts.ready;
+  const fabricationCount = counts.manufacturing;
+  const awaitingCount = counts.awaitingApproval;
+  const totalActive = counts.active || 1;
 
   const openDrawer = (rebalance = false) => {
     setDrawerRebalanceFocus(rebalance);
@@ -100,24 +84,10 @@ export function Dashboard() {
     setDrawerRebalanceFocus(false);
   };
 
-  const deliveredCount = useMemo(
-    () => jobs.filter((job) => job.status === "Complete").length,
-    [jobs]
-  );
-  const manufacturingNowCount = useMemo(
-    () => jobs.filter((job) => job.status === "In Fabrication").length,
-    [jobs]
-  );
-  const notStartedCount = useMemo(
-    () =>
-      jobs.filter(
-        (job) =>
-          job.status === "Pending" ||
-          job.status === "Awaiting Manager Approval" ||
-          job.status === "Ready to Manufacture"
-      ).length,
-    [jobs]
-  );
+  const deliveredCount = counts.delivered;
+  const manufacturingNowCount = counts.manufacturing;
+  const notStartedCount =
+    counts.notStarted + counts.awaitingApproval + counts.ready;
   const breakdownTotal = Math.max(
     1,
     deliveredCount + manufacturingNowCount + notStartedCount

@@ -19,6 +19,7 @@ import { parseNaturalLanguageQuery } from "@/lib/aiMock";
 import {
   formatCreatedDate,
   formatDate,
+  formatShortDate,
   formatEstimatedHours,
   hasSchedulingBlockAlert,
 } from "@/lib/mockData";
@@ -30,6 +31,8 @@ import {
   type JobSortOption,
 } from "@/lib/jobListUtils";
 import { usePersona } from "@/context/PersonaContext";
+import { useJobs } from "@/context/JobsContext";
+import { stageGroupCounts } from "@/lib/frp/job-counts";
 import {
   filterJobsByStageGroup,
   jobMatchesStageGroup,
@@ -61,6 +64,7 @@ function getStageBadgeClass(status: Job["status"]): string {
 }
 
 export function JobsList({ jobs }: JobsListProps) {
+  const { counts } = useJobs();
   const { isWorker } = usePersona();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -141,17 +145,10 @@ export function JobsList({ jobs }: JobsListProps) {
   };
 
   const stageCards = useMemo(() => {
-    const delivered = jobs.filter((j) => j.status === "Complete").length;
-    const manufacturing = jobs.filter(
-      (j) => j.status === "In Fabrication" || j.status === "Ready to Manufacture"
-    ).length;
-    const notStarted = jobs.filter(
-      (j) =>
-        j.status === "Pending" ||
-        j.status === "Awaiting Manager Approval" ||
-        j.status === "On Hold"
-    ).length;
-    const total = Math.max(1, delivered + manufacturing + notStarted);
+    // Org-wide, from GET /jobs/counts via JobsContext — these cards summarise
+    // the whole tenant, not the page the table below happens to show.
+    const { delivered, manufacturing, notStarted, total } =
+      stageGroupCounts(counts);
 
     return [
       {
@@ -185,7 +182,7 @@ export function JobsList({ jobs }: JobsListProps) {
         line: [4, 6, 8, 10, 12, 14],
       },
     ];
-  }, [jobs]);
+  }, [counts]);
 
   const sortedJobs = useMemo(
     () => sortJobs(filteredJobs, sortBy),
@@ -496,7 +493,7 @@ function JobsTable({
                       <p className="truncate text-xs text-slate-700">{job.clientContactName}</p>
                     </td>
                   )}
-                  {!workerMode && <td className={`${TD} text-left tabular-nums`}>{formatDate(job.date)}</td>}
+                  {!workerMode && <td className={`${TD} text-left tabular-nums`}>{formatShortDate(job.dueDate)}</td>}
                   {!workerMode && (
                     <td className={`${TD} text-left`}>
                       <span
@@ -510,7 +507,7 @@ function JobsTable({
                       </span>
                     </td>
                   )}
-                  {workerMode && <td className={`${TD} text-left tabular-nums`}>{formatDate(job.date)}</td>}
+                  {workerMode && <td className={`${TD} text-left tabular-nums`}>{formatShortDate(job.dueDate)}</td>}
                 </tr>
           ))}
         </tbody>

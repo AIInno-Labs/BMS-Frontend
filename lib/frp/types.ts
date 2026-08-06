@@ -1,3 +1,7 @@
+import type { FieldAccessMode, PrivilegeType } from "@/lib/frp/privilege-types";
+
+export type { FieldAccessMode, PrivilegeType };
+
 export interface AuthenticationResponse {
   token?: string;
   refreshToken?: string;
@@ -116,10 +120,12 @@ export interface PrivilegeDTO {
   id?: number;
   privilege?: string;
   privilegeCode: string;
-  privilegeType?: "ACTION" | "MENU" | "FIELD" | string;
+  /** Backend enum: ACTION | MENU | FIELD — never VIEW. */
+  privilegeType?: PrivilegeType;
   domain?: string;
   fieldKey?: string;
-  accessMode?: "READ" | "WRITE" | string;
+  /** FIELD only: READ | WRITE. */
+  accessMode?: FieldAccessMode;
   parentId?: number | null;
   sortOrder?: number;
   platformOnly?: boolean;

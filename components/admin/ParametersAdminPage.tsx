@@ -361,11 +361,11 @@ export function ParametersAdminPage() {
           <p className="mt-4 text-sm text-slate-500">Select an organization.</p>
         ) : (
           (["SharePoint", "Quotient", "Other"] as const).map((group) => (
-            <div key={group} className="app-card mt-4 overflow-x-auto !p-0">
-              <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-[#111827]">
+            <div key={group} className="app-card mt-4 !p-0">
+              <div className="border-b border-slate-100 px-4 py-3 text-base font-semibold text-[#111827]">
                 {group}
               </div>
-              {renderTable(grouped[group])}
+              <div className="scrollbar-thin overflow-x-auto">{renderTable(grouped[group])}</div>
             </div>
           ))
         )}

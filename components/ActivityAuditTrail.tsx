@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Zap } from "lucide-react";
 import type { JobAuditEntry, JobAuditIcon } from "@/lib/audit/job-audit-types";
+import { getJobAuditTrail } from "@/lib/frp/job-audit";
 
 function AuditIcon({ type }: { type: JobAuditIcon }) {
   const className = "h-5 w-5 shrink-0";
@@ -37,18 +38,8 @@ export function ActivityAuditTrail({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/jobs/${encodeURIComponent(jobId)}/audit`,
-        { cache: "no-store" }
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(
-          (body as { error?: string }).error ?? `Failed to load (${res.status})`
-        );
-      }
-      const data = (await res.json()) as { entries: JobAuditEntry[] };
-      setEntries(data.entries ?? []);
+      const list = await getJobAuditTrail(jobId);
+      setEntries(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load audit trail");
       setEntries([]);

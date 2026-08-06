@@ -1,11 +1,20 @@
-export type JobStatus =
-  | "Pending"
-  | "Awaiting Manager Approval"
-  | "Ready to Manufacture"
-  | "In Fabrication"
-  | "On Hold"
-  | "Complete"
-  | "Cancelled";
+import type { AnyJobStatus } from "@/lib/jobStatus";
+
+/**
+ * Widened during the DEL-01 status-model migration.
+ *
+ * Accepts both the canonical PRD lifecycle and the seven legacy states so
+ * existing call sites keep compiling while new work targets the canonical
+ * model. Import the precise unions (`JobStatus`, `LegacyJobStatus`) from
+ * `@/lib/jobStatus` directly when you need to exclude one or the other.
+ */
+export type JobStatus = AnyJobStatus;
+
+export type {
+  AnyJobStatus,
+  JobExceptionStatus,
+  LegacyJobStatus,
+} from "@/lib/jobStatus";
 
 export type ResinType =
   | "Isophthalic Polyester"
@@ -91,9 +100,22 @@ export interface JobCardPrintDetails {
 }
 
 export interface Job {
-  /** Supabase UUID (for updates). */
+  /**
+   * Spring Boot job primary key (stringified).
+   *
+   * Every write path addresses the job by this, not by `id` — the backend
+   * routes are `/jobs/{id}` with a numeric `@PathVariable Long`.
+   */
   dbId?: string;
-  /** Public job number, e.g. JOB-1001 */
+  /**
+   * Optimistic-lock token echoed back on update.
+   *
+   * `JobDTO.version` is `@NotNull(groups = OnUpdate.class)`, and a stale value
+   * yields 409 rather than silently overwriting a concurrent edit. Any write
+   * without it is rejected by validation.
+   */
+  version?: number;
+  /** Public job number, e.g. JOB-1001. Server-allocated, read-only. */
   id: string;
   clientName: string;
   projectName: string;
@@ -107,15 +129,49 @@ export interface Job {
   status: JobStatus;
   priority: JobPriority;
   alert: string | null;
+  /** Free working notes on the job. Distinct from the short `alert` flag. */
+  notes: string | null;
   manufacturingRequired: boolean;
   installRequired: boolean;
   qaCompleted: boolean;
   clientContactName: string;
   assignedWorkerId: string | null;
-  /** Stored in Supabase `assigned_worker_name` */
+  /** Assigned worker display name (`assignedTo` on Spring Boot). */
   assignedWorkerName?: string | null;
   manualInstructions: string;
+  /** How and when the job ships — one row per job, saved on the job. */
+  schedulingLogistics?: JobSchedulingLogistics | null;
   printDetails?: JobCardPrintDetails;
-  /** ISO timestamp from Supabase `created_at` (for sorting / display). */
+  /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
+  /** Set for quote-derived jobs; drives `origin` on the backend. */
+  quoteNumber?: string | null;
+  /** `QUOTE` when raised from a quote, `FACTORY` when raised in-house. */
+  origin?: "QUOTE" | "FACTORY";
+  /** Stage-tree completion, served on the list projection only. */
+  percentComplete?: number | null;
+}
+
+export type ShipmentMethod =
+  | "INHOUSE_DELIVERY"
+  | "CUSTOMER_COLLECT"
+  | "THIRD_PARTY_COURIER"
+  | "FREIGHT_FORWARDER"
+  | "OTHER";
+
+/**
+ * How and when one job ships. One-to-one with the job. `jobStatus` is a local
+ * logistics status (raw backend value) — it does not move the job's stage.
+ */
+export interface JobSchedulingLogistics {
+  jobStatus: string | null;
+  responsiblePersonId: number | null;
+  accountable: string | null;
+  contactId: number | null;
+  shipDate: string | null;
+  shipmentMethod: ShipmentMethod | null;
+  freightAccount: string | null;
+  carrierAccount: string | null;
+  billingAddress: string | null;
+  deliveryAddress: string | null;
 }

@@ -150,8 +150,8 @@ export function UsersAdminPage() {
           </p>
         )}
 
-        <div className="app-card mt-6 overflow-x-auto !p-0">
-          <table className="min-w-full text-left text-sm">
+        <div className="scrollbar-thin app-card mt-6 overflow-x-auto !p-0">
+          <table className="min-w-[720px] w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Name</th>
@@ -195,10 +195,10 @@ export function UsersAdminPage() {
                       {u.totpEnabled ? "Enrolled" : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-nowrap gap-2">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
                           onClick={() => setEditUser(u)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -207,7 +207,7 @@ export function UsersAdminPage() {
                         {u.enabled !== false && u.id !== me?.id && (
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
                             onClick={() => void onDisable(u)}
                           >
                             <UserX className="h-3.5 w-3.5" />

@@ -13,6 +13,21 @@ import {
   type UpdateUserRequest,
   type UserDTO,
 } from "@/lib/frp/types";
+import type {
+  FrpDrawingStageDTO,
+  FrpDrawingStage,
+  FrpJobAuditHistoryDTO,
+  FrpJobCardPayload,
+  FrpJobCountsDTO,
+  FrpJobDTO,
+  FrpJobStageDTO,
+  FrpJobStageUpdateRequest,
+  FrpJobSummaryDTO,
+} from "@/lib/frp/job-mapper";
+import {
+  STATUS_TARGET_STAGE,
+  type BackendJobStatus,
+} from "@/lib/frp/job-status";
 
 const DEFAULT_BASE = "http://localhost:8080/api/v1";
 
@@ -78,6 +93,19 @@ async function parseError(res: Response): Promise<FrpApiError> {
         message = o.businessErrorDescription;
       } else if (typeof o.message === "string" && o.message) {
         message = o.message;
+      }
+
+      // `ExceptionResponse.errors` is a field → message map. It was being
+      // dropped, so a rejected save showed only "Validation failed" with no
+      // indication of which field the backend objected to.
+      const fields = o.errors;
+      if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        const detail = Object.entries(fields as Record<string, unknown>)
+          .map(([field, msg]) => `${field}: ${String(msg)}`)
+          .join("; ");
+        if (detail) message = `${message} — ${detail}`;
+      } else if (Array.isArray(o.validationErrors) && o.validationErrors.length) {
+        message = `${message} — ${o.validationErrors.join("; ")}`;
       }
     }
   } catch {
@@ -282,6 +310,45 @@ export async function fetchMe(): Promise<UserDTO> {
   return frpFetch<UserDTO>("/auth/me");
 }
 
+/** Profile fields a user may edit about themselves. */
+export interface MyProfileUpdate {
+  displayName: string;
+  mobileNumber?: string;
+}
+
+/**
+ * Update the signed-in user's own profile.
+ *
+ * The backend has no self-service endpoint yet — `/auth/me` is GET-only and
+ * `PUT /users` is gated behind USER_UPDATE, so it only works for users who
+ * already hold that privilege (org admins, super admins). Callers should gate
+ * the UI on {@link canEditOwnProfile}.
+ *
+ * When the backend adds `PATCH /auth/me`, replace this body with a single
+ * frpFetch call and drop the privilege gate — no component changes needed.
+ */
+export async function updateMyProfile(
+  me: UserDTO,
+  patch: MyProfileUpdate
+): Promise<UserDTO> {
+  if (me.id == null) {
+    throw new FrpApiError(400, "Cannot update profile: missing user id");
+  }
+  return updateUser({
+    id: me.id,
+    displayName: patch.displayName,
+    mobileNumber: patch.mobileNumber,
+    enabled: me.enabled ?? true,
+    // Preserved as-is — self-service editing must never change own roles.
+    roleIds: me.roleIds ?? [],
+  });
+}
+
+/** Whether the current user can persist their own profile edits today. */
+export function canEditOwnProfile(me: UserDTO | null): boolean {
+  return Boolean(me?.id != null && me?.rolesPrivileges?.includes("USER_UPDATE"));
+}
+
 export async function listOrganizations(
   page = 0,
   size = 20
@@ -379,4 +446,272 @@ export async function updatePrivilege(
     method: "PUT",
     body: JSON.stringify(body),
   });
+}
+
+/* ------------------------------------------------------------------ jobs */
+
+/** Sort options `GET /jobs` accepts. Bound to the `JobSort` enum — a
+ *  Spring-style `field,dir` string is a 400, not a fallback. */
+export type FrpJobSort = "DUE_DATE" | "RECENT" | "OLDEST";
+
+export interface ListJobsParams {
+  search?: string;
+  sort?: FrpJobSort;
+  /** Backend `JobStatus` enum name, not a display label. */
+  status?: string;
+  /** Backend `JobPriority` enum name. */
+  priority?: string;
+  assignedTo?: number;
+  /** ISO date (`yyyy-MM-dd`). */
+  dueBefore?: string;
+}
+
+/**
+ * `GET /jobs` → `PageResponse<JobSummaryDTO>`.
+ *
+ * Size is capped at 200: `bms-api.yaml` sets `maximum: 200`, and the previous
+ * `size=500` made the Prism mock unusable for the dashboard.
+ */
+export async function listJobs(
+  page = 0,
+  size = 200,
+  params?: ListJobsParams
+): Promise<PageResponse<FrpJobSummaryDTO>> {
+  const q = new URLSearchParams({
+    page: String(page),
+    size: String(Math.min(size, 200)),
+  });
+  if (params?.search) q.set("search", params.search);
+  if (params?.sort) q.set("sort", params.sort);
+  if (params?.status) q.set("status", params.status);
+  if (params?.priority) q.set("priority", params.priority);
+  if (params?.assignedTo != null) q.set("assignedTo", String(params.assignedTo));
+  if (params?.dueBefore) q.set("dueBefore", params.dueBefore);
+  return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
+}
+
+/** `GET /jobs/counts` — org-scoped aggregates for the dashboard tiles. */
+export async function getJobCounts(): Promise<FrpJobCountsDTO> {
+  return frpFetch<FrpJobCountsDTO>("/jobs/counts");
+}
+
+/** `GET /jobs/{id}` — full record including `jobCard` and `version`. */
+export async function getJob(dbId: string | number): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(String(dbId))}`);
+}
+
+/** `POST /jobs` — seeds the ten stages and an empty job card. */
+export async function createJob(body: FrpJobDTO): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>("/jobs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * `PUT /jobs` — id and `version` travel in the body, per the codebase
+ * convention. A stale `version` returns 409 `CONCURRENT_MODIFICATION`.
+ */
+export async function updateJobApi(body: FrpJobDTO): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>("/jobs", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `PUT /jobs/{id}/job-card?version=` — the card is replaced as a unit. */
+export async function saveJobCard(
+  dbId: string | number,
+  version: number,
+  jobCard: FrpJobCardPayload
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card?version=${version}`,
+    { method: "PUT", body: JSON.stringify(jobCard) }
+  );
+}
+
+/**
+ * `GET /jobs/{id}/job-card` — fetches the card and records a
+ * `JOB_CARD_DOWNLOADED` audit row against the caller. Call this when the user
+ * downloads/prints the card so the pull is tracked; the returned DTO is the
+ * same shape as {@link getJob}'s but carries the card without the detail joins.
+ */
+export async function downloadJobCard(
+  dbId: string | number
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`
+  );
+}
+
+/** `DELETE /jobs/{id}` — soft cancel, sets `stageStatus = CANCELLED`. */
+export async function cancelJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listJobAudit(
+  dbId: string | number,
+  page = 0,
+  size = 50
+): Promise<PageResponse<FrpJobAuditHistoryDTO>> {
+  return frpFetch<PageResponse<FrpJobAuditHistoryDTO>>(
+    `/jobs/${encodeURIComponent(String(dbId))}/audit?page=${page}&size=${size}`
+  );
+}
+
+/* ------------------------------------------------------- drawing stages */
+
+/** `GET /jobs/{id}/drawing-stages` — all five, ticked or not. */
+export async function listDrawingStages(
+  dbId: string | number
+): Promise<FrpDrawingStageDTO[]> {
+  return frpFetch<FrpDrawingStageDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/drawing-stages`
+  );
+}
+
+/**
+ * Tick or untick one stage.
+ *
+ * Returns the whole checklist, so the caller replaces its state wholesale
+ * rather than patching one entry and risking a stale view of the other four.
+ */
+export async function setDrawingStage(
+  dbId: string | number,
+  stage: FrpDrawingStage,
+  completed: boolean,
+  remarks?: string
+): Promise<FrpDrawingStageDTO[]> {
+  const q = new URLSearchParams({ completed: String(completed) });
+  if (remarks) q.set("remarks", remarks);
+  return frpFetch<FrpDrawingStageDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/drawing-stages/${stage}?${q}`,
+    { method: "PUT" }
+  );
+}
+
+/* ---------------------------------------------------------------- stages */
+
+/** `GET /jobs/{id}/stages` — milestones with their operations nested. */
+export async function listJobStages(
+  dbId: string | number
+): Promise<FrpJobStageDTO[]> {
+  return frpFetch<FrpJobStageDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/stages`
+  );
+}
+
+/** `PUT /jobs/{id}/stages/{stageId}` — recomputes `job.stageStatus`. */
+export async function updateJobStage(
+  dbId: string | number,
+  stageId: number,
+  body: FrpJobStageUpdateRequest
+): Promise<FrpJobStageDTO> {
+  return frpFetch<FrpJobStageDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/** `POST /jobs/{id}/stages/{stageId}/scan` — idempotent shop-floor scan. */
+export async function scanJobStage(
+  dbId: string | number,
+  stageId: number
+): Promise<FrpJobStageDTO> {
+  return frpFetch<FrpJobStageDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}/scan`,
+    { method: "POST" }
+  );
+}
+
+/**
+ * Move a job to a target status.
+ *
+ * `stageStatus` is `READ_ONLY` on `JobDTO` and recomputed by the stage service,
+ * so a status change is a stage change. `CANCELLED` is the exception — it has
+ * its own endpoint. Throws when the target is not reachable, rather than
+ * appearing to succeed.
+ */
+export async function advanceJobStatus(
+  dbId: string | number,
+  target: BackendJobStatus
+): Promise<void> {
+  if (target === "CANCELLED") {
+    await cancelJob(dbId);
+    return;
+  }
+  const plan = STATUS_TARGET_STAGE[target];
+  if (!plan) {
+    throw new FrpApiError(400, `No stage transition maps to ${target}.`);
+  }
+  const stages = await listJobStages(dbId);
+  const match = stages.find((s) => s.stageKey === plan.stageKey);
+  if (!match?.id) {
+    throw new FrpApiError(
+      404,
+      `Job has no "${plan.stageKey}" stage, so it cannot move to ${target}.`
+    );
+  }
+  await updateJobStage(dbId, match.id, { status: plan.status });
+}
+
+/* ------------------------------------------------------------- customers */
+
+/**
+ * There is no `CustomerController` on the backend — `GET /customers` returns
+ * 403 from the deny-by-default interceptor.
+ *
+ * Nothing calls one either: `JobDTO` carries `customerCompanyName` plus
+ * `customerContactName/Email/Phone`, and `JobServiceImpl.resolveOrCreateCustomer`
+ * matches the company by name and creates it (with its first contact) when
+ * there is no match. The old `findOrCreateCustomer()` pre-step was both broken
+ * and redundant, and threw before `POST /jobs` was ever reached.
+ *
+ * Add the client back here when Rev 2 §16 `CUSTOMER_READ` ships.
+ */
+
+/* --------------------------------------------------------------- quotes */
+
+/** DEL-02 — returns empty when the backend quote module is not live yet. */
+export async function listQuotes(
+  page = 0,
+  size = 100
+): Promise<PageResponse<Record<string, unknown>>> {
+  try {
+    return await frpFetch<PageResponse<Record<string, unknown>>>(
+      `/quotes?page=${page}&size=${size}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
+      return {
+        content: [],
+        number: 0,
+        size,
+        totalElements: 0,
+        totalPages: 0,
+        first: true,
+        last: true,
+      };
+    }
+    throw err;
+  }
+}
+
+/** DEL-02 — null when quote module is not live yet. */
+export async function getQuote(
+  quoteNumber: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await frpFetch<Record<string, unknown>>(
+      `/quotes/${encodeURIComponent(quoteNumber)}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
+      return null;
+    }
+    throw err;
+  }
 }

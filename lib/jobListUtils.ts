@@ -30,7 +30,7 @@ function compareIso(a: string | undefined, b: string | undefined): number {
   return ta - tb;
 }
 
-/** Sort by `created_at` from Supabase; falls back to job number if timestamp missing. */
+/** Sort by Spring Boot `createdDate`; falls back to job number if timestamp missing. */
 function compareCreated(a: Job, b: Job, newestFirst: boolean): number {
   const primary = newestFirst
     ? compareIso(b.createdAt, a.createdAt)

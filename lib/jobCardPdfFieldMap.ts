@@ -4,7 +4,7 @@ import {
 } from "@/lib/jobCardPrint";
 import type { Job, JobCardClipRow, JobCardPack } from "@/lib/types";
 
-/** Where a pdf.html field is persisted in Supabase / the app model. */
+/** Where a pdf.html field is persisted in the Spring Boot job model. */
 export type JobCardFieldStorage =
   | { kind: "db"; column: string }
   | { kind: "json"; path: string; column?: "pack_dimensions" }

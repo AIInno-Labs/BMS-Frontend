@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { updatePrivilege } from "@/lib/frp/api";
+import type { FieldAccessMode } from "@/lib/frp/privilege-types";
 import type { PrivilegeDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 
@@ -28,7 +29,7 @@ export function EditPrivilegeDrawer({
   const [label, setLabel] = useState("");
   const [domain, setDomain] = useState("");
   const [fieldKey, setFieldKey] = useState("");
-  const [accessMode, setAccessMode] = useState<"READ" | "WRITE">("READ");
+  const [accessMode, setAccessMode] = useState<FieldAccessMode>("READ");
   const [sortOrder, setSortOrder] = useState("0");
   const [active, setActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,9 +45,7 @@ export function EditPrivilegeDrawer({
     setLabel(privilege.privilege ?? "");
     setDomain(privilege.domain ?? "");
     setFieldKey(privilege.fieldKey ?? "");
-    setAccessMode(
-      privilege.accessMode === "WRITE" ? "WRITE" : "READ"
-    );
+    setAccessMode(privilege.accessMode === "WRITE" ? "WRITE" : "READ");
     setSortOrder(String(privilege.sortOrder ?? 0));
     setActive(privilege.active !== false);
     setError(null);
@@ -79,8 +78,8 @@ export function EditPrivilegeDrawer({
         err instanceof FrpApiError
           ? err.message
           : err instanceof Error
-            ? err.message
-            : "Failed to update privilege"
+          ? err.message
+          : "Failed to update privilege"
       );
     } finally {
       setSubmitting(false);
@@ -97,16 +96,16 @@ export function EditPrivilegeDrawer({
           ? privilege?.privilegeCode
           : "System ACTION privileges cannot be modified"
       }
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={onClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="edit-privilege-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting || !editable}
           >
             {submitting ? "Saving…" : "Save changes"}
@@ -120,14 +119,26 @@ export function EditPrivilegeDrawer({
           via API.
         </p>
       ) : (
-        <form id="edit-privilege-form" onSubmit={onSubmit} className="space-y-4">
+        <form
+          id="edit-privilege-form"
+          onSubmit={onSubmit}
+          className="space-y-4"
+        >
           <div>
             <label className={labelClass}>Code</label>
-            <input className={inputClass} value={privilege?.privilegeCode ?? ""} disabled />
+            <input
+              className={inputClass}
+              value={privilege?.privilegeCode ?? ""}
+              disabled
+            />
           </div>
           <div>
             <label className={labelClass}>Type</label>
-            <input className={inputClass} value={privilege?.privilegeType ?? ""} disabled />
+            <input
+              className={inputClass}
+              value={privilege?.privilegeType ?? ""}
+              disabled
+            />
           </div>
           <div>
             <label className={labelClass} htmlFor="edit-priv-label">
@@ -174,7 +185,7 @@ export function EditPrivilegeDrawer({
                   className={inputClass}
                   value={accessMode}
                   onChange={(e) =>
-                    setAccessMode(e.target.value as "READ" | "WRITE")
+                    setAccessMode(e.target.value as FieldAccessMode)
                   }
                 >
                   <option value="READ">READ</option>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 interface EnterpriseDrawerProps {
@@ -25,6 +26,12 @@ export function EnterpriseDrawer({
   ariaLabelledBy = "drawer-title",
   panelClassName,
 }: EnterpriseDrawerProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
 
@@ -41,12 +48,12 @@ export function EnterpriseDrawer({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const panelWidthClass =
-    panelClassName ?? "md:w-[40%] md:max-w-[560px]";
+    panelClassName ?? "md:w-[min(560px,92vw)]";
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] animate-[fadeIn_0.2s_ease-out]">
       <button
         type="button"
@@ -70,7 +77,9 @@ export function EnterpriseDrawer({
               {title}
             </h2>
             {subtitle && (
-              <p className="mt-1 text-base text-slate-600">{subtitle}</p>
+              <p className="mt-1.5 text-sm leading-relaxed text-slate-600 sm:text-base">
+                {subtitle}
+              </p>
             )}
           </div>
           <button
@@ -83,7 +92,7 @@ export function EnterpriseDrawer({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#F8FAFC]">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-[#F8FAFC] px-5 py-5 sm:px-6">
           {children}
         </div>
 
@@ -93,6 +102,7 @@ export function EnterpriseDrawer({
           </footer>
         ) : null}
       </aside>
-    </div>
+    </div>,
+    document.body
   );
 }

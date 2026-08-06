@@ -46,10 +46,15 @@ export function RaisedBySelect({
 
   if (directors.length === 0) {
     return (
-      <p className="text-sm text-amber-700">
-        No directors in database. Run{" "}
-        <code className="text-xs">supabase/scripts/directors-setup.sql</code> in Supabase.
-      </p>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder="Raised by (free text)"
+        className={selectClass}
+        aria-label="Raised by"
+      />
     );
   }
 

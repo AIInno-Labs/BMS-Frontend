@@ -3,6 +3,12 @@
 import { FormEvent, useState } from "react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { createPrivilege } from "@/lib/frp/api";
+import {
+  API_CREATABLE_PRIVILEGE_TYPES,
+  PRIVILEGE_CODE_HINT,
+  type ApiCreatablePrivilegeType,
+  type FieldAccessMode,
+} from "@/lib/frp/privilege-types";
 import type { PrivilegeDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 
@@ -25,10 +31,11 @@ export function CreatePrivilegeDrawer({
 }: CreatePrivilegeDrawerProps) {
   const [privilege, setPrivilege] = useState("");
   const [privilegeCode, setPrivilegeCode] = useState("");
-  const [privilegeType, setPrivilegeType] = useState<"MENU" | "FIELD">("MENU");
+  const [privilegeType, setPrivilegeType] =
+    useState<ApiCreatablePrivilegeType>("MENU");
   const [domain, setDomain] = useState("");
   const [fieldKey, setFieldKey] = useState("");
-  const [accessMode, setAccessMode] = useState<"READ" | "WRITE">("READ");
+  const [accessMode, setAccessMode] = useState<FieldAccessMode>("READ");
   const [sortOrder, setSortOrder] = useState("0");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -74,8 +81,8 @@ export function CreatePrivilegeDrawer({
         err instanceof FrpApiError
           ? err.message
           : err instanceof Error
-            ? err.message
-            : "Failed to create privilege"
+          ? err.message
+          : "Failed to create privilege"
       );
     } finally {
       setSubmitting(false);
@@ -88,16 +95,16 @@ export function CreatePrivilegeDrawer({
       onClose={handleClose}
       title="Create privilege"
       subtitle="API can create MENU or FIELD privileges only (ACTION codes are system-managed)."
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={handleClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={handleClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="create-privilege-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting}
           >
             {submitting ? "Creating…" : "Create privilege"}
@@ -105,7 +112,11 @@ export function CreatePrivilegeDrawer({
         </div>
       }
     >
-      <form id="create-privilege-form" onSubmit={onSubmit} className="space-y-4">
+      <form
+        id="create-privilege-form"
+        onSubmit={onSubmit}
+        className="space-y-4"
+      >
         <div>
           <label className={labelClass} htmlFor="priv-type">
             Type *
@@ -114,10 +125,15 @@ export function CreatePrivilegeDrawer({
             id="priv-type"
             className={inputClass}
             value={privilegeType}
-            onChange={(e) => setPrivilegeType(e.target.value as "MENU" | "FIELD")}
+            onChange={(e) =>
+              setPrivilegeType(e.target.value as ApiCreatablePrivilegeType)
+            }
           >
-            <option value="MENU">MENU</option>
-            <option value="FIELD">FIELD</option>
+            {API_CREATABLE_PRIVILEGE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -148,9 +164,7 @@ export function CreatePrivilegeDrawer({
             }
           />
           <p className="mt-1 text-xs text-slate-500">
-            {privilegeType === "MENU"
-              ? "Must match MENU_{DOMAIN}[_ITEM]"
-              : "Must match FIELD_{DOMAIN}_{FIELD}_{VIEW|EDIT} style"}
+            {PRIVILEGE_CODE_HINT[privilegeType]}
           </p>
         </div>
         <div>
@@ -188,11 +202,11 @@ export function CreatePrivilegeDrawer({
                 className={inputClass}
                 value={accessMode}
                 onChange={(e) =>
-                  setAccessMode(e.target.value as "READ" | "WRITE")
+                  setAccessMode(e.target.value as FieldAccessMode)
                 }
               >
-                <option value="READ">READ</option>
-                <option value="WRITE">WRITE</option>
+                <option value="READ">READ (view field)</option>
+                <option value="WRITE">WRITE (edit field)</option>
               </select>
             </div>
           </>
