@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, RefreshCw, Shield } from "lucide-react";
 import { CreateRoleDrawer } from "@/components/org/CreateRoleDrawer";
@@ -55,9 +55,13 @@ export function RolesAdminPage() {
     }
   }, [isAuthenticated]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${isAuthenticated}`;
+    if (lastLoadedKeyRef.current === key) return;
+    lastLoadedKeyRef.current = key;
     void load();
-  }, [load]);
+  }, [load, isAuthenticated]);
 
   function openCreate() {
     setEditRole(null);

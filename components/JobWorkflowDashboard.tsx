@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -227,20 +227,36 @@ export function JobWorkflowDashboard({
 
   // The checklist lives on the server. Keyed on dbId because the API
   // addresses jobs by their database id, not the job number.
+  //
+  // The fetch itself is cached per key in a ref, not just guarded by
+  // `cancelled`: React Strict Mode (dev only) mounts every component twice,
+  // and a plain `cancelled` flag only suppresses which invocation's result
+  // gets applied — the first invocation still fires its own GET, and since
+  // it gets cancelled almost immediately, a naive "skip the second mount"
+  // guard would mean nobody ever applies the result. Sharing one promise per
+  // key means both mounts attach to the same in-flight request instead.
+  const drawingStagesFetchRef = useRef<{
+    key: string;
+    promise: Promise<FrpDrawingStageDTO[]>;
+  } | null>(null);
   useEffect(() => {
     if (!job.dbId) return;
-    let cancelled = false;
-    void listDrawingStages(job.dbId)
+    let mounted = true;
+    const key = job.dbId;
+    if (drawingStagesFetchRef.current?.key !== key) {
+      drawingStagesFetchRef.current = { key, promise: listDrawingStages(job.dbId) };
+    }
+    drawingStagesFetchRef.current.promise
       .then((stages) => {
-        if (!cancelled) setDrawingStages(stages);
+        if (mounted) setDrawingStages(stages);
       })
       .catch((e) => {
-        if (!cancelled) {
+        if (mounted) {
           setDrawingError(e instanceof Error ? e.message : "Could not load the drawing checklist");
         }
       });
     return () => {
-      cancelled = true;
+      mounted = false;
     };
   }, [job.dbId]);
 
@@ -518,12 +534,13 @@ export function JobWorkflowDashboard({
             <input
               type="checkbox"
               checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
+              disabled={isSaving}
               onChange={(e) =>
                 void onSavePatch({
                   status: e.target.checked ? "In Fabrication" : "Pending",
                 })
               }
-              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
             />
             Ready to Manufacture
           </label>
@@ -548,8 +565,9 @@ export function JobWorkflowDashboard({
                   type="radio"
                   name={`payment-received-${job.id}`}
                   checked={extras.paymentReceived === true}
+                  disabled={isSaving}
                   onChange={() => handlePaymentReceivedChange(true)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300"
+                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                 />
                 Yes
               </label>
@@ -558,8 +576,9 @@ export function JobWorkflowDashboard({
                   type="radio"
                   name={`payment-received-${job.id}`}
                   checked={extras.paymentReceived === false}
+                  disabled={isSaving}
                   onChange={() => handlePaymentReceivedChange(false)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300"
+                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                 />
                 No
               </label>
@@ -570,8 +589,9 @@ export function JobWorkflowDashboard({
             <input
               type="date"
               value={extras.paymentDueDate ?? ""}
+              disabled={isSaving}
               onChange={(e) => handlePaymentDueDateChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
+              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
             />
           </label>
         </WidgetCard>

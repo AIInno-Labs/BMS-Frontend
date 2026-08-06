@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
@@ -190,9 +190,12 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
     }
   }, [quoteNumber]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (lastLoadedKeyRef.current === quoteNumber) return;
+    lastLoadedKeyRef.current = quoteNumber;
     void load();
-  }, [load]);
+  }, [load, quoteNumber]);
 
   if (loading) {
     return (

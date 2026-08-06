@@ -178,7 +178,10 @@ export function AnalyticsPage() {
     [loadAnalytics, recordJobPulse, refreshJobs]
   );
 
+  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     void refreshAll(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
   }, []);

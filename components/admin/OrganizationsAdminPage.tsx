@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Building2, Pencil, Plus, RefreshCw } from "lucide-react";
@@ -67,9 +67,13 @@ export function OrganizationsAdminPage() {
     }
   }, [isAuthenticated, canManageOrganizations, page]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${isAuthenticated}:${canManageOrganizations}:${page}`;
+    if (lastLoadedKeyRef.current === key) return;
+    lastLoadedKeyRef.current = key;
     void load();
-  }, [load]);
+  }, [load, isAuthenticated, canManageOrganizations, page]);
 
   if (authLoading) {
     return (

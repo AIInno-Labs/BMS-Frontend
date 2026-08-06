@@ -47,6 +47,7 @@ import {
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote } from "@/lib/frp/api";
+import { FrpApiError } from "@/lib/frp/types";
 import type {
   Job,
   JobPriority,
@@ -427,7 +428,24 @@ export function JobCard({ jobId }: JobCardProps) {
       setSaveSuccess(true);
       setAuditRefreshKey((k) => k + 1);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      if (e instanceof FrpApiError && e.status === 409) {
+        // Someone else's write (or our own retry) moved the version past what
+        // this screen loaded with. Re-pull the job so the version in state is
+        // current again — otherwise every retry keeps sending the same stale
+        // version and keeps failing the same way.
+        setSaveError(
+          "This job changed elsewhere and your edit couldn't be applied. Reloaded the latest version — please try again."
+        );
+        try {
+          const fresh = await loadJobDetail(jobId);
+          setJob(fresh);
+          if (!isEditing) setDraft(fresh);
+        } catch {
+          // Refresh failed too; the error above still tells the user what to do.
+        }
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -523,17 +541,14 @@ export function JobCard({ jobId }: JobCardProps) {
         </>
       )}
 
+      {isEditing && (
       <div
-        className={`mx-auto w-full min-w-0 px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8 ${
-          isEditing ? "max-w-3xl" : "hidden"
-        }`}
+        className="mx-auto w-full min-w-0 max-w-3xl px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8"
       >
-        {isEditing && (
-          <Link href="/jobs" className="no-print btn-ghost mb-4">
-            <ArrowLeft className="h-5 w-5" aria-hidden />
-            Back to Jobs
-          </Link>
-        )}
+        <Link href="/jobs" className="no-print btn-ghost mb-4">
+          <ArrowLeft className="h-5 w-5" aria-hidden />
+          Back to Jobs
+        </Link>
 
         <article
           id="job-card-print"
@@ -1167,6 +1182,7 @@ export function JobCard({ jobId }: JobCardProps) {
 
         </article>
       </div>
+      )}
     </main>
   );
 }

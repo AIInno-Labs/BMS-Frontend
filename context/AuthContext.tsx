@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -107,51 +108,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(me);
   }, []);
 
+  // The bootstrap itself runs inside a ref-cached promise, not directly in
+  // the effect body: React Strict Mode (dev only) mounts every component
+  // twice, and a plain `cancelled` flag only suppresses which invocation's
+  // *result* gets applied — it doesn't stop the second invocation from
+  // firing its own refreshSession()/fetchMe() calls. Caching the promise
+  // means both mounts share the same in-flight network round trip, so the
+  // session check only ever hits the API once per real app load.
+  const bootstrapRef = useRef<Promise<void> | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        let token = readStored(FRP_ACCESS_TOKEN_KEY);
-        const rt = readStored(FRP_REFRESH_TOKEN_KEY);
-
-        if (!token && !rt) return;
-
-        if (!token && rt) {
-          const session = await refreshSession();
-          if (cancelled) return;
-          token = session.token;
-          setAccessToken(session.token);
-          setRefreshToken(session.refreshToken);
-        } else {
-          setAccessToken(token);
-          setRefreshToken(rt);
-        }
-
+    let mounted = true;
+    if (!bootstrapRef.current) {
+      bootstrapRef.current = (async () => {
         try {
-          const me = await fetchMe();
-          if (!cancelled) setUser(me);
+          let token = readStored(FRP_ACCESS_TOKEN_KEY);
+          const rt = readStored(FRP_REFRESH_TOKEN_KEY);
+
+          if (!token && !rt) return;
+
+          if (!token && rt) {
+            const session = await refreshSession();
+            token = session.token;
+            setAccessToken(session.token);
+            setRefreshToken(session.refreshToken);
+          } else {
+            setAccessToken(token);
+            setRefreshToken(rt);
+          }
+
+          try {
+            const me = await fetchMe();
+            setUser(me);
+          } catch {
+            if (!rt && !readStored(FRP_REFRESH_TOKEN_KEY)) throw new Error("session");
+            const session = await refreshSession();
+            setAccessToken(session.token);
+            setRefreshToken(session.refreshToken);
+            const me = await fetchMe();
+            setUser(me);
+          }
         } catch {
-          if (!rt && !readStored(FRP_REFRESH_TOKEN_KEY)) throw new Error("session");
-          const session = await refreshSession();
-          if (cancelled) return;
-          setAccessToken(session.token);
-          setRefreshToken(session.refreshToken);
-          const me = await fetchMe();
-          if (!cancelled) setUser(me);
-        }
-      } catch {
-        if (!cancelled) {
           clearLocalSession();
           setAccessToken(null);
           setRefreshToken(null);
           setUser(null);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+      })();
+    }
+    bootstrapRef.current.finally(() => {
+      if (mounted) setLoading(false);
+    });
     return () => {
-      cancelled = true;
+      mounted = false;
     };
   }, []);
 

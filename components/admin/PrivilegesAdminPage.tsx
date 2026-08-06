@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Pencil, Plus, RefreshCw } from "lucide-react";
 import { CreatePrivilegeDrawer } from "@/components/admin/CreatePrivilegeDrawer";
@@ -56,9 +56,13 @@ export function PrivilegesAdminPage() {
     }
   }, [isAuthenticated, appRole]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${isAuthenticated}:${appRole}`;
+    if (lastLoadedKeyRef.current === key) return;
+    lastLoadedKeyRef.current = key;
     void load();
-  }, [load]);
+  }, [load, isAuthenticated, appRole]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

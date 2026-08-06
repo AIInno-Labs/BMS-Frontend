@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -185,7 +186,13 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Guarded by a ref, not just the empty dep array: React Strict Mode
+  // (dev only) mounts every component twice, and without this the initial
+  // load fires the jobs/counts/staff GETs twice on every page load.
+  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     void refreshJobs();
     void refreshStaff();
   }, [refreshJobs, refreshStaff]);
