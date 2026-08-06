@@ -12,6 +12,9 @@ const inputClass =
 const labelClass =
   "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
 
+/** Types Org Admin can assign on custom roles (FIELD stays Super-Admin catalog only for now). */
+const ASSIGNABLE_TYPES = new Set(["ACTION", "MENU"]);
+
 interface CreateRoleDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -30,6 +33,7 @@ export function CreateRoleDrawer({
   const [roleCode, setRoleCode] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [privileges, setPrivileges] = useState<PrivilegeDTO[]>([]);
+  const [platformOnly, setPlatformOnly] = useState<PrivilegeDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loadingPrivs, setLoadingPrivs] = useState(false);
@@ -54,14 +58,25 @@ export function CreateRoleDrawer({
     (async () => {
       setLoadingPrivs(true);
       try {
-        const list = await listPrivileges({ type: "ACTION", active: true });
-        if (!cancelled) {
-          setPrivileges(
-            (list ?? []).filter((p) => p.privilegeCode && !p.platformOnly)
-          );
-        }
+        // Full active catalog from API (same table Super Admin manages).
+        // Backend already strips some platform-only codes for non-platform users;
+        // we still split platformOnly for a visible read-only section.
+        const list = await listPrivileges({ active: true });
+        if (cancelled) return;
+        const rows = (list ?? []).filter((p) => p.privilegeCode);
+        setPrivileges(
+          rows.filter(
+            (p) =>
+              !p.platformOnly &&
+              ASSIGNABLE_TYPES.has((p.privilegeType ?? "").toUpperCase())
+          )
+        );
+        setPlatformOnly(rows.filter((p) => p.platformOnly));
       } catch {
-        if (!cancelled) setPrivileges([]);
+        if (!cancelled) {
+          setPrivileges([]);
+          setPlatformOnly([]);
+        }
       } finally {
         if (!cancelled) setLoadingPrivs(false);
       }
@@ -71,14 +86,29 @@ export function CreateRoleDrawer({
     };
   }, [open]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, PrivilegeDTO[]>();
+  /** Group assignable privileges by type, then domain. */
+  const groupedByType = useMemo(() => {
+    const typeOrder = ["MENU", "ACTION"] as const;
+    const byType = new Map<string, Map<string, PrivilegeDTO[]>>();
     for (const p of privileges) {
+      const type = (p.privilegeType ?? "OTHER").toUpperCase();
       const domain = p.domain || "OTHER";
-      if (!map.has(domain)) map.set(domain, []);
-      map.get(domain)!.push(p);
+      if (!byType.has(type)) byType.set(type, new Map());
+      const domains = byType.get(type)!;
+      if (!domains.has(domain)) domains.set(domain, []);
+      domains.get(domain)!.push(p);
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return typeOrder
+      .filter((t) => byType.has(t))
+      .map((type) => {
+        const domains = byType.get(type)!;
+        return {
+          type,
+          domains: [...domains.entries()].sort(([a], [b]) =>
+            a.localeCompare(b)
+          ),
+        };
+      });
   }, [privileges]);
 
   function toggle(code: string) {
@@ -147,12 +177,16 @@ export function CreateRoleDrawer({
       subtitle={
         isEdit
           ? "Update the role name and privileges for this organization."
-          : "Define a role and assign ACTION privileges for this organization."
+          : "Assign ACTION (API) and MENU (sidebar) privileges. Platform-only codes are listed below but cannot be granted."
       }
       panelClassName="md:w-[min(640px,92vw)]"
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={handleClose}>
+          <button
+            type="button"
+            className="btn-secondary w-full sm:w-auto"
+            onClick={handleClose}
+          >
             Cancel
           </button>
           <button
@@ -203,41 +237,95 @@ export function CreateRoleDrawer({
 
         <div>
           <p className={labelClass}>Privileges *</p>
+          <p className="mt-1 text-xs text-slate-500">
+            MENU codes control sidebar visibility (e.g. MENU_JOBS). ACTION codes
+            control API access (e.g. JOB_READ, JOB_CREATE). Assign both when a
+            user should open Jobs and load data.
+          </p>
           {loadingPrivs ? (
             <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
           ) : (
-            <div className="mt-2 space-y-3 rounded-xl border border-slate-200 p-3">
-              {grouped.map(([domain, items]) => (
-                <div key={domain}>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {domain}
+            <div className="mt-2 space-y-4 rounded-xl border border-slate-200 p-3">
+              {groupedByType.map(({ type, domains }) => (
+                <div key={type}>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                    {type}
+                    <span className="ml-2 font-normal text-slate-500">
+                      {type === "MENU"
+                        ? "— sidebar / screens"
+                        : "— API endpoints"}
+                    </span>
                   </p>
-                  <div className="space-y-1">
-                    {items.map((p) => (
-                      <label
-                        key={p.privilegeCode}
-                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"
-                      >
-                        <input
-                          type="checkbox"
-                          className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                          checked={selected.has(p.privilegeCode)}
-                          onChange={() => toggle(p.privilegeCode)}
-                        />
-                        <span className="font-medium text-slate-800">
-                          {p.privilegeCode}
-                        </span>
-                        {p.privilege && (
-                          <span className="text-xs text-slate-500">
-                            {p.privilege}
-                          </span>
-                        )}
-                      </label>
+                  <div className="space-y-3">
+                    {domains.map(([domain, items]) => (
+                      <div key={`${type}-${domain}`}>
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          {domain}
+                        </p>
+                        <div className="space-y-1">
+                          {items.map((p) => (
+                            <label
+                              key={p.privilegeCode}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                                checked={selected.has(p.privilegeCode)}
+                                onChange={() => toggle(p.privilegeCode)}
+                              />
+                              <span className="font-medium text-slate-800">
+                                {p.privilegeCode}
+                              </span>
+                              {p.privilege && (
+                                <span className="text-xs text-slate-500">
+                                  {p.privilege}
+                                </span>
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
               ))}
-              {grouped.length === 0 && (
+
+              {platformOnly.length > 0 && (
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                    Platform only
+                  </p>
+                  <p className="mb-2 text-xs text-slate-500">
+                    Visible for reference — Super Admin / platform scope. Cannot
+                    be assigned to organization roles (API rejects them).
+                  </p>
+                  <div className="space-y-1 opacity-70">
+                    {platformOnly.map((p) => (
+                      <label
+                        key={p.privilegeCode}
+                        className="flex cursor-not-allowed items-center gap-2 rounded-lg px-2 py-1.5 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          disabled
+                          className="rounded border-slate-300"
+                          checked={false}
+                          readOnly
+                        />
+                        <span className="font-medium text-slate-600">
+                          {p.privilegeCode}
+                        </span>
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                          platform
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {groupedByType.length === 0 && platformOnly.length === 0 && (
                 <p className="text-sm text-slate-500">No privileges available.</p>
               )}
             </div>

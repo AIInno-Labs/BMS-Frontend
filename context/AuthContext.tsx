@@ -25,6 +25,7 @@ import {
   resolveAppRole,
   type AppRole,
 } from "@/lib/frp/roles";
+import { hasAccess, type AccessKey } from "@/lib/frp/access";
 import type { AuthenticationResponse, UserDTO } from "@/lib/frp/types";
 
 export type LoginResult =
@@ -43,6 +44,8 @@ interface AuthContextValue {
   isOrgUser: boolean;
   canManageOrganizations: boolean;
   canManageRoles: boolean;
+  privileges: string[];
+  can: (key: AccessKey) => boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   completeMfaLogin: (mfaToken: string, code: string) => Promise<UserDTO>;
   logout: () => Promise<void>;
@@ -212,6 +215,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isOrgAdmin ||
     privileges.includes("ROLE_CREATE") ||
     privileges.includes("ROLE_READ");
+  const can = useCallback(
+    (key: AccessKey) => hasAccess(user, key),
+    [user]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -226,6 +233,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOrgUser,
       canManageOrganizations,
       canManageRoles,
+      privileges,
+      can,
       login,
       completeMfaLogin,
       logout,
@@ -241,6 +250,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOrgUser,
       canManageOrganizations,
       canManageRoles,
+      privileges,
+      can,
       login,
       completeMfaLogin,
       logout,

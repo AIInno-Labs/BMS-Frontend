@@ -12,3 +12,10 @@ now lives in **PostgreSQL via BMS-backend (Spring Boot)**.
 
 Do **not** reintroduce `@supabase/supabase-js` or `NEXT_PUBLIC_SUPABASE_*`.
 See [`../DEVELOPMENT_PLAN.md`](../DEVELOPMENT_PLAN.md) and [`../OVERVIEW.md`](../OVERVIEW.md).
+
+### Privilege / sidebar gating (current)
+
+Org-user sidebar items (Jobs / Quotes / Analytics) are privilege-gated via
+[`../lib/frp/access.ts`](../lib/frp/access.ts) + `AppNav`. If the role lacks `JOB_READ`,
+**Jobs is hidden**. Authoritative write-up:
+[`../../BMS-backend/docs/PRIVILEGE_MODEL.md`](../../BMS-backend/docs/PRIVILEGE_MODEL.md) §5.1.

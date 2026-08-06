@@ -64,13 +64,31 @@ designation/roleCodes has ORG_ADMIN   -> "orgadmin"
 otherwise                             -> "orguser"
 ```
 
-The role drives both landing route and navigation ([`components/AppNav.tsx`](./components/AppNav.tsx)):
+The role drives both landing route and **which nav shell** is used ([`components/AppNav.tsx`](./components/AppNav.tsx)):
 
-| Role | Home | Navigation |
+| Role | Home | Navigation shell |
 |---|---|---|
 | `superadmin` | `/admin` | Dashboard · Organizations · Privileges · Parameters · Security |
 | `orgadmin` | `/org` | Dashboard · Users · Roles · Integrations · Security |
-| `orguser` | `/` | Dashboard · Jobs · Quotes · Analytics · Security |
+| `orguser` | `/` | Dashboard · Jobs · Quotes · Analytics · Security *(items then privilege-filtered — see below)* |
+
+**Org-user sidebar privilege gating (client requirement — implemented):** within the org-user
+shell, individual links are hidden when the user lacks the matching privilege. The map lives
+in [`lib/frp/access.ts`](./lib/frp/access.ts); `AuthContext.can(key)` checks
+`user.rolesPrivileges` from `/auth/me`.
+
+Nav prefers **MENU** codes (created in Super Admin, assigned on Org Admin roles). Matching
+**ACTION** codes remain as OR fallbacks during rollout.
+
+| Sidebar item | Access key | Privilege (any of) |
+|---|---|---|
+| Jobs | `JOBS_VIEW` | `MENU_JOBS` **or** `JOB_READ` |
+| Quotes | `QUOTES_VIEW` | `MENU_QUOTES` **or** `QUOTE_READ` |
+| Analytics | `ANALYTICS_VIEW` | `MENU_ANALYTICS` / `MENU_DASHBOARD` **or** `JOB_READ` |
+
+Create-job stays ACTION-only (`JOBS_CREATE` → `JOB_CREATE`). Org Admin Create Role lists
+**ACTION + MENU** (assignable) and shows **platform-only** codes read-only. Full model:
+[`../BMS-backend/docs/PRIVILEGE_MODEL.md`](../BMS-backend/docs/PRIVILEGE_MODEL.md) §5.1.
 
 Finer-grained checks (`canManageOrganizations`, `canManageRoles`) additionally consult `user.rolesPrivileges` (e.g. `ORGANIZATION_CREATE`, `ROLE_READ`).
 
