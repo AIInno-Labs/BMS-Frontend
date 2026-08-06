@@ -1,10 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { createRole, listPrivileges, updateRole } from "@/lib/frp/api";
 import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -70,8 +70,8 @@ export function CreateRoleDrawer({
             (p) =>
               Boolean(p.privilegeCode) &&
               !p.platformOnly &&
-              ASSIGNABLE_TYPES.has((p.privilegeType ?? "").toUpperCase())
-          )
+              ASSIGNABLE_TYPES.has((p.privilegeType ?? "").toUpperCase()),
+          ),
         );
       } catch {
         if (!cancelled) setPrivileges([]);
@@ -103,7 +103,7 @@ export function CreateRoleDrawer({
         return {
           type,
           domains: [...domains.entries()].sort(([a], [b]) =>
-            a.localeCompare(b)
+            a.localeCompare(b),
           ),
         };
       });
@@ -160,7 +160,7 @@ export function CreateRoleDrawer({
             ? err.message
             : isEdit
               ? "Failed to update role"
-              : "Failed to create role"
+              : "Failed to create role",
       );
     } finally {
       setSubmitting(false);
@@ -237,8 +237,9 @@ export function CreateRoleDrawer({
           <p className={labelClass}>Privileges *</p>
           <p className="mt-1 text-xs text-slate-500">
             MENU = sidebar visibility (e.g. MENU_JOBS). ACTION = API access
-            (e.g. JOB_READ). FIELD = per-field UI (e.g. FIELD_JOB_RATE → fieldKey
-            "rate"). Assign MENU for sidebar, ACTION for API, FIELD for controls.
+            (e.g. JOB_READ). FIELD = per-field UI (e.g. FIELD_JOB_RATE →
+            fieldKey "rate"). Assign MENU for sidebar, ACTION for API, FIELD for
+            controls.
           </p>
           {loadingPrivs ? (
             <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
@@ -288,7 +289,9 @@ export function CreateRoleDrawer({
               ))}
 
               {groupedByType.length === 0 && (
-                <p className="text-sm text-slate-500">No privileges available.</p>
+                <p className="text-sm text-slate-500">
+                  No privileges available.
+                </p>
               )}
             </div>
           )}
