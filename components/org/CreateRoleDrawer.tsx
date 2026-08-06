@@ -12,8 +12,14 @@ const inputClass =
 const labelClass =
   "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
 
-/** Types Org Admin can assign on custom roles (FIELD stays Super-Admin catalog only for now). */
-const ASSIGNABLE_TYPES = new Set(["ACTION", "MENU"]);
+/** Types Org Admin can assign on custom roles. Platform-only codes are never shown. */
+const ASSIGNABLE_TYPES = new Set(["ACTION", "MENU", "FIELD"]);
+
+const TYPE_HINT: Record<string, string> = {
+  MENU: "— sidebar / screens",
+  ACTION: "— API endpoints",
+  FIELD: "— per-field read/write",
+};
 
 interface CreateRoleDrawerProps {
   open: boolean;
@@ -33,7 +39,6 @@ export function CreateRoleDrawer({
   const [roleCode, setRoleCode] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [privileges, setPrivileges] = useState<PrivilegeDTO[]>([]);
-  const [platformOnly, setPlatformOnly] = useState<PrivilegeDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loadingPrivs, setLoadingPrivs] = useState(false);
@@ -58,25 +63,18 @@ export function CreateRoleDrawer({
     (async () => {
       setLoadingPrivs(true);
       try {
-        // Full active catalog from API (same table Super Admin manages).
-        // Backend already strips some platform-only codes for non-platform users;
-        // we still split platformOnly for a visible read-only section.
         const list = await listPrivileges({ active: true });
         if (cancelled) return;
-        const rows = (list ?? []).filter((p) => p.privilegeCode);
         setPrivileges(
-          rows.filter(
+          (list ?? []).filter(
             (p) =>
+              Boolean(p.privilegeCode) &&
               !p.platformOnly &&
               ASSIGNABLE_TYPES.has((p.privilegeType ?? "").toUpperCase())
           )
         );
-        setPlatformOnly(rows.filter((p) => p.platformOnly));
       } catch {
-        if (!cancelled) {
-          setPrivileges([]);
-          setPlatformOnly([]);
-        }
+        if (!cancelled) setPrivileges([]);
       } finally {
         if (!cancelled) setLoadingPrivs(false);
       }
@@ -88,7 +86,7 @@ export function CreateRoleDrawer({
 
   /** Group assignable privileges by type, then domain. */
   const groupedByType = useMemo(() => {
-    const typeOrder = ["MENU", "ACTION"] as const;
+    const typeOrder = ["MENU", "ACTION", "FIELD"] as const;
     const byType = new Map<string, Map<string, PrivilegeDTO[]>>();
     for (const p of privileges) {
       const type = (p.privilegeType ?? "OTHER").toUpperCase();
@@ -177,7 +175,7 @@ export function CreateRoleDrawer({
       subtitle={
         isEdit
           ? "Update the role name and privileges for this organization."
-          : "Assign ACTION (API) and MENU (sidebar) privileges. Platform-only codes are listed below but cannot be granted."
+          : "Assign ACTION (API), MENU (sidebar), and FIELD (per-field) privileges for this organization."
       }
       panelClassName="md:w-[min(640px,92vw)]"
       footer={
@@ -238,9 +236,8 @@ export function CreateRoleDrawer({
         <div>
           <p className={labelClass}>Privileges *</p>
           <p className="mt-1 text-xs text-slate-500">
-            MENU codes control sidebar visibility (e.g. MENU_JOBS). ACTION codes
-            control API access (e.g. JOB_READ, JOB_CREATE). Assign both when a
-            user should open Jobs and load data.
+            MENU = sidebar visibility (e.g. MENU_JOBS). ACTION = API access
+            (e.g. JOB_READ). FIELD = per-field access (e.g. FIELD_JOB_RATE).
           </p>
           {loadingPrivs ? (
             <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
@@ -251,9 +248,7 @@ export function CreateRoleDrawer({
                   <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
                     {type}
                     <span className="ml-2 font-normal text-slate-500">
-                      {type === "MENU"
-                        ? "— sidebar / screens"
-                        : "— API endpoints"}
+                      {TYPE_HINT[type] ?? ""}
                     </span>
                   </p>
                   <div className="space-y-3">
@@ -291,41 +286,7 @@ export function CreateRoleDrawer({
                 </div>
               ))}
 
-              {platformOnly.length > 0 && (
-                <div className="border-t border-slate-100 pt-3">
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-700">
-                    Platform only
-                  </p>
-                  <p className="mb-2 text-xs text-slate-500">
-                    Visible for reference — Super Admin / platform scope. Cannot
-                    be assigned to organization roles (API rejects them).
-                  </p>
-                  <div className="space-y-1 opacity-70">
-                    {platformOnly.map((p) => (
-                      <label
-                        key={p.privilegeCode}
-                        className="flex cursor-not-allowed items-center gap-2 rounded-lg px-2 py-1.5 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          disabled
-                          className="rounded border-slate-300"
-                          checked={false}
-                          readOnly
-                        />
-                        <span className="font-medium text-slate-600">
-                          {p.privilegeCode}
-                        </span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
-                          platform
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {groupedByType.length === 0 && platformOnly.length === 0 && (
+              {groupedByType.length === 0 && (
                 <p className="text-sm text-slate-500">No privileges available.</p>
               )}
             </div>
