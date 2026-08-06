@@ -16,9 +16,9 @@ const labelClass =
 const ASSIGNABLE_TYPES = new Set(["ACTION", "MENU", "FIELD"]);
 
 const TYPE_HINT: Record<string, string> = {
-  MENU: "— sidebar / screens",
+  MENU: "— sidebar / screens (AppNav)",
   ACTION: "— API endpoints",
-  FIELD: "— per-field read/write",
+  FIELD: "— per-field UI (FieldGate)",
 };
 
 interface CreateRoleDrawerProps {
@@ -237,7 +237,8 @@ export function CreateRoleDrawer({
           <p className={labelClass}>Privileges *</p>
           <p className="mt-1 text-xs text-slate-500">
             MENU = sidebar visibility (e.g. MENU_JOBS). ACTION = API access
-            (e.g. JOB_READ). FIELD = per-field access (e.g. FIELD_JOB_RATE).
+            (e.g. JOB_READ). FIELD = per-field UI (e.g. FIELD_JOB_RATE → fieldKey
+            "rate"). Assign MENU for sidebar, ACTION for API, FIELD for controls.
           </p>
           {loadingPrivs ? (
             <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>

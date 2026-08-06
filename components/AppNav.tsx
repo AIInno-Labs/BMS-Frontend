@@ -28,10 +28,30 @@ type NavLink = {
 };
 
 const orgUserManagerLinks: NavLink[] = [
-  { href: "/", label: "Dashboard", icon: House },
-  { href: "/jobs", label: "Jobs", icon: ListChecks, accessKey: ACCESS_KEYS.JOBS_VIEW },
-  { href: "/quotes", label: "Quotes", icon: PackageSearch, accessKey: ACCESS_KEYS.QUOTES_VIEW },
-  { href: "/analytics", label: "Analytics", icon: BarChart3, accessKey: ACCESS_KEYS.ANALYTICS_VIEW },
+  {
+    href: "/",
+    label: "Dashboard",
+    icon: House,
+    accessKey: ACCESS_KEYS.DASHBOARD_VIEW,
+  },
+  {
+    href: "/jobs",
+    label: "Jobs",
+    icon: ListChecks,
+    accessKey: ACCESS_KEYS.JOBS_VIEW,
+  },
+  {
+    href: "/quotes",
+    label: "Quotes",
+    icon: PackageSearch,
+    accessKey: ACCESS_KEYS.QUOTES_VIEW,
+  },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
+  },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
   { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
