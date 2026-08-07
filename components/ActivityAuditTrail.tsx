@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, Clock, Zap } from "lucide-react";
 import type { JobAuditEntry, JobAuditIcon } from "@/lib/audit/job-audit-types";
 import { getJobAuditTrail } from "@/lib/frp/job-audit";
@@ -48,9 +48,16 @@ export function ActivityAuditTrail({
     }
   }, [jobId]);
 
+  // Guarded by the last-fetched key, not just the dep array: React Strict
+  // Mode (dev only) mounts every component twice, and without this the
+  // audit GET fires twice on every job-page load.
+  const lastFetchedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${jobId}:${refreshKey}`;
+    if (lastFetchedKeyRef.current === key) return;
+    lastFetchedKeyRef.current = key;
     void load();
-  }, [load, refreshKey]);
+  }, [load, jobId, refreshKey]);
 
   return (
     <section className="no-print min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-8">

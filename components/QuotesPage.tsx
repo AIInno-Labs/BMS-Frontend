@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, RefreshCw } from "lucide-react";
 import {
@@ -173,7 +173,10 @@ export function QuotesPage() {
     }
   }, []);
 
+  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     void load();
   }, [load]);
 

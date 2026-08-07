@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, RefreshCw, UserX, Users } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
@@ -82,9 +82,14 @@ export function UsersAdminPage() {
     }
   }, [isAuthenticated, canManage, page]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (authLoading || !isAuthenticated || !canManage || me?.id == null) return;
+    const key = `${me.id}:${page}`;
+    if (lastLoadedKeyRef.current === key) return;
+    lastLoadedKeyRef.current = key;
     void load();
-  }, [load]);
+  }, [authLoading, isAuthenticated, canManage, me?.id, page, load]);
 
   async function onDisable(u: UserDTO) {
     if (u.id == null) return;

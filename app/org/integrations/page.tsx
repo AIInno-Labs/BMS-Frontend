@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { listOrgParameters, upsertOrgParameter } from "@/lib/frp/api";
@@ -76,9 +76,12 @@ export default function OrgIntegrationsPage() {
     }
   }, [appRole]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (lastLoadedKeyRef.current === appRole) return;
+    lastLoadedKeyRef.current = appRole;
     void load();
-  }, [load]);
+  }, [load, appRole]);
 
   const grouped = useMemo(() => {
     const map: Record<string, ApplicationParameterDTO[]> = {

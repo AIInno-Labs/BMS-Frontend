@@ -46,7 +46,8 @@ import {
   resinTypes,
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import { downloadJobCard, getQuote } from "@/lib/frp/api";
+import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
+import { FrpApiError } from "@/lib/frp/types";
 import type {
   Job,
   JobPriority,
@@ -225,6 +226,7 @@ export function JobCard({ jobId }: JobCardProps) {
 
   const handlePrint = async () => {
     if (isExporting) return;
+    setSaveError(null);
     setIsExporting(true);
     try {
       if (!job.dbId) {
@@ -235,10 +237,54 @@ export function JobCard({ jobId }: JobCardProps) {
       // Log the pull for the audit trail (JOB_CARD_DOWNLOADED). Best-effort:
       // the card is already open, so a failed audit must not surface an error.
       void downloadJobCard(job.dbId).catch(() => {});
-    } catch {
-      setSaveError("Could not open job card PDF. Please try again.");
+    } catch (e) {
+      setSaveError(
+        e instanceof Error
+          ? e.message
+          : "Could not open job card PDF. Please try again."
+      );
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleCancelJob = async () => {
+    if (!job.dbId) {
+      setSaveError("Job has no database id — reload the job list.");
+      return;
+    }
+    setSaveError(null);
+    setSaveSuccess(false);
+    setIsSaving(true);
+    try {
+      await cancelJob(job.dbId);
+      const cancelled = {
+        ...job,
+        status: "Cancelled" as Job["status"],
+      };
+      setJob(cancelled);
+      setDraft(cancelled);
+      setSaveSuccess(true);
+      setAuditRefreshKey((k) => k + 1);
+      // Refresh from server so version / audit stay in sync.
+      try {
+        const fresh = await loadJobDetail(jobId);
+        setJob(fresh);
+        setDraft(fresh);
+      } catch {
+        /* local Cancelled state is enough if reload fails */
+      }
+    } catch (e) {
+      setSaveError(
+        e instanceof FrpApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not cancel job"
+      );
+      throw e;
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -427,7 +473,24 @@ export function JobCard({ jobId }: JobCardProps) {
       setSaveSuccess(true);
       setAuditRefreshKey((k) => k + 1);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      if (e instanceof FrpApiError && e.status === 409) {
+        // Someone else's write (or our own retry) moved the version past what
+        // this screen loaded with. Re-pull the job so the version in state is
+        // current again — otherwise every retry keeps sending the same stale
+        // version and keeps failing the same way.
+        setSaveError(
+          "This job changed elsewhere and your edit couldn't be applied. Reloaded the latest version — please try again."
+        );
+        try {
+          const fresh = await loadJobDetail(jobId);
+          setJob(fresh);
+          if (!isEditing) setDraft(fresh);
+        } catch {
+          // Refresh failed too; the error above still tells the user what to do.
+        }
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -478,6 +541,7 @@ export function JobCard({ jobId }: JobCardProps) {
           saveSuccess={saveSuccess}
           auditRefreshKey={auditRefreshKey}
           onPrint={handlePrint}
+          onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
         />
       )}
@@ -523,17 +587,14 @@ export function JobCard({ jobId }: JobCardProps) {
         </>
       )}
 
+      {isEditing && (
       <div
-        className={`mx-auto w-full min-w-0 px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8 ${
-          isEditing ? "max-w-3xl" : "hidden"
-        }`}
+        className="mx-auto w-full min-w-0 max-w-3xl px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8"
       >
-        {isEditing && (
-          <Link href="/jobs" className="no-print btn-ghost mb-4">
-            <ArrowLeft className="h-5 w-5" aria-hidden />
-            Back to Jobs
-          </Link>
-        )}
+        <Link href="/jobs" className="no-print btn-ghost mb-4">
+          <ArrowLeft className="h-5 w-5" aria-hidden />
+          Back to Jobs
+        </Link>
 
         <article
           id="job-card-print"
@@ -1167,6 +1228,7 @@ export function JobCard({ jobId }: JobCardProps) {
 
         </article>
       </div>
+      )}
     </main>
   );
 }

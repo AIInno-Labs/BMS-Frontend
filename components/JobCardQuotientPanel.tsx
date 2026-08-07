@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { getQuote } from "@/lib/frp/api";
@@ -16,17 +16,28 @@ export function JobCardQuotientPanel({ jobId }: { jobId: string }) {
   const quoteNumber = match?.[1];
   const [quote, setQuote] = useState<QuotientQuote | null>(null);
 
+  // Cached per key in a ref, not just guarded by `cancelled`: React Strict
+  // Mode (dev only) mounts every component twice, and a plain `cancelled`
+  // flag only suppresses which invocation's result gets applied — the first
+  // invocation still fires its own GET. Sharing one promise per key means
+  // both mounts attach to the same in-flight request instead.
+  const quoteFetchRef = useRef<{
+    key: string;
+    promise: ReturnType<typeof getQuote>;
+  } | null>(null);
   useEffect(() => {
     if (!quoteNumber) return;
-    let cancelled = false;
-    void getQuote(quoteNumber)
+    let mounted = true;
+    if (quoteFetchRef.current?.key !== quoteNumber) {
+      quoteFetchRef.current = { key: quoteNumber, promise: getQuote(quoteNumber) };
+    }
+    quoteFetchRef.current.promise
       .then((raw) => {
-        if (cancelled || !raw) return;
-        setQuote(raw as unknown as QuotientQuote);
+        if (mounted && raw) setQuote(raw as unknown as QuotientQuote);
       })
       .catch(() => {});
     return () => {
-      cancelled = true;
+      mounted = false;
     };
   }, [quoteNumber]);
 

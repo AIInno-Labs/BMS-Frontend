@@ -15,6 +15,8 @@ export interface OfficialJobCardData {
   validUntil: string;
   raisedBy: string;
   customer: string;
+  /** Site / postal address from contact details (shown under customer). */
+  customerAddress: string;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -121,19 +123,28 @@ export function formatJobCardDate(isoDate: string | null | undefined): string {
   return `${day}-${month}-${year}`;
 }
 
+function nonempty(value?: string | null): string | undefined {
+  const v = (value ?? "").trim();
+  return v ? v : undefined;
+}
+
 export function buildOfficialJobCardData(
   job: Job,
   printDetails?: JobCardPrintDetails
 ): OfficialJobCardData {
   const pd = printDetails ?? job.printDetails;
+  const sl = job.schedulingLogistics;
   const jobNumber = job.id.replace(/^JOB-/, "");
 
-  const scopeLines = pd?.scopeLines ?? [
-    job.projectName,
-    ...(job.manualInstructions
-      ? job.manualInstructions.split(/\n+/).filter(Boolean)
-      : []),
-  ];
+  const fromCardScope = (pd?.scopeLines ?? []).map((s) => s.trim()).filter(Boolean);
+  const scopeLines = fromCardScope.length
+    ? fromCardScope
+    : [
+        job.projectName,
+        ...(job.manualInstructions
+          ? job.manualInstructions.split(/\n+/).filter(Boolean)
+          : []),
+      ].filter(Boolean);
 
   const clipRows =
     pd?.clipRows && pd.clipRows.length > 0
@@ -142,39 +153,63 @@ export function buildOfficialJobCardData(
 
   const packs = pd?.packs ?? [EMPTY_PACK, EMPTY_PACK, EMPTY_PACK];
 
+  const assignedName = job.assignedWorkerId
+    ? getWorkerDisplayName(job.assignedWorkerId)
+    : "";
+  const raisedBy =
+    nonempty(pd?.raisedBy) ??
+    (assignedName && assignedName !== "Unassigned" ? assignedName : undefined) ??
+    "";
+
+  const customerAddress =
+    nonempty(job.clientAddress) ??
+    nonempty(pd?.workflowExtras?.deliveryAddress) ??
+    nonempty(sl?.deliveryAddress) ??
+    nonempty(sl?.billingAddress) ??
+    "";
+
   return {
     jobNumber,
     date: formatJobCardDate(job.date),
     dueDate: formatJobCardDate(job.dueDate),
     validUntil: formatJobCardDate(job.quoteValidUntil),
-    raisedBy:
-      pd?.raisedBy ??
-      (job.assignedWorkerId
-        ? getWorkerDisplayName(job.assignedWorkerId)
-        : "Production Manager"),
+    raisedBy,
     customer: job.clientName,
+    customerAddress,
     contactName: job.clientContactName || "",
-    contactPhone: pd?.contactPhone ?? "",
-    contactEmail: pd?.contactEmail ?? "",
-    purchaseOrderNo: pd?.purchaseOrderNo ?? "",
+    contactPhone:
+      nonempty(pd?.contactPhone) ?? nonempty(job.printDetails?.contactPhone) ?? "",
+    contactEmail:
+      nonempty(pd?.contactEmail) ?? nonempty(job.printDetails?.contactEmail) ?? "",
+    purchaseOrderNo: nonempty(pd?.purchaseOrderNo) ?? "",
     accountYesNo: pd?.accountYesNo === false ? "No" : "Yes",
-    transport: pd?.transport ?? "FRP Engineering",
-    transportCompany: pd?.transportCompany ?? "",
-    freightAccount: pd?.freightAccount ?? "",
-    consignmentNote: pd?.consignmentNote ?? "",
-    despatchDate: pd?.despatchDate ?? "",
-    deliveryDocket: pd?.deliveryDocket ?? "",
+    transport: nonempty(pd?.transport) ?? "FRP Engineering",
+    transportCompany: nonempty(pd?.transportCompany) ?? "",
+    freightAccount:
+      nonempty(pd?.freightAccount) ??
+      nonempty(sl?.freightAccount) ??
+      nonempty(sl?.carrierAccount) ??
+      "",
+    consignmentNote: nonempty(pd?.consignmentNote) ?? "",
+    despatchDate:
+      nonempty(pd?.despatchDate) ?? nonempty(sl?.shipDate) ?? "",
+    deliveryDocket: nonempty(pd?.deliveryDocket) ?? "",
     scopeLines,
-    scopeType: pd?.scopeType ?? "",
-    thickness: pd?.thickness ?? "",
-    mesh: pd?.mesh ?? "",
+    scopeType: nonempty(pd?.scopeType) ?? "",
+    thickness: nonempty(pd?.thickness) ?? "",
+    mesh: nonempty(pd?.mesh) ?? "",
     resin: job.resinType,
-    colour: pd?.colour ?? "",
-    finish: pd?.finish ?? "",
+    colour: nonempty(pd?.colour) ?? "",
+    finish: nonempty(pd?.finish) ?? "",
     clipRows,
-    notes: pd?.workflowExtras?.jobCardNotes?.trim() ?? "",
+    notes:
+      nonempty(pd?.workflowExtras?.jobCardNotes) ??
+      nonempty(job.notes) ??
+      "",
     deliveryInstructions:
-      pd?.deliveryInstructions ??
+      nonempty(pd?.deliveryInstructions) ??
+      nonempty(pd?.workflowExtras?.deliveryAddress) ??
+      nonempty(sl?.deliveryAddress) ??
       (job.installRequired
         ? "Install on site per approved drawing. Confirm delivery docket on arrival."
         : ""),
@@ -188,7 +223,7 @@ export function buildOfficialJobCardData(
     qaCompleted: job.qaCompleted,
     status: job.status,
     priority: job.priority,
-    assignedWorker: getWorkerDisplayName(job.assignedWorkerId),
+    assignedWorker: assignedName,
     estimatedHours:
       job.estimatedHours != null ? `${job.estimatedHours}h` : "",
   };

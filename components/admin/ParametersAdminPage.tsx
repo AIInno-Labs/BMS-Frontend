@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
@@ -71,8 +71,11 @@ export function ParametersAdminPage() {
     }
   }, [authLoading, isAuthenticated, appRole, router]);
 
+  const lastOrgsLoadedForRoleRef = useRef<string | null>(null);
   useEffect(() => {
     if (appRole !== "superadmin") return;
+    if (lastOrgsLoadedForRoleRef.current === appRole) return;
+    lastOrgsLoadedForRoleRef.current = appRole;
     void (async () => {
       try {
         const res = await listOrganizations(0, 100);
@@ -109,9 +112,13 @@ export function ParametersAdminPage() {
     }
   }, [appRole, scope, orgId]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${appRole}:${scope}:${orgId}`;
+    if (lastLoadedKeyRef.current === key) return;
+    lastLoadedKeyRef.current = key;
     void load();
-  }, [load]);
+  }, [load, appRole, scope, orgId]);
 
   const grouped = useMemo(() => {
     const map: Record<string, ApplicationParameterDTO[]> = {
