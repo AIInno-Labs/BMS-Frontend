@@ -5,6 +5,8 @@ import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { createRole, listPrivileges, updateRole } from "@/lib/frp/api";
 import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { CreateRoleSchema, RoleNameSchema } from "@/lib/schemas/role";
+import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -31,12 +33,14 @@ export function CreateRoleDrawer({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [privileges, setPrivileges] = useState<PrivilegeDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadingPrivs, setLoadingPrivs] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setFieldErrors({});
     if (initialRole) {
       setRole(initialRole.role ?? "");
       setRoleCode(initialRole.roleCode ?? "");
@@ -95,12 +99,28 @@ export function CreateRoleDrawer({
     setRoleCode("");
     setSelected(new Set());
     setError(null);
+    setFieldErrors({});
     onClose();
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setFieldErrors({});
+
+    if (isEdit) {
+      const parsed = RoleNameSchema.safeParse({ role });
+      if (!parsed.success) {
+        setFieldErrors(fieldErrorsFrom(parsed.error));
+        return;
+      }
+    } else {
+      const parsed = CreateRoleSchema.safeParse({ role, roleCode });
+      if (!parsed.success) {
+        setFieldErrors(fieldErrorsFrom(parsed.error));
+        return;
+      }
+    }
     if (selected.size === 0) {
       setError("Select at least one privilege.");
       return;
@@ -184,6 +204,9 @@ export function CreateRoleDrawer({
             value={role}
             onChange={(e) => setRole(e.target.value)}
           />
+          {fieldErrors.role && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.role}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="roleCode">
@@ -199,6 +222,9 @@ export function CreateRoleDrawer({
             readOnly={isEdit}
             disabled={isEdit}
           />
+          {fieldErrors.roleCode && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.roleCode}</p>
+          )}
         </div>
 
         <div>

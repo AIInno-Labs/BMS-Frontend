@@ -6,6 +6,8 @@ import { updatePrivilege } from "@/lib/frp/api";
 import type { FieldAccessMode } from "@/lib/frp/privilege-types";
 import type { PrivilegeDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { EditPrivilegeSchema } from "@/lib/schemas/privilege";
+import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -33,6 +35,7 @@ export function EditPrivilegeDrawer({
   const [sortOrder, setSortOrder] = useState("0");
   const [active, setActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const editable =
@@ -49,25 +52,42 @@ export function EditPrivilegeDrawer({
     setSortOrder(String(privilege.sortOrder ?? 0));
     setActive(privilege.active !== false);
     setError(null);
+    setFieldErrors({});
   }, [privilege]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!privilege?.id || !editable) return;
     setError(null);
+    setFieldErrors({});
+
+    const isFieldType = privilege.privilegeType === "FIELD";
+    const parsed = EditPrivilegeSchema.safeParse({
+      isFieldType,
+      label,
+      domain,
+      fieldKey,
+      sortOrder,
+    });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const data = parsed.data;
       const body: PrivilegeDTO = {
         id: privilege.id,
-        privilege: label.trim(),
+        privilege: data.label,
         privilegeCode: privilege.privilegeCode,
         privilegeType: privilege.privilegeType,
-        domain: domain.trim() || undefined,
-        sortOrder: Number.parseInt(sortOrder, 10) || 0,
+        domain: data.domain || undefined,
+        sortOrder: data.sortOrder,
         active,
       };
-      if (privilege.privilegeType === "FIELD") {
-        body.fieldKey = fieldKey.trim();
+      if (isFieldType) {
+        body.fieldKey = data.fieldKey?.trim();
         body.accessMode = accessMode;
       }
       await updatePrivilege(privilege.id, body);
@@ -151,6 +171,9 @@ export function EditPrivilegeDrawer({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
             />
+            {fieldErrors.label && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.label}</p>
+            )}
           </div>
           <div>
             <label className={labelClass} htmlFor="edit-priv-domain">
@@ -175,6 +198,9 @@ export function EditPrivilegeDrawer({
                   value={fieldKey}
                   onChange={(e) => setFieldKey(e.target.value)}
                 />
+                {fieldErrors.fieldKey && (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.fieldKey}</p>
+                )}
               </div>
               <div>
                 <label className={labelClass} htmlFor="edit-access">
@@ -205,6 +231,9 @@ export function EditPrivilegeDrawer({
               value={sortOrder}
               onChange={(e) => setSortOrder(e.target.value)}
             />
+            {fieldErrors.sortOrder && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.sortOrder}</p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input

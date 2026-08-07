@@ -5,6 +5,8 @@ import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { updateOrganization } from "@/lib/frp/api";
 import type { OrganizationDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { EditOrganizationSchema } from "@/lib/schemas/organization";
+import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -27,10 +29,12 @@ export function EditOrganizationDrawer({
 }: EditOrganizationDrawerProps) {
   const [form, setForm] = useState<OrganizationDTO>({});
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (organization) setForm({ ...organization });
+    setFieldErrors({});
   }, [organization]);
 
   function setField<K extends keyof OrganizationDTO>(key: K, value: OrganizationDTO[K]) {
@@ -44,20 +48,40 @@ export function EditOrganizationDrawer({
       return;
     }
     setError(null);
+    setFieldErrors({});
+
+    const parsed = EditOrganizationSchema.safeParse({
+      companyName: form.companyName ?? "",
+      companyCode: form.companyCode ?? "",
+      gstNo: form.gstNo ?? "",
+      address: form.address ?? "",
+      city: form.city ?? "",
+      country: form.country ?? "",
+      postalCode: form.postalCode ?? "",
+      email: form.email ?? "",
+      phone: form.phone ?? "",
+      mobileNumber: form.mobileNumber ?? "",
+    });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const data = parsed.data;
       await updateOrganization({
         id: form.id,
-        companyName: form.companyName?.trim(),
-        companyCode: form.companyCode?.trim(),
-        address: form.address?.trim() || undefined,
-        city: form.city?.trim() || undefined,
-        country: form.country?.trim() || undefined,
-        postalCode: form.postalCode?.trim() || undefined,
-        phone: form.phone?.trim() || undefined,
-        mobileNumber: form.mobileNumber?.trim() || undefined,
-        email: form.email?.trim() || undefined,
-        gstNo: form.gstNo?.trim() || undefined,
+        companyName: data.companyName,
+        companyCode: data.companyCode,
+        address: data.address || undefined,
+        city: data.city || undefined,
+        country: data.country || undefined,
+        postalCode: data.postalCode || undefined,
+        phone: data.phone || undefined,
+        mobileNumber: data.mobileNumber || undefined,
+        email: data.email || undefined,
+        gstNo: data.gstNo || undefined,
       });
       onUpdated();
       onClose();
@@ -109,6 +133,9 @@ export function EditOrganizationDrawer({
             value={form.companyName ?? ""}
             onChange={(e) => setField("companyName", e.target.value)}
           />
+          {fieldErrors.companyName && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.companyName}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="edit-companyCode">
@@ -121,6 +148,9 @@ export function EditOrganizationDrawer({
             value={form.companyCode ?? ""}
             onChange={(e) => setField("companyCode", e.target.value)}
           />
+          {fieldErrors.companyCode && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.companyCode}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="edit-gstNo">
@@ -177,6 +207,9 @@ export function EditOrganizationDrawer({
             value={form.email ?? ""}
             onChange={(e) => setField("email", e.target.value)}
           />
+          {fieldErrors.email && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="edit-phone">
@@ -188,6 +221,9 @@ export function EditOrganizationDrawer({
             value={form.phone ?? ""}
             onChange={(e) => setField("phone", e.target.value)}
           />
+          {fieldErrors.phone && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>
+          )}
         </div>
         {error && (
           <p className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
