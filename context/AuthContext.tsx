@@ -25,6 +25,14 @@ import {
   resolveAppRole,
   type AppRole,
 } from "@/lib/frp/roles";
+import {
+  canField as canFieldAccess,
+  hasAccess,
+  hasPrivilege,
+  type AccessKey,
+  type FieldKey,
+} from "@/lib/frp/access";
+import type { FieldAccessMode } from "@/lib/frp/privilege-types";
 import type { AuthenticationResponse, UserDTO } from "@/lib/frp/types";
 
 export type LoginResult =
@@ -43,6 +51,13 @@ interface AuthContextValue {
   isOrgUser: boolean;
   canManageOrganizations: boolean;
   canManageRoles: boolean;
+  privileges: string[];
+  /** Nav / action gating via ACCESS_PRIVILEGE_MAP (MENU + ACTION). */
+  can: (key: AccessKey) => boolean;
+  /** Field gating via FIELD_PRIVILEGE_MAP (FIELD codes). */
+  canField: (fieldKey: FieldKey, mode?: FieldAccessMode) => boolean;
+  /** Raw privilege-code check against `/auth/me` rolesPrivileges. */
+  hasPrivilege: (code: string | readonly string[]) => boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   completeMfaLogin: (mfaToken: string, code: string) => Promise<UserDTO>;
   logout: () => Promise<void>;
@@ -212,6 +227,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isOrgAdmin ||
     privileges.includes("ROLE_CREATE") ||
     privileges.includes("ROLE_READ");
+  const can = useCallback(
+    (key: AccessKey) => hasAccess(user, key),
+    [user]
+  );
+  const canField = useCallback(
+    (fieldKey: FieldKey, mode: FieldAccessMode = "READ") =>
+      canFieldAccess(user, fieldKey, mode),
+    [user]
+  );
+  const userHasPrivilege = useCallback(
+    (code: string | readonly string[]) => hasPrivilege(user, code),
+    [user]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -226,6 +254,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOrgUser,
       canManageOrganizations,
       canManageRoles,
+      privileges,
+      can,
+      canField,
+      hasPrivilege: userHasPrivilege,
       login,
       completeMfaLogin,
       logout,
@@ -241,6 +273,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOrgUser,
       canManageOrganizations,
       canManageRoles,
+      privileges,
+      can,
+      canField,
+      userHasPrivilege,
       login,
       completeMfaLogin,
       logout,

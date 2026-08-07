@@ -12,6 +12,8 @@ import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { getQuote } from "@/lib/frp/api";
+import { useAuth } from "@/context/AuthContext";
+import { FIELD_KEYS } from "@/lib/frp/access";
 
 /**
  * The Spring Boot `/quotes/{quoteNumber}` endpoint returns `QuotationDTO`
@@ -168,6 +170,8 @@ const EVENT_LABELS: Record<string, string> = {
 };
 
 export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
+  const { canField } = useAuth();
+  const canSeeRate = canField(FIELD_KEYS.RATE, "READ");
   const [quote, setQuote] = useState<QuotientQuote | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -384,7 +388,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
                     <th className="px-2 py-2">item_code</th>
                     <th className="px-2 py-2">heading</th>
                     <th className="px-2 py-2">quantity</th>
-                    <th className="px-2 py-2">unit_price</th>
+                    {canSeeRate && <th className="px-2 py-2">unit_price</th>}
                     <th className="px-2 py-2">item_total</th>
                     <th className="px-2 py-2">sales_category</th>
                   </tr>
@@ -403,7 +407,9 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
                         )}
                       </td>
                       <td className="px-2 py-2">{line.quantity ?? "—"}</td>
-                      <td className="px-2 py-2">{line.unit_price ?? "—"}</td>
+                      {canSeeRate && (
+                        <td className="px-2 py-2">{line.unit_price ?? "—"}</td>
+                      )}
                       <td className="px-2 py-2">{line.item_total ?? "—"}</td>
                       <td className="px-2 py-2 text-slate-600">{line.sales_category ?? "—"}</td>
                     </tr>

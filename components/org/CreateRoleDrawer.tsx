@@ -1,16 +1,25 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { createRole, listPrivileges, updateRole } from "@/lib/frp/api";
 import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
 
 const labelClass =
   "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+
+/** Types Org Admin can assign on custom roles. Platform-only codes are never shown. */
+const ASSIGNABLE_TYPES = new Set(["ACTION", "MENU", "FIELD"]);
+
+const TYPE_HINT: Record<string, string> = {
+  MENU: "— sidebar / screens (AppNav)",
+  ACTION: "— API endpoints",
+  FIELD: "— per-field UI (FieldGate)",
+};
 
 interface CreateRoleDrawerProps {
   open: boolean;
@@ -54,12 +63,16 @@ export function CreateRoleDrawer({
     (async () => {
       setLoadingPrivs(true);
       try {
-        const list = await listPrivileges({ type: "ACTION", active: true });
-        if (!cancelled) {
-          setPrivileges(
-            (list ?? []).filter((p) => p.privilegeCode && !p.platformOnly)
-          );
-        }
+        const list = await listPrivileges({ active: true });
+        if (cancelled) return;
+        setPrivileges(
+          (list ?? []).filter(
+            (p) =>
+              Boolean(p.privilegeCode) &&
+              !p.platformOnly &&
+              ASSIGNABLE_TYPES.has((p.privilegeType ?? "").toUpperCase()),
+          ),
+        );
       } catch {
         if (!cancelled) setPrivileges([]);
       } finally {
@@ -71,14 +84,29 @@ export function CreateRoleDrawer({
     };
   }, [open]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, PrivilegeDTO[]>();
+  /** Group assignable privileges by type, then domain. */
+  const groupedByType = useMemo(() => {
+    const typeOrder = ["MENU", "ACTION", "FIELD"] as const;
+    const byType = new Map<string, Map<string, PrivilegeDTO[]>>();
     for (const p of privileges) {
+      const type = (p.privilegeType ?? "OTHER").toUpperCase();
       const domain = p.domain || "OTHER";
-      if (!map.has(domain)) map.set(domain, []);
-      map.get(domain)!.push(p);
+      if (!byType.has(type)) byType.set(type, new Map());
+      const domains = byType.get(type)!;
+      if (!domains.has(domain)) domains.set(domain, []);
+      domains.get(domain)!.push(p);
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return typeOrder
+      .filter((t) => byType.has(t))
+      .map((type) => {
+        const domains = byType.get(type)!;
+        return {
+          type,
+          domains: [...domains.entries()].sort(([a], [b]) =>
+            a.localeCompare(b),
+          ),
+        };
+      });
   }, [privileges]);
 
   function toggle(code: string) {
@@ -132,7 +160,7 @@ export function CreateRoleDrawer({
             ? err.message
             : isEdit
               ? "Failed to update role"
-              : "Failed to create role"
+              : "Failed to create role",
       );
     } finally {
       setSubmitting(false);
@@ -147,12 +175,16 @@ export function CreateRoleDrawer({
       subtitle={
         isEdit
           ? "Update the role name and privileges for this organization."
-          : "Define a role and assign ACTION privileges for this organization."
+          : "Assign ACTION (API), MENU (sidebar), and FIELD (per-field) privileges for this organization."
       }
       panelClassName="md:w-[min(640px,92vw)]"
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={handleClose}>
+          <button
+            type="button"
+            className="btn-secondary w-full sm:w-auto"
+            onClick={handleClose}
+          >
             Cancel
           </button>
           <button
@@ -203,42 +235,63 @@ export function CreateRoleDrawer({
 
         <div>
           <p className={labelClass}>Privileges *</p>
+          <p className="mt-1 text-xs text-slate-500">
+            MENU = sidebar visibility (e.g. MENU_JOBS). ACTION = API access
+            (e.g. JOB_READ). FIELD = per-field UI (e.g. FIELD_JOB_RATE →
+            fieldKey "rate"). Assign MENU for sidebar, ACTION for API, FIELD for
+            controls.
+          </p>
           {loadingPrivs ? (
             <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
           ) : (
-            <div className="mt-2 space-y-3 rounded-xl border border-slate-200 p-3">
-              {grouped.map(([domain, items]) => (
-                <div key={domain}>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {domain}
+            <div className="mt-2 space-y-4 rounded-xl border border-slate-200 p-3">
+              {groupedByType.map(({ type, domains }) => (
+                <div key={type}>
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                    {type}
+                    <span className="ml-2 font-normal text-slate-500">
+                      {TYPE_HINT[type] ?? ""}
+                    </span>
                   </p>
-                  <div className="space-y-1">
-                    {items.map((p) => (
-                      <label
-                        key={p.privilegeCode}
-                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"
-                      >
-                        <input
-                          type="checkbox"
-                          className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                          checked={selected.has(p.privilegeCode)}
-                          onChange={() => toggle(p.privilegeCode)}
-                        />
-                        <span className="font-medium text-slate-800">
-                          {p.privilegeCode}
-                        </span>
-                        {p.privilege && (
-                          <span className="text-xs text-slate-500">
-                            {p.privilege}
-                          </span>
-                        )}
-                      </label>
+                  <div className="space-y-3">
+                    {domains.map(([domain, items]) => (
+                      <div key={`${type}-${domain}`}>
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          {domain}
+                        </p>
+                        <div className="space-y-1">
+                          {items.map((p) => (
+                            <label
+                              key={p.privilegeCode}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                                checked={selected.has(p.privilegeCode)}
+                                onChange={() => toggle(p.privilegeCode)}
+                              />
+                              <span className="font-medium text-slate-800">
+                                {p.privilegeCode}
+                              </span>
+                              {p.privilege && (
+                                <span className="text-xs text-slate-500">
+                                  {p.privilege}
+                                </span>
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
               ))}
-              {grouped.length === 0 && (
-                <p className="text-sm text-slate-500">No privileges available.</p>
+
+              {groupedByType.length === 0 && (
+                <p className="text-sm text-slate-500">
+                  No privileges available.
+                </p>
               )}
             </div>
           )}

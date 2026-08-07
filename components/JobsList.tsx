@@ -32,6 +32,8 @@ import {
 } from "@/lib/jobListUtils";
 import { usePersona } from "@/context/PersonaContext";
 import { useJobs } from "@/context/JobsContext";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 import { stageGroupCounts } from "@/lib/frp/job-counts";
 import {
   filterJobsByStageGroup,
@@ -66,6 +68,8 @@ function getStageBadgeClass(status: Job["status"]): string {
 export function JobsList({ jobs }: JobsListProps) {
   const { counts } = useJobs();
   const { isWorker } = usePersona();
+  const { can } = useAuth();
+  const canCreateJob = can(ACCESS_KEYS.JOBS_CREATE);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState(
@@ -218,7 +222,7 @@ export function JobsList({ jobs }: JobsListProps) {
       <p className="text-sm text-slate-500">Fabrication programs and stage tracking</p>
 
       <CreateNewJobDrawer
-        open={createJobOpen}
+        open={createJobOpen && canCreateJob}
         onClose={() => setCreateJobOpen(false)}
         jobs={jobs}
       />
@@ -361,14 +365,16 @@ export function JobsList({ jobs }: JobsListProps) {
               <option value="Complete">Delivered</option>
             </select>
           </label>
-          <button
-            type="button"
-            onClick={() => setCreateJobOpen(true)}
-            className="inline-flex h-[46px] items-center justify-center gap-1.5 rounded-full bg-[#F97316] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[#EA580C]"
-          >
-            <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            NEW JOB
-          </button>
+          {canCreateJob && (
+            <button
+              type="button"
+              onClick={() => setCreateJobOpen(true)}
+              className="inline-flex h-[46px] items-center justify-center gap-1.5 rounded-full bg-[#F97316] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[#EA580C]"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              NEW JOB
+            </button>
+          )}
         </div>
       )}
 

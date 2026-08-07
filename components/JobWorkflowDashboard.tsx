@@ -21,6 +21,7 @@ import {
   User,
 } from "lucide-react";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
@@ -59,6 +60,8 @@ interface JobWorkflowDashboardProps {
   saveSuccess?: boolean;
   auditRefreshKey?: number;
   onPrint: () => void;
+  /** Soft-cancel the job (DELETE /jobs/{id}). Prefer over status patch. */
+  onCancelJob?: () => Promise<void>;
   onSavePatch: (
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
@@ -147,6 +150,7 @@ export function JobWorkflowDashboard({
   saveSuccess,
   auditRefreshKey = 0,
   onPrint,
+  onCancelJob,
   onSavePatch,
 }: JobWorkflowDashboardProps) {
   const pd = ensurePrintDetails(job);
@@ -155,6 +159,8 @@ export function JobWorkflowDashboard({
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
@@ -398,7 +404,7 @@ export function JobWorkflowDashboard({
           <button
             type="button"
             onClick={onPrint}
-            disabled={isExporting}
+            disabled={isExporting || isSaving || cancelBusy}
             aria-busy={isExporting}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
           >
@@ -411,19 +417,17 @@ export function JobWorkflowDashboard({
           </button>
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50"
-            onClick={() => {
-              if (
-                !window.confirm(
-                  `Mark job ${job.id} as cancelled? This updates workflow status only.`
-                )
-              ) {
-                return;
-              }
-              void onSavePatch({ status: "Cancelled" });
-            }}
+            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+            disabled={
+              isSaving ||
+              cancelBusy ||
+              isExporting ||
+              job.status === "Cancelled" ||
+              job.status === "Complete"
+            }
+            onClick={() => setShowCancelConfirm(true)}
           >
-            Delete
+            Cancel job
           </button>
         </div>
       </div>
@@ -643,11 +647,41 @@ export function JobWorkflowDashboard({
       {(saveError || saveSuccess) && (
         <p
           className={`rounded-xl border px-4 py-3 text-sm ${saveError ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
+          role="status"
         >
-          {saveError || "Saved. PDF export reflects updated fields."}
+          {saveError ||
+            (job.status === "Cancelled"
+              ? "Job cancelled. It remains in the register for audit."
+              : "Saved. PDF export reflects updated fields.")}
         </p>
       )}
       </div>
+
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title={`Cancel job ${job.id}?`}
+        description="This marks the job as cancelled in the workflow. The record is kept for audit — it is not permanently deleted."
+        confirmLabel="Cancel job"
+        cancelLabel="Keep job active"
+        tone="danger"
+        busy={cancelBusy}
+        onClose={() => {
+          if (!cancelBusy) setShowCancelConfirm(false);
+        }}
+        onConfirm={async () => {
+          setCancelBusy(true);
+          try {
+            if (onCancelJob) {
+              await onCancelJob();
+            } else {
+              await onSavePatch({ status: "Cancelled" });
+            }
+            setShowCancelConfirm(false);
+          } finally {
+            setCancelBusy(false);
+          }
+        }}
+      />
 
       <EditModal
         open={showCustomerModal}

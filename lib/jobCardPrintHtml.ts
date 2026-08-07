@@ -13,7 +13,8 @@ const HTML_FIELD_IDS_ALLOW_RAW = new Set([
 let cachedTemplate: string | null = null;
 
 function loadPdfTemplate(): string {
-  if (!cachedTemplate) {
+  // Always re-read in development so pdf.html edits show up without a restart.
+  if (process.env.NODE_ENV !== "production" || !cachedTemplate) {
     cachedTemplate = fs.readFileSync(
       path.join(process.cwd(), "pdf.html"),
       "utf8"

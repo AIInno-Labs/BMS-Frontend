@@ -18,8 +18,10 @@ import type {
   FrpDrawingStage,
   FrpJobAuditHistoryDTO,
   FrpJobCardPayload,
+  FrpJobContactDetailsDTO,
   FrpJobCountsDTO,
   FrpJobDTO,
+  FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
   FrpJobSummaryDTO,
@@ -43,7 +45,13 @@ type TokenGetter = () => string | null;
 type SessionTokens = { token: string; refreshToken: string };
 type SessionUpdater = (tokens: SessionTokens | null) => void;
 
-let getAccessToken: TokenGetter = () => null;
+/** Prefer the AuthProvider getter; always fall back to localStorage so early
+ *  page effects (e.g. RolesAdminPage) never call the API without a Bearer
+ *  token while the provider is still mounting. */
+let getAccessToken: TokenGetter = () =>
+  typeof window !== "undefined"
+    ? localStorage.getItem(FRP_ACCESS_TOKEN_KEY)
+    : null;
 let sessionUpdater: SessionUpdater | null = null;
 let refreshInFlight: Promise<SessionTokens> | null = null;
 
@@ -168,7 +176,11 @@ async function frpFetch<T>(
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
-    const token = getAccessToken();
+    const token =
+      getAccessToken() ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem(FRP_ACCESS_TOKEN_KEY)
+        : null);
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
@@ -495,7 +507,7 @@ export async function getJobCounts(): Promise<FrpJobCountsDTO> {
   return frpFetch<FrpJobCountsDTO>("/jobs/counts");
 }
 
-/** `GET /jobs/{id}` — full record including `jobCard` and `version`. */
+/** `GET /jobs/{id}` — full record including `jobCard`. */
 export async function getJob(dbId: string | number): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(String(dbId))}`);
 }
@@ -508,10 +520,7 @@ export async function createJob(body: FrpJobDTO): Promise<FrpJobDTO> {
   });
 }
 
-/**
- * `PUT /jobs` — id and `version` travel in the body, per the codebase
- * convention. A stale `version` returns 409 `CONCURRENT_MODIFICATION`.
- */
+/** `PUT /jobs` — id travels in the body. Last-write-wins; no version token. */
 export async function updateJobApi(body: FrpJobDTO): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>("/jobs", {
     method: "PUT",
@@ -519,15 +528,36 @@ export async function updateJobApi(body: FrpJobDTO): Promise<FrpJobDTO> {
   });
 }
 
-/** `PUT /jobs/{id}/job-card?version=` — the card is replaced as a unit. */
+/** `PUT /jobs/{id}/job-card` — the card is replaced as a unit. */
 export async function saveJobCard(
   dbId: string | number,
-  version: number,
   jobCard: FrpJobCardPayload
 ): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/job-card?version=${version}`,
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`,
     { method: "PUT", body: JSON.stringify(jobCard) }
+  );
+}
+
+/** `PUT /jobs/{id}/contact-details` — the customer panel, saved alone. */
+export async function saveContactDetails(
+  dbId: string | number,
+  contactDetails: FrpJobContactDetailsDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/contact-details`,
+    { method: "PUT", body: JSON.stringify(contactDetails) }
+  );
+}
+
+/** `PUT /jobs/{id}/scheduling-logistics` — the logistics panel, saved alone. */
+export async function saveSchedulingLogistics(
+  dbId: string | number,
+  schedulingLogistics: FrpJobSchedulingLogisticsDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics`,
+    { method: "PUT", body: JSON.stringify(schedulingLogistics) }
   );
 }
 
