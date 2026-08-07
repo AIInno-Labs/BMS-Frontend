@@ -28,7 +28,6 @@ import {
 /** `JobSummaryDTO` — the list projection. Deliberately excludes `jobCard`. */
 export interface FrpJobSummaryDTO {
   id?: number;
-  version?: number;
   jobNumber?: string;
   quoteNumber?: string | null;
   origin?: JobOrigin;
@@ -48,7 +47,6 @@ export interface FrpJobSummaryDTO {
 /** `JobDTO` — the full record returned by `GET /jobs/{id}`. */
 export interface FrpJobDTO {
   id?: number;
-  version?: number;
   /** Server-allocated, `READ_ONLY` — supplying it on create is ignored. */
   jobNumber?: string;
   quoteNumber?: string | null;
@@ -329,7 +327,6 @@ function userIdToBackend(id?: string | null): number | null {
 export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
   return {
     dbId: dto.id != null ? String(dto.id) : undefined,
-    version: dto.version,
     id: dto.jobNumber ?? "",
     clientName: dto.customerCompanyName ?? "",
     projectName: dto.projectName ?? "",
@@ -463,7 +460,6 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
 
   return {
     dbId: dto.id != null ? String(dto.id) : undefined,
-    version: dto.version,
     id: dto.jobNumber ?? "",
     // The per-job details row is authoritative; the flat field is the
     // denormalised copy the list projection uses.
@@ -546,18 +542,12 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
   if (job.dbId == null) {
     throw new Error(`Job ${job.id} has no database id — cannot update.`);
   }
-  if (job.version == null) {
-    throw new Error(
-      `Job ${job.id} has no version — refresh before saving, or the backend will reject the write.`
-    );
-  }
   // contactDetails and schedulingLogistics are NOT sent here: on update they are
   // persisted through their own endpoints (PUT /jobs/{id}/contact-details and
   // /scheduling-logistics), chained after this call in JobsContext.updateJob,
   // the same way the job card is. This body is job-level fields only.
   return {
     id: Number(job.dbId),
-    version: job.version,
     quoteNumber: job.quoteNumber ?? undefined,
     projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,

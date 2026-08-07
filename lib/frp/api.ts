@@ -497,7 +497,7 @@ export async function getJobCounts(): Promise<FrpJobCountsDTO> {
   return frpFetch<FrpJobCountsDTO>("/jobs/counts");
 }
 
-/** `GET /jobs/{id}` — full record including `jobCard` and `version`. */
+/** `GET /jobs/{id}` — full record including `jobCard`. */
 export async function getJob(dbId: string | number): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(String(dbId))}`);
 }
@@ -510,10 +510,7 @@ export async function createJob(body: FrpJobDTO): Promise<FrpJobDTO> {
   });
 }
 
-/**
- * `PUT /jobs` — id and `version` travel in the body, per the codebase
- * convention. A stale `version` returns 409 `CONCURRENT_MODIFICATION`.
- */
+/** `PUT /jobs` — id travels in the body. Last-write-wins; no version token. */
 export async function updateJobApi(body: FrpJobDTO): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>("/jobs", {
     method: "PUT",
@@ -521,38 +518,35 @@ export async function updateJobApi(body: FrpJobDTO): Promise<FrpJobDTO> {
   });
 }
 
-/** `PUT /jobs/{id}/job-card?version=` — the card is replaced as a unit. */
+/** `PUT /jobs/{id}/job-card` — the card is replaced as a unit. */
 export async function saveJobCard(
   dbId: string | number,
-  version: number,
   jobCard: FrpJobCardPayload
 ): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/job-card?version=${version}`,
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`,
     { method: "PUT", body: JSON.stringify(jobCard) }
   );
 }
 
-/** `PUT /jobs/{id}/contact-details?version=` — the customer panel, saved alone. */
+/** `PUT /jobs/{id}/contact-details` — the customer panel, saved alone. */
 export async function saveContactDetails(
   dbId: string | number,
-  version: number,
   contactDetails: FrpJobContactDetailsDTO
 ): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/contact-details?version=${version}`,
+    `/jobs/${encodeURIComponent(String(dbId))}/contact-details`,
     { method: "PUT", body: JSON.stringify(contactDetails) }
   );
 }
 
-/** `PUT /jobs/{id}/scheduling-logistics?version=` — the logistics panel, saved alone. */
+/** `PUT /jobs/{id}/scheduling-logistics` — the logistics panel, saved alone. */
 export async function saveSchedulingLogistics(
   dbId: string | number,
-  version: number,
   schedulingLogistics: FrpJobSchedulingLogisticsDTO
 ): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics?version=${version}`,
+    `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics`,
     { method: "PUT", body: JSON.stringify(schedulingLogistics) }
   );
 }

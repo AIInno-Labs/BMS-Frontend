@@ -107,14 +107,6 @@ export interface Job {
    * routes are `/jobs/{id}` with a numeric `@PathVariable Long`.
    */
   dbId?: string;
-  /**
-   * Optimistic-lock token echoed back on update.
-   *
-   * `JobDTO.version` is `@NotNull(groups = OnUpdate.class)`, and a stale value
-   * yields 409 rather than silently overwriting a concurrent edit. Any write
-   * without it is rejected by validation.
-   */
-  version?: number;
   /** Public job number, e.g. JOB-1001. Server-allocated, read-only. */
   id: string;
   clientName: string;

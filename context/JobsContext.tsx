@@ -238,14 +238,10 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
    */
   const createJobFromUi = useCallback(async (job: Job): Promise<Job> => {
     const created = await createJob(uiJobToCreateRequest(job));
-    if (created.id == null || created.version == null) {
-      throw new Error("Backend created the job without an id or version.");
+    if (created.id == null) {
+      throw new Error("Backend created the job without an id.");
     }
-    const withCard = await saveJobCard(
-      created.id,
-      created.version,
-      uiJobToJobCardPayload(job)
-    );
+    const withCard = await saveJobCard(created.id, uiJobToJobCardPayload(job));
     const ui = frpJobToUi(withCard);
     setJobs((prev) => [ui, ...prev.filter((j) => j.id !== ui.id)]);
     return ui;
@@ -254,10 +250,10 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   /**
    * Save a job.
    *
-   * Field edits go through `PUT /jobs`; the card goes through its own endpoint;
-   * a status change goes through the stage service, because `stageStatus` is a
-   * cache with exactly one writer. Each step returns a fresh `version`, so they
-   * are chained rather than issued in parallel.
+   * Field edits go through `PUT /jobs`; the card and the customer/logistics
+   * panels go through their own endpoints; a status change goes through the
+   * stage service, because `stageStatus` is a cache with exactly one writer.
+   * Writes are last-write-wins - there is no version token to chain on.
    */
   const updateJob = useCallback(
     async (
@@ -265,37 +261,27 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       audit?: JobUpdateAuditAction,
       auditDetail?: string | null
     ): Promise<Job> => {
-      // One call. PUT /jobs now applies a status change too — it rewrites the
-      // stages and recomputes the status from them — so this no longer moves a
-      // stage first and then re-reads the version the move had bumped.
+      // PUT /jobs also applies a status change — it rewrites the stages and
+      // recomputes the status from them.
       const saved = await updateJobApi(uiJobToUpdateRequest(job));
 
       let latest = saved;
-      if (job.printDetails && latest.id != null && latest.version != null) {
-        latest = await saveJobCard(
-          latest.id,
-          latest.version,
-          uiJobToJobCardPayload(job)
-        );
+      if (job.printDetails && latest.id != null) {
+        latest = await saveJobCard(latest.id, uiJobToJobCardPayload(job));
       }
 
       // The customer and logistics panels are persisted through their own
-      // endpoints, each chained on the version the previous call returned - the
-      // same pattern as the job card above. They are no longer folded into the
-      // PUT /jobs body (see uiJobToUpdateRequest).
+      // endpoints (no longer folded into the PUT /jobs body). Order does not
+      // matter for correctness - writes are last-write-wins.
       const contactDetails = uiJobToContactDetails(job);
-      if (contactDetails.companyName && latest.id != null && latest.version != null) {
-        latest = await saveContactDetails(latest.id, latest.version, contactDetails);
+      if (contactDetails.companyName && latest.id != null) {
+        latest = await saveContactDetails(latest.id, contactDetails);
       }
       const schedulingLogistics = schedulingLogisticsToBackend(
         job.schedulingLogistics
       );
-      if (schedulingLogistics && latest.id != null && latest.version != null) {
-        latest = await saveSchedulingLogistics(
-          latest.id,
-          latest.version,
-          schedulingLogistics
-        );
+      if (schedulingLogistics && latest.id != null) {
+        latest = await saveSchedulingLogistics(latest.id, schedulingLogistics);
       }
 
       const ui = frpJobToUi(latest);
