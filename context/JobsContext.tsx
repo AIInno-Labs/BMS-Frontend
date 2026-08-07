@@ -15,7 +15,9 @@ import {
   getJobCounts,
   listJobs,
   listUsers,
+  saveContactDetails,
   saveJobCard,
+  saveSchedulingLogistics,
   updateJobApi,
 } from "@/lib/frp/api";
 import {
@@ -28,6 +30,8 @@ import {
   frpJobSummaryToUi,
   frpJobToUi,
   type JobUpdateAuditAction,
+  schedulingLogisticsToBackend,
+  uiJobToContactDetails,
   uiJobToCreateRequest,
   uiJobToJobCardPayload,
   uiJobToUpdateRequest,
@@ -267,11 +271,30 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       const saved = await updateJobApi(uiJobToUpdateRequest(job));
 
       let latest = saved;
-      if (job.printDetails && saved.id != null && saved.version != null) {
+      if (job.printDetails && latest.id != null && latest.version != null) {
         latest = await saveJobCard(
-          saved.id,
-          saved.version,
+          latest.id,
+          latest.version,
           uiJobToJobCardPayload(job)
+        );
+      }
+
+      // The customer and logistics panels are persisted through their own
+      // endpoints, each chained on the version the previous call returned - the
+      // same pattern as the job card above. They are no longer folded into the
+      // PUT /jobs body (see uiJobToUpdateRequest).
+      const contactDetails = uiJobToContactDetails(job);
+      if (contactDetails.companyName && latest.id != null && latest.version != null) {
+        latest = await saveContactDetails(latest.id, latest.version, contactDetails);
+      }
+      const schedulingLogistics = schedulingLogisticsToBackend(
+        job.schedulingLogistics
+      );
+      if (schedulingLogistics && latest.id != null && latest.version != null) {
+        latest = await saveSchedulingLogistics(
+          latest.id,
+          latest.version,
+          schedulingLogistics
         );
       }
 

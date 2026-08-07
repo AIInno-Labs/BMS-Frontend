@@ -378,7 +378,18 @@ function schedulingLogisticsToUi(
   };
 }
 
-function schedulingLogisticsToBackend(
+/** The contact-details body the job carries in its flat fields. Shared by the
+ *  create request (folded in) and the dedicated PUT /jobs/{id}/contact-details. */
+export function uiJobToContactDetails(job: Job): FrpJobContactDetailsDTO {
+  return {
+    companyName: job.clientName || undefined,
+    contactName: job.clientContactName || undefined,
+    email: job.printDetails?.contactEmail || undefined,
+    phone: job.printDetails?.contactPhone || undefined,
+  };
+}
+
+export function schedulingLogisticsToBackend(
   sl: JobSchedulingLogistics | null | undefined
 ): FrpJobSchedulingLogisticsDTO | undefined {
   if (!sl) return undefined;
@@ -505,12 +516,9 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
   return {
     jobNumber: job.id?.trim() || undefined,
     quoteNumber: job.quoteNumber || undefined,
-    contactDetails: {
-      companyName: job.clientName || undefined,
-      contactName: job.clientContactName || undefined,
-      email: job.printDetails?.contactEmail || undefined,
-      phone: job.printDetails?.contactPhone || undefined,
-    },
+    // Folded into create because the job does not exist yet, so the dedicated
+    // panel endpoints (which need a job id) cannot be called first.
+    contactDetails: uiJobToContactDetails(job),
     projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
@@ -543,16 +551,14 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
       `Job ${job.id} has no version — refresh before saving, or the backend will reject the write.`
     );
   }
+  // contactDetails and schedulingLogistics are NOT sent here: on update they are
+  // persisted through their own endpoints (PUT /jobs/{id}/contact-details and
+  // /scheduling-logistics), chained after this call in JobsContext.updateJob,
+  // the same way the job card is. This body is job-level fields only.
   return {
     id: Number(job.dbId),
     version: job.version,
     quoteNumber: job.quoteNumber ?? undefined,
-    contactDetails: {
-      companyName: job.clientName || undefined,
-      contactName: job.clientContactName || undefined,
-      email: job.printDetails?.contactEmail || undefined,
-      phone: job.printDetails?.contactPhone || undefined,
-    },
     projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
@@ -562,7 +568,6 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
-    schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
   };
 }
 

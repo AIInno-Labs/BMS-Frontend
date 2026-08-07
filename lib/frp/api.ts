@@ -18,8 +18,10 @@ import type {
   FrpDrawingStage,
   FrpJobAuditHistoryDTO,
   FrpJobCardPayload,
+  FrpJobContactDetailsDTO,
   FrpJobCountsDTO,
   FrpJobDTO,
+  FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
   FrpJobSummaryDTO,
@@ -528,6 +530,30 @@ export async function saveJobCard(
   return frpFetch<FrpJobDTO>(
     `/jobs/${encodeURIComponent(String(dbId))}/job-card?version=${version}`,
     { method: "PUT", body: JSON.stringify(jobCard) }
+  );
+}
+
+/** `PUT /jobs/{id}/contact-details?version=` — the customer panel, saved alone. */
+export async function saveContactDetails(
+  dbId: string | number,
+  version: number,
+  contactDetails: FrpJobContactDetailsDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/contact-details?version=${version}`,
+    { method: "PUT", body: JSON.stringify(contactDetails) }
+  );
+}
+
+/** `PUT /jobs/{id}/scheduling-logistics?version=` — the logistics panel, saved alone. */
+export async function saveSchedulingLogistics(
+  dbId: string | number,
+  version: number,
+  schedulingLogistics: FrpJobSchedulingLogisticsDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics?version=${version}`,
+    { method: "PUT", body: JSON.stringify(schedulingLogistics) }
   );
 }
 
