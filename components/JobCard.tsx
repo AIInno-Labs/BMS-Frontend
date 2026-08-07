@@ -46,7 +46,7 @@ import {
   resinTypes,
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import { downloadJobCard, getQuote } from "@/lib/frp/api";
+import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
 import { FrpApiError } from "@/lib/frp/types";
 import type {
   Job,
@@ -226,6 +226,7 @@ export function JobCard({ jobId }: JobCardProps) {
 
   const handlePrint = async () => {
     if (isExporting) return;
+    setSaveError(null);
     setIsExporting(true);
     try {
       if (!job.dbId) {
@@ -236,10 +237,54 @@ export function JobCard({ jobId }: JobCardProps) {
       // Log the pull for the audit trail (JOB_CARD_DOWNLOADED). Best-effort:
       // the card is already open, so a failed audit must not surface an error.
       void downloadJobCard(job.dbId).catch(() => {});
-    } catch {
-      setSaveError("Could not open job card PDF. Please try again.");
+    } catch (e) {
+      setSaveError(
+        e instanceof Error
+          ? e.message
+          : "Could not open job card PDF. Please try again."
+      );
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleCancelJob = async () => {
+    if (!job.dbId) {
+      setSaveError("Job has no database id — reload the job list.");
+      return;
+    }
+    setSaveError(null);
+    setSaveSuccess(false);
+    setIsSaving(true);
+    try {
+      await cancelJob(job.dbId);
+      const cancelled = {
+        ...job,
+        status: "Cancelled" as Job["status"],
+      };
+      setJob(cancelled);
+      setDraft(cancelled);
+      setSaveSuccess(true);
+      setAuditRefreshKey((k) => k + 1);
+      // Refresh from server so version / audit stay in sync.
+      try {
+        const fresh = await loadJobDetail(jobId);
+        setJob(fresh);
+        setDraft(fresh);
+      } catch {
+        /* local Cancelled state is enough if reload fails */
+      }
+    } catch (e) {
+      setSaveError(
+        e instanceof FrpApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not cancel job"
+      );
+      throw e;
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -496,6 +541,7 @@ export function JobCard({ jobId }: JobCardProps) {
           saveSuccess={saveSuccess}
           auditRefreshKey={auditRefreshKey}
           onPrint={handlePrint}
+          onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
         />
       )}

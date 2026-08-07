@@ -107,9 +107,13 @@ export interface Job {
    * routes are `/jobs/{id}` with a numeric `@PathVariable Long`.
    */
   dbId?: string;
+  /** Optimistic-lock token from Spring Boot `Job.version`. */
+  version?: number;
   /** Public job number, e.g. JOB-1001. Server-allocated, read-only. */
   id: string;
   clientName: string;
+  /** From `contactDetails.address` when present. */
+  clientAddress?: string;
   projectName: string;
   date: string;
   /** Factory due date — set manually on the job card. */

@@ -82,11 +82,12 @@ export function UsersAdminPage() {
 
   const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${isAuthenticated}:${canManage}:${page}`;
+    if (authLoading || !isAuthenticated || !canManage || me?.id == null) return;
+    const key = `${me.id}:${page}`;
     if (lastLoadedKeyRef.current === key) return;
     lastLoadedKeyRef.current = key;
     void load();
-  }, [load, isAuthenticated, canManage, page]);
+  }, [authLoading, isAuthenticated, canManage, me?.id, page, load]);
 
   async function onDisable(u: UserDTO) {
     if (u.id == null) return;

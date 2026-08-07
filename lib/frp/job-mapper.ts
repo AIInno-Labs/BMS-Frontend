@@ -383,6 +383,7 @@ export function uiJobToContactDetails(job: Job): FrpJobContactDetailsDTO {
     contactName: job.clientContactName || undefined,
     email: job.printDetails?.contactEmail || undefined,
     phone: job.printDetails?.contactPhone || undefined,
+    address: job.clientAddress || undefined,
   };
 }
 
@@ -414,28 +415,38 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
   // someone fills in the card.
 
   const printDetails: JobCardPrintDetails = {
-    purchaseOrderNo: card?.purchaseOrderNo,
-    contactPhone: card?.contactPhone ?? dto.contactDetails?.phone ?? undefined,
-    contactEmail: card?.contactEmail ?? dto.contactDetails?.email ?? undefined,
+    // Empty strings in jobCard must not block contactDetails / logistics fallbacks.
+    purchaseOrderNo: card?.purchaseOrderNo || undefined,
+    contactPhone:
+      card?.contactPhone || dto.contactDetails?.phone || undefined,
+    contactEmail:
+      card?.contactEmail || dto.contactDetails?.email || undefined,
     accountYesNo: card?.accountCustomer,
-    raisedBy: card?.raisedBy,
-    transport: card?.transport,
-    transportCompany: card?.transportCompany,
-    freightAccount: card?.freightAccount,
-    consignmentNote: card?.consignmentNote,
-    despatchDate: card?.despatchDate,
-    deliveryDocket: card?.deliveryDocket,
-    scopeType: spec?.constructionType,
-    thickness: spec?.thicknessMm,
-    mesh: spec?.meshSize,
-    colour: spec?.colour,
-    finish: spec?.finishType,
+    raisedBy: card?.raisedBy || undefined,
+    transport: card?.transport || undefined,
+    transportCompany: card?.transportCompany || undefined,
+    freightAccount:
+      card?.freightAccount ||
+      dto.schedulingLogistics?.freightAccount ||
+      undefined,
+    consignmentNote: card?.consignmentNote || undefined,
+    despatchDate:
+      card?.despatchDate || dto.schedulingLogistics?.shipDate || undefined,
+    deliveryDocket: card?.deliveryDocket || undefined,
+    scopeType: spec?.constructionType || undefined,
+    thickness: spec?.thicknessMm || undefined,
+    mesh: spec?.meshSize || undefined,
+    colour: spec?.colour || undefined,
+    finish: spec?.finishType || undefined,
     clipRows: (card?.clipRows ?? []).map((r) => ({
       clip: r.clip ?? "",
       qty: r.qty ?? "",
       packedBy: r.packedBy ?? "",
     })),
-    deliveryInstructions: card?.deliveryInstructions,
+    deliveryInstructions:
+      card?.deliveryInstructions ||
+      dto.schedulingLogistics?.deliveryAddress ||
+      undefined,
     packs: packsFromPayload(card?.packs),
     scopeLines: card?.scopeLines ?? [],
     workflowExtras: {
@@ -443,8 +454,14 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       sampleRequired: card?.sampleRequired,
       coiRequired: card?.coiRequired,
       shipmentMethod: card?.shipmentMethod,
-      billingAddress: card?.billingAddress,
-      deliveryAddress: card?.deliveryAddress,
+      billingAddress:
+        card?.billingAddress ||
+        dto.schedulingLogistics?.billingAddress ||
+        undefined,
+      deliveryAddress:
+        card?.deliveryAddress ||
+        dto.schedulingLogistics?.deliveryAddress ||
+        undefined,
       materialRows: (card?.materialRows ?? []).map((m) => ({
         material: m.material ?? "",
         qty: m.qty ?? "",
@@ -452,7 +469,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       })),
       programHistory: card?.programHistory ?? [],
       additionalNotes: card?.additionalNotes,
-      jobCardNotes: card?.notes,
+      jobCardNotes: card?.notes || dto.notes || undefined,
       paymentReceived: card?.paymentReceived ?? null,
       paymentDueDate: card?.paymentDueDate,
     },
@@ -460,10 +477,12 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
 
   return {
     dbId: dto.id != null ? String(dto.id) : undefined,
+    version: dto.version,
     id: dto.jobNumber ?? "",
     // The per-job details row is authoritative; the flat field is the
     // denormalised copy the list projection uses.
     clientName: dto.contactDetails?.companyName ?? dto.customerCompanyName ?? "",
+    clientAddress: dto.contactDetails?.address || undefined,
     projectName: dto.projectName ?? "",
     date: card?.dateRaised ?? dto.createdDate?.slice(0, 10) ?? "",
     dueDate: dto.dueDate ?? null,

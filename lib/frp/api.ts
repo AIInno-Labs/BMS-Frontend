@@ -45,7 +45,13 @@ type TokenGetter = () => string | null;
 type SessionTokens = { token: string; refreshToken: string };
 type SessionUpdater = (tokens: SessionTokens | null) => void;
 
-let getAccessToken: TokenGetter = () => null;
+/** Prefer the AuthProvider getter; always fall back to localStorage so early
+ *  page effects (e.g. RolesAdminPage) never call the API without a Bearer
+ *  token while the provider is still mounting. */
+let getAccessToken: TokenGetter = () =>
+  typeof window !== "undefined"
+    ? localStorage.getItem(FRP_ACCESS_TOKEN_KEY)
+    : null;
 let sessionUpdater: SessionUpdater | null = null;
 let refreshInFlight: Promise<SessionTokens> | null = null;
 
@@ -170,7 +176,11 @@ async function frpFetch<T>(
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
-    const token = getAccessToken();
+    const token =
+      getAccessToken() ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem(FRP_ACCESS_TOKEN_KEY)
+        : null);
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
