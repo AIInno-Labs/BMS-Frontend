@@ -38,6 +38,8 @@ export interface FrpJobSummaryDTO {
   priority?: string;
   resinCode?: string | null;
   assignedUserId?: number | null;
+  /** Quote owner's name; present even when no matching user (id then null). */
+  ownerName?: string | null;
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
@@ -66,6 +68,14 @@ export interface FrpJobDTO {
   stageStatusLabel?: string;
   resinCode?: string | null;
   assignedUserId?: number | null;
+  /** Quote owner's name; present even when no matching user (id then null). */
+  ownerName?: string | null;
+  /** Customer order/PO number, captured from a Quotient acceptance. */
+  orderNumber?: string | null;
+  /** Raw source payload the job was raised from (e.g. the Quotient webhook). */
+  payload?: Record<string, unknown> | null;
+  /** The quote's line items (Quotient `selected_items`), verbatim. */
+  measurement?: Array<Record<string, unknown>> | null;
   estimatedHours?: number | null;
   alert?: string | null;
   /** Free working notes, saved through the normal job update. Distinct from
@@ -341,6 +351,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: null,
     notes: dto.notes ?? null,
+    ownerName: dto.ownerName ?? null,
     manufacturingRequired: true,
     installRequired: false,
     qaCompleted: false,
@@ -475,6 +486,9 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
+    ownerName: dto.ownerName ?? null,
+    orderNumber: dto.orderNumber ?? null,
+    measurement: dto.measurement ?? null,
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,

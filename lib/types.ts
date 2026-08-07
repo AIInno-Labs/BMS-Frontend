@@ -130,6 +130,12 @@ export interface Job {
   assignedWorkerId: string | null;
   /** Assigned worker display name (`assignedTo` on Spring Boot). */
   assignedWorkerName?: string | null;
+  /** Quote owner's name (e.g. a Quotient salesperson); may have no user. */
+  ownerName?: string | null;
+  /** Customer order/PO number, from a Quotient acceptance. */
+  orderNumber?: string | null;
+  /** The quote's line items (Quotient `selected_items`), verbatim. */
+  measurement?: Array<Record<string, unknown>> | null;
   manualInstructions: string;
   /** How and when the job ships — one row per job, saved on the job. */
   schedulingLogistics?: JobSchedulingLogistics | null;
