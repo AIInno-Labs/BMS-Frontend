@@ -89,7 +89,7 @@ export function PrivilegesAdminPage() {
     <main className="app-mesh-bg flex-1 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+          <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Super Admin
             </p>
@@ -101,10 +101,10 @@ export function PrivilegesAdminPage() {
               only — ACTION codes are synced from the API and system-managed.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <button
               type="button"
-              className="btn-secondary inline-flex items-center gap-2"
+              className="btn-secondary inline-flex items-center gap-1.5 px-4 py-2.5 text-sm sm:gap-2 sm:px-8 sm:py-4 sm:text-base"
               onClick={() => void load()}
             >
               <RefreshCw
@@ -114,7 +114,7 @@ export function PrivilegesAdminPage() {
             </button>
             <button
               type="button"
-              className="btn-primary inline-flex items-center gap-2"
+              className="btn-primary inline-flex items-center gap-1.5 px-4 py-2.5 text-sm sm:gap-2 sm:px-8 sm:py-4 sm:text-base"
               onClick={() => setCreateOpen(true)}
             >
               <Plus className="h-4 w-4" />

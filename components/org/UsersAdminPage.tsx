@@ -14,6 +14,8 @@ import {
 } from "@/lib/frp/api";
 import type { RoleDTO, UserDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { CreateUserSchema, EditUserSchema } from "@/lib/schemas/user";
+import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -290,6 +292,7 @@ function CreateUserDrawer({
   const [mobileNumber, setMobileNumber] = useState("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -300,6 +303,7 @@ function CreateUserDrawer({
     setMobileNumber("");
     setRoleIds([]);
     setError(null);
+    setFieldErrors({});
   }, [open]);
 
   function toggleRole(id: number) {
@@ -310,14 +314,28 @@ function CreateUserDrawer({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError(null);
+    setFieldErrors({});
+
+    const parsed = CreateUserSchema.safeParse({
+      email,
+      password,
+      displayName,
+      mobileNumber,
+    });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
+
+    setSaving(true);
     try {
+      const data = parsed.data;
       await createUser({
-        email: email.trim(),
-        password,
-        displayName: displayName.trim(),
-        mobileNumber: mobileNumber.trim() || undefined,
+        email: data.email,
+        password: data.password,
+        displayName: data.displayName,
+        mobileNumber: data.mobileNumber || undefined,
         roleIds,
       });
       onCreated();
@@ -349,6 +367,9 @@ function CreateUserDrawer({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
+          {fieldErrors.email && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="cu-name">
@@ -361,6 +382,9 @@ function CreateUserDrawer({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
           />
+          {fieldErrors.displayName && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.displayName}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="cu-pass">
@@ -375,6 +399,9 @@ function CreateUserDrawer({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          {fieldErrors.password && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="cu-mobile">
@@ -386,6 +413,9 @@ function CreateUserDrawer({
             value={mobileNumber}
             onChange={(e) => setMobileNumber(e.target.value)}
           />
+          {fieldErrors.mobileNumber && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.mobileNumber}</p>
+          )}
         </div>
         <fieldset>
           <legend className={labelClass}>Roles</legend>
@@ -449,6 +479,7 @@ function EditUserDrawer({
   const [password, setPassword] = useState("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -459,6 +490,7 @@ function EditUserDrawer({
     setPassword("");
     setRoleIds(user.roleIds ?? []);
     setError(null);
+    setFieldErrors({});
   }, [open, user]);
 
   function toggleRole(id: number) {
@@ -470,16 +502,25 @@ function EditUserDrawer({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!user?.id) return;
-    setSaving(true);
     setError(null);
+    setFieldErrors({});
+
+    const parsed = EditUserSchema.safeParse({ displayName, mobileNumber, password });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
+
+    setSaving(true);
     try {
+      const data = parsed.data;
       await updateUser({
         id: user.id,
-        displayName: displayName.trim(),
-        mobileNumber: mobileNumber.trim() || undefined,
+        displayName: data.displayName,
+        mobileNumber: data.mobileNumber || undefined,
         enabled,
         roleIds,
-        password: password.trim() || undefined,
+        password: data.password || undefined,
       });
       onSaved();
     } catch (err) {
@@ -514,6 +555,9 @@ function EditUserDrawer({
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
             />
+            {fieldErrors.displayName && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.displayName}</p>
+            )}
           </div>
           <div>
             <label className={labelClass} htmlFor="eu-mobile">
@@ -525,6 +569,9 @@ function EditUserDrawer({
               value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
             />
+            {fieldErrors.mobileNumber && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.mobileNumber}</p>
+            )}
           </div>
           <div>
             <label className={labelClass} htmlFor="eu-pass">
@@ -538,6 +585,9 @@ function EditUserDrawer({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+            {fieldErrors.password && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <input

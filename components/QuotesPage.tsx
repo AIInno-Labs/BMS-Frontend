@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, RefreshCw } from "lucide-react";
 import {
   factoryStatusLabel,
   isFactoryComplete,
@@ -232,8 +232,12 @@ export function QuotesPage() {
           <button
             type="button"
             onClick={() => void load()}
-            className="btn-secondary w-full shrink-0 sm:w-auto"
+            className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
           >
+            <RefreshCw
+              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              aria-hidden
+            />
             Refresh
           </button>
         </div>

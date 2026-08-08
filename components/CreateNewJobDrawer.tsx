@@ -642,67 +642,6 @@ export function CreateNewJobDrawer({
               {errors.status}
             </p>
           )}
-
-          <div className="mt-4 space-y-3 border-t border-[#E2E8F0] pt-4">
-            <label className="flex items-start gap-2.5">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={form.needsJobCard}
-                onChange={(e) => patch({ needsJobCard: e.target.checked })}
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-[#0F172A]">
-                  Needs Job Card
-                </span>
-                <span className="block text-xs text-slate-500">
-                  Full custom manufacturing job. Turn off for simple
-                  delivery-docket-only jobs.
-                </span>
-              </span>
-            </label>
-
-            <label className="flex items-start gap-2.5">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={form.installRequired}
-                onChange={(e) => patch({ installRequired: e.target.checked })}
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-[#0F172A]">
-                  Installation required
-                </span>
-                <span className="block text-xs text-slate-500">
-                  Printed prominently on the job card.
-                </span>
-              </span>
-            </label>
-
-            <div>
-              <label className="flex items-start gap-2.5">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={form.qaCompleted}
-                  onChange={(e) => patch({ qaCompleted: e.target.checked })}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-[#0F172A]">
-                    QA already complete
-                  </span>
-                  <span className="block text-xs text-slate-500">
-                    Only for jobs recorded after the fact.
-                  </span>
-                </span>
-              </label>
-              {errors.qaCompleted && (
-                <p className="mt-1 text-xs text-red-600" role="alert">
-                  {errors.qaCompleted}
-                </p>
-              )}
-            </div>
-          </div>
         </FormSection>
         )}
 
