@@ -607,7 +607,7 @@ export interface components {
             };
             measurement?: {
                 [key: string]: Record<string, never>;
-            };
+            }[];
             events?: components["schemas"]["QuotientEventDTO"][];
         };
         QuotientEventDTO: {
