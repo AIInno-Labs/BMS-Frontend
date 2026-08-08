@@ -334,11 +334,27 @@ export async function updateQuotientIntegration(
   });
 }
 
-/** Rotate the webhook token; returns the new token and URL to re-paste. */
-export async function regenerateQuotientWebhookToken(): Promise<QuotientIntegrationDTO> {
+/**
+ * Issue a new webhook token; returns the token, URL and expiry. Pass an
+ * optional ISO expiry to select the token's lifetime.
+ */
+export async function regenerateQuotientWebhookToken(
+  expiresAt?: string | null
+): Promise<QuotientIntegrationDTO> {
   return frpFetch<QuotientIntegrationDTO>("/integrations/quotient/webhook-token", {
     method: "POST",
+    body: JSON.stringify({ webhookExpiresAt: expiresAt ?? null }),
   });
+}
+
+/** Revoke a webhook token by id (e.g. a leaked one). */
+export async function revokeQuotientWebhookToken(
+  id: number
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>(
+    `/integrations/quotient/webhook-token/${id}`,
+    { method: "DELETE" }
+  );
 }
 
 // ----------------------------------------------- integration API keys
