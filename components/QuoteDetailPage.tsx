@@ -7,6 +7,7 @@ import {
   factoryStatusLabel,
   isFactoryComplete,
   journeyOutcomeLabel,
+  progressLabel,
 } from "@/lib/quotes/labels";
 import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
@@ -360,7 +361,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
               quote_status: {quote.quote_status ?? "—"}
             </span>
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800">
-              progress: {quote.progress ?? "—"}
+              progress: {progressLabel(quote.progress, quote.journey_outcome)}
             </span>
             <span
               className={`rounded-md px-2 py-1 text-xs font-semibold ${
