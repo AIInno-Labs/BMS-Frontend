@@ -329,6 +329,18 @@ export default function OrgIntegrationsPage() {
                 >
                   {saving ? "Saving…" : `Save ${group}`}
                 </button>
+                {group === "Quotient" && (
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    <span className="font-semibold text-slate-600">
+                      Add it in Quotient:
+                    </span>{" "}
+                    open Account Settings → Integrations → Webhooks, paste the
+                    saved <code className="font-mono">QUOTIENT_WEBHOOK_URL</code>{" "}
+                    above, and save. Quotient then POSTs each quote event to that
+                    URL. Regenerate the token to rotate it — remember to re-paste
+                    the new URL.
+                  </p>
+                )}
               </form>
             );
           })
