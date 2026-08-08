@@ -488,7 +488,6 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
 
   return {
     dbId: dto.id != null ? String(dto.id) : undefined,
-    version: dto.version,
     id: dto.jobNumber ?? "",
     // The per-job details row is authoritative; the flat field is the
     // denormalised copy the list projection uses.
