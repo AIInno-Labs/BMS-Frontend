@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { listOrgParameters, upsertOrgParameter } from "@/lib/frp/api";
 import type { ApplicationParameterDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import QuotientIntegrationCard from "@/components/QuotientIntegrationCard";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -166,14 +167,14 @@ export default function OrgIntegrationsPage() {
           </p>
         )}
 
+        {/* Quotient has a dedicated flow (enable → generate webhook token,
+            revocable API key) rather than raw parameter fields. */}
+        <QuotientIntegrationCard />
+
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Loading…</p>
-        ) : params.length === 0 ? (
-          <p className="mt-6 text-sm text-slate-500">
-            No org-editable integration parameters are available.
-          </p>
         ) : (
-          (["SharePoint", "Quotient", "Other"] as const).map((group) => {
+          (["SharePoint", "Other"] as const).map((group) => {
             const rows = grouped[group];
             if (rows.length === 0) return null;
             return (

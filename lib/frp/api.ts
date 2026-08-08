@@ -4,7 +4,9 @@ import {
   type AuthenticationResponse,
   type CreateOrganizationRequest,
   type CreateUserRequest,
+  type IntegrationApiKeyDTO,
   type MfaSetupResponse,
+  type QuotientIntegrationDTO,
   type OrganizationDTO,
   type OrganizationProvisionResponse,
   type PageResponse,
@@ -314,6 +316,55 @@ export async function upsertOrgParameter(
   return frpFetch<ApplicationParameterDTO>("/org/parameters", {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------- Quotient
+
+export async function getQuotientIntegration(): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient");
+}
+
+export async function updateQuotientIntegration(
+  body: Partial<QuotientIntegrationDTO>
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Rotate the webhook token; returns the new token and URL to re-paste. */
+export async function regenerateQuotientWebhookToken(): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient/webhook-token", {
+    method: "POST",
+  });
+}
+
+// ----------------------------------------------- integration API keys
+
+export async function listIntegrationApiKeys(
+  provider: string
+): Promise<IntegrationApiKeyDTO[]> {
+  return frpFetch<IntegrationApiKeyDTO[]>(`/integrations/${provider}/api-key`);
+}
+
+export async function issueIntegrationApiKey(
+  provider: string,
+  body: { apiKey: string; expiresAt?: string | null }
+): Promise<IntegrationApiKeyDTO> {
+  return frpFetch<IntegrationApiKeyDTO>(`/integrations/${provider}/api-key`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function revokeIntegrationApiKey(
+  provider: string,
+  id: number
+): Promise<IntegrationApiKeyDTO> {
+  return frpFetch<IntegrationApiKeyDTO>(`/integrations/${provider}/api-key/${id}`, {
+    method: "DELETE",
   });
 }
 
