@@ -11,7 +11,7 @@ import {
 } from "@/lib/quotes/labels";
 import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
-import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
+import { formatCreatedDate } from "@/lib/mockData";
 import { getQuote } from "@/lib/frp/api";
 import { useAuth } from "@/context/AuthContext";
 import { FIELD_KEYS } from "@/lib/frp/access";
@@ -393,7 +393,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
               <Field label="from" value={quote.quote_from} />
               <Field label="for" value={quote.quote_for_label} />
               <Field label="first_sent" value={quote.first_sent ? formatCreatedDate(quote.first_sent) : null} />
-              <Field label="valid_until" value={quote.valid_until ? formatShortDate(quote.valid_until) : null} />
+              <Field label="valid_until" value={quote.valid_until ? formatCreatedDate(quote.valid_until) : null} />
               <Field label="currency" value={quote.currency} />
               <Field label="amounts_are" value={quote.amounts_are} />
               <Field label="is_archived" value={quote.is_archived ? "true" : "false"} />
