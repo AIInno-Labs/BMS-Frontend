@@ -16,8 +16,18 @@ const labelClass =
 
 const SECRET_SUFFIXES = ["_SECRET", "_API_KEY"];
 
+// Backend-managed: written by the "Generate token" action, never hand-edited.
+const GENERATED_PARAMS = new Set([
+  "QUOTIENT_WEBHOOK_TOKEN",
+  "QUOTIENT_WEBHOOK_URL",
+]);
+
 function isSecretParam(name: string) {
   return SECRET_SUFFIXES.some((s) => name.endsWith(s));
+}
+
+function isGeneratedParam(name: string) {
+  return GENERATED_PARAMS.has(name);
 }
 
 function groupOf(name: string): "SharePoint" | "Quotient" | "Other" {
@@ -104,6 +114,10 @@ export default function OrgIntegrationsPage() {
     try {
       const rows = grouped[group];
       for (const row of rows) {
+        // Generated params (webhook token/URL) are owned by the backend.
+        if (isGeneratedParam(row.paramName)) {
+          continue;
+        }
         const nextVal = values[row.paramName] ?? "";
         if (isSecretParam(row.paramName) && nextVal === "") {
           continue;
@@ -184,19 +198,30 @@ export default function OrgIntegrationsPage() {
                   const booleanType =
                     (row.paramType ?? "").toLowerCase() === "boolean";
                   const secret = isSecretParam(row.paramName);
+                  const generated = isGeneratedParam(row.paramName);
                   return (
                     <div key={row.paramName}>
                       <label className={labelClass} htmlFor={row.paramName}>
                         {row.paramName}
                         {row.inherited ? " (using platform default)" : ""}
                         {secret ? " — leave blank to keep" : ""}
+                        {generated ? " — generated, read-only" : ""}
                       </label>
                       {row.description ? (
                         <p className="mt-0.5 text-xs text-slate-500">
                           {row.description}
                         </p>
                       ) : null}
-                      {booleanType ? (
+                      {generated ? (
+                        <input
+                          id={row.paramName}
+                          readOnly
+                          className={`${inputClass} bg-slate-50 font-mono text-xs text-slate-600`}
+                          value={values[row.paramName] ?? ""}
+                          onFocus={(e) => e.currentTarget.select()}
+                          placeholder="Generate a token to fill this"
+                        />
+                      ) : booleanType ? (
                         <select
                           id={row.paramName}
                           className={inputClass}
