@@ -24,10 +24,10 @@ function JourneyBadge({ item }: { item: QuoteListItem }) {
         complete
           ? "bg-emerald-100 text-emerald-800"
           : item.journey_outcome === "declined"
-            ? "bg-red-100 text-red-800"
-            : item.journey_outcome === "accepted"
-              ? "bg-blue-100 text-blue-800"
-              : "bg-slate-100 text-slate-700"
+          ? "bg-red-100 text-red-800"
+          : item.journey_outcome === "accepted"
+          ? "bg-blue-100 text-blue-800"
+          : "bg-slate-100 text-slate-700"
       }`}
     >
       {outcome}
@@ -58,7 +58,9 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase text-blue-600">Quote</p>
-          <p className="text-lg font-semibold text-slate-900">{q.quote_number}</p>
+          <p className="text-lg font-semibold text-slate-900">
+            {q.quote_number}
+          </p>
         </div>
         <JourneyBadge item={q} />
       </div>
@@ -67,7 +69,7 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
       </p>
       <p className="mt-1 text-sm text-slate-600">{q.quote_for_company_name}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <SystemLoggedBadge logged={Boolean(q.job_id)} />
+        <SystemLoggedBadge logged={Boolean(q.factory_job_status)} />
         <FactoryBadge item={q} />
         {q.quote_status && (
           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -100,10 +102,12 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
 }
 
 function FactoryBadge({ item }: { item: QuoteListItem }) {
-  if (!item.job_id) {
-    return (
-      <span className="text-xs text-slate-500">—</span>
-    );
+  // Gated on factory_job_status, not job_id - QuotationDTO doesn't expose a
+  // job id at all, but factory_status is only ever set (both by the backend
+  // and by seed.sql) when a quote-derived job actually exists, so it's the
+  // reliable signal here.
+  if (!item.factory_job_status) {
+    return <span className="text-xs text-slate-500">—</span>;
   }
   const status = item.factory_job_status ?? "—";
   const done = status === "Complete" || status === "Cancelled";
@@ -136,18 +140,31 @@ export function QuotesPage() {
       const page = await listQuotes(0, 200);
       const quotes = (page.content ?? []).map((row) => {
         const r = row as Record<string, unknown>;
+
+        const journeyRaw = String(
+          r.journeyStatus ?? r.journey_outcome ?? ""
+        ).toLowerCase();
+        const journey_outcome: QuoteListItem["journey_outcome"] =
+          journeyRaw === "accepted" ||
+          journeyRaw === "declined" ||
+          journeyRaw === "completed"
+            ? journeyRaw
+            : "open";
+
         return {
           quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
           title: (r.title as string | null) ?? null,
           quote_for_company_name: String(
-            r.customerName ?? r.quote_for_company_name ?? ""
+            r.company ?? r.customerName ?? r.quote_for_company_name ?? ""
           ),
-          quote_status: (r.quoteStatus ?? r.quote_status ?? null) as string | null,
+          quote_status: (r.status ??
+            r.quoteStatus ??
+            r.quote_status ??
+            null) as string | null,
           progress: (r.progress as string | null) ?? null,
-          journey_outcome: (r.journeyOutcome ??
-            r.journey_outcome ??
-            "open") as QuoteListItem["journey_outcome"],
-          factory_job_status: (r.factoryJobStatus ??
+          journey_outcome,
+          factory_job_status: (r.factoryStatus ??
+            r.factoryJobStatus ??
             r.factory_job_status ??
             null) as string | null,
           job_id: (r.jobId ?? r.job_id ?? null) as string | null,
@@ -156,11 +173,12 @@ export function QuotesPage() {
             (r.total_includes_tax as number | null) ??
             null,
           currency: String(r.currency ?? "AUD"),
-          last_event_name: (r.lastEventName ??
+          last_event_name: (r.lastEvent ??
+            r.lastEventName ??
             r.last_event_name ??
             null) as string | null,
           updated_at: String(
-            r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
+            r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
           ),
           question_count: Number(r.questionCount ?? r.question_count ?? 0),
         } satisfies QuoteListItem;
@@ -181,7 +199,9 @@ export function QuotesPage() {
   }, [load]);
 
   const filtered = quotes.filter((q) => {
-    const hay = `${q.quote_number} ${q.title ?? ""} ${q.quote_for_company_name} ${q.quote_status ?? ""}`.toLowerCase();
+    const hay = `${q.quote_number} ${q.title ?? ""} ${
+      q.quote_for_company_name
+    } ${q.quote_status ?? ""}`.toLowerCase();
     return hay.includes(search.toLowerCase());
   });
 
@@ -223,8 +243,9 @@ export function QuotesPage() {
             {error}
             {error.includes("not available") && (
               <span className="mt-1 block text-slate-700">
-                Quotes load from Spring Boot <code className="text-xs">/quotes</code>{" "}
-                once DEL-02 is live. Jobs already use PostgreSQL via{" "}
+                Quotes load from Spring Boot{" "}
+                <code className="text-xs">/quotes</code> once DEL-02 is live.
+                Jobs already use PostgreSQL via{" "}
                 <code className="text-xs">/jobs</code>.
               </span>
             )}
@@ -265,14 +286,21 @@ export function QuotesPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                    <td
+                      colSpan={10}
+                      className="px-4 py-8 text-center text-slate-500"
+                    >
                       Loading quotes…
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
-                      No quotes found. Webhooks populate this list automatically.
+                    <td
+                      colSpan={10}
+                      className="px-4 py-8 text-center text-slate-500"
+                    >
+                      No quotes found. Webhooks populate this list
+                      automatically.
                     </td>
                   </tr>
                 ) : (
@@ -297,7 +325,7 @@ export function QuotesPage() {
                         <JourneyBadge item={q} />
                       </td>
                       <td className="px-4 py-3">
-                        <SystemLoggedBadge logged={Boolean(q.job_id)} />
+                        <SystemLoggedBadge logged={Boolean(q.factory_job_status)} />
                       </td>
                       <td className="px-4 py-3">
                         <FactoryBadge item={q} />
@@ -307,8 +335,7 @@ export function QuotesPage() {
                           ? q.last_event_name
                               .split("_")
                               .map(
-                                (w) =>
-                                  w.charAt(0).toUpperCase() + w.slice(1)
+                                (w) => w.charAt(0).toUpperCase() + w.slice(1)
                               )
                               .join(" ")
                           : "—"}
@@ -323,12 +350,17 @@ export function QuotesPage() {
                               className="inline-flex items-center gap-0.5 text-xs text-violet-700"
                               title={`${q.question_count} customer question(s)`}
                             >
-                              <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+                              <MessageCircle
+                                className="h-3.5 w-3.5"
+                                aria-hidden
+                              />
                               {q.question_count}
                             </span>
                           )}
                           <Link
-                            href={`/quotes/${encodeURIComponent(q.quote_number)}`}
+                            href={`/quotes/${encodeURIComponent(
+                              q.quote_number
+                            )}`}
                             className="text-sm font-semibold text-blue-600 hover:text-blue-800"
                           >
                             View
