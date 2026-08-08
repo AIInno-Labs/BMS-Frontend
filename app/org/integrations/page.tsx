@@ -114,10 +114,6 @@ export default function OrgIntegrationsPage() {
     try {
       const rows = grouped[group];
       for (const row of rows) {
-        // Generated params (webhook token/URL) are owned by the backend.
-        if (isGeneratedParam(row.paramName)) {
-          continue;
-        }
         const nextVal = values[row.paramName] ?? "";
         if (isSecretParam(row.paramName) && nextVal === "") {
           continue;
@@ -262,10 +258,19 @@ export default function OrgIntegrationsPage() {
                     </div>
                   );
                 })}
-                {/* On top of the raw QUOTIENT_* parameters: generate the
-                    webhook token server-side and show the ready-to-paste URL. */}
+                {/* On top of the raw QUOTIENT_* parameters: generate the token
+                    server-side. The values only persist when the group is saved. */}
                 {group === "Quotient" && (
-                  <QuotientWebhookHelper onTokenGenerated={() => void load()} />
+                  <QuotientWebhookHelper
+                    onGenerated={(token, url) => {
+                      setValues((prev) => ({
+                        ...prev,
+                        QUOTIENT_WEBHOOK_TOKEN: token,
+                        QUOTIENT_WEBHOOK_URL: url,
+                      }));
+                      setMessage("Token generated. Click Save Quotient to store it.");
+                    }}
+                  />
                 )}
                 <button
                   type="submit"
