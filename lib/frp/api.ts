@@ -735,3 +735,20 @@ export async function getQuote(
     throw err;
   }
 }
+
+/** One ingest event by id, with full detail (incl. raw payload).
+ *  DEL-02 — null when quote module is not live yet. */
+export async function getQuoteEvent(
+  eventId: number | string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await frpFetch<Record<string, unknown>>(
+      `/quotes/events/${encodeURIComponent(String(eventId))}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
+      return null;
+    }
+    throw err;
+  }
+}
