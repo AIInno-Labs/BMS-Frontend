@@ -4,34 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { ListChecks, Paperclip } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
-import { formatCreatedDate } from "@/lib/mockData";
 import {
   buildJobTimelineAnalytics,
   TIMELINE_STAGES,
   type TimelineStageId,
 } from "@/lib/jobTimelineAnalytics";
-import type { FrpDrawingStage, FrpDrawingStageDTO } from "@/lib/frp/job-mapper";
 import type { Job } from "@/lib/types";
 
 interface JobStatusCardProps {
   job: Job;
-  /** Owned by JobWorkflowDashboard — same state, same fetch, same PUT call
-   *  it already used when Drawing was its own card. Nothing about how these
-   *  five boxes save changed, they just render from here now. */
-  drawingStages: FrpDrawingStageDTO[];
-  drawingBusy: FrpDrawingStage | null;
-  drawingError: string | null;
-  onDrawingToggle: (stage: FrpDrawingStage, checked: boolean) => Promise<void> | void;
-  drawingDoneCount: number;
   className?: string;
 }
-
-/** The two Drawing keys the backend actually watches for "Approval". There is
- *  no separate Approval checklist anywhere — the Approval view below just
- *  re-renders these two entries from `drawingStages` read-only. This mirrors
- *  handleDrawingToggle's own condition in JobWorkflowDashboard, so it can
- *  never disagree with it. */
-const APPROVAL_KEYS: FrpDrawingStage[] = ["ENGINEER_APPROVED", "CLIENT_APPROVED"];
 
 /** Dropdown options. "Draft" is intentionally excluded — it has no checklist
  *  and nothing to interact with, so it isn't offered as a view. */
@@ -72,9 +55,8 @@ const PREVIEW_ITEMS: Partial<Record<TimelineStageId, { key: string; label: strin
 };
 
 /** A single item a checkbox can point at, for the "status step" select
- *  inside the proof modal. `scope` says which bucket it saves through:
- *  "design" goes through the real `onDrawingToggle`, anything else is one
- *  of the local-only PREVIEW_ITEMS stages. */
+ *  inside the proof modal. Every scope is one of the local-only
+ *  PREVIEW_ITEMS stages. */
 interface ModalItemOption {
   key: string;
   label: string;
@@ -82,34 +64,23 @@ interface ModalItemOption {
 
 /** What was attached (or waived) for one checklist item. Purely local —
  *  there is no attachment/remarks endpoint on the server for any stage yet,
- *  Drawing included, so nothing here is sent anywhere. */
+ *  so nothing here is sent anywhere. */
 interface ProofRecord {
   fileName?: string;
   remarks?: string;
   notRequired: boolean;
 }
 
-function proofKey(scope: "design" | TimelineStageId, itemKey: string): string {
+function proofKey(scope: TimelineStageId, itemKey: string): string {
   return `${scope}-${itemKey}`;
 }
 
-export function JobStatusCard({
-  job,
-  drawingStages,
-  drawingBusy,
-  drawingError,
-  onDrawingToggle,
-  drawingDoneCount,
-  className,
-}: JobStatusCardProps) {
-  const timeline = useMemo(
-    () => buildJobTimelineAnalytics(job, drawingDoneCount),
-    [job, drawingDoneCount]
-  );
+export function JobStatusCard({ job, className }: JobStatusCardProps) {
+  const timeline = useMemo(() => buildJobTimelineAnalytics(job), [job]);
 
   // Which stage's checklist the dropdown is currently showing. This is a
   // *view* selection only — nothing is saved by picking a value here, only
-  // by ticking a box inside the checklist below.
+  // by ticking a box inside a checklist below.
   const [viewStage, setViewStage] = useState<TimelineStageId>(
     timeline.activeStageId === "draft" ? "design" : timeline.activeStageId
   );
@@ -127,8 +98,7 @@ export function JobStatusCard({
   const [localChecks, setLocalChecks] = useState<Record<string, boolean>>({});
 
   // What's been attached to each item that's been ticked, keyed the same way
-  // as `localChecks`/`design-<stage>`. Local-only, same as everything else
-  // on this card that isn't Drawing's own real save.
+  // as `localChecks`. Local-only, same as everything else on this card.
   const [proofs, setProofs] = useState<Record<string, ProofRecord>>({});
 
   // --- The "attach proof" modal ---------------------------------------
@@ -138,7 +108,7 @@ export function JobStatusCard({
   // an already-checked box skips the modal entirely — see the two onChange
   // handlers below.
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalScope, setModalScope] = useState<"design" | TimelineStageId>("design");
+  const [modalScope, setModalScope] = useState<TimelineStageId>("production");
   const [modalItems, setModalItems] = useState<ModalItemOption[]>([]);
   const [draftItemKey, setDraftItemKey] = useState("");
   const [draftFileName, setDraftFileName] = useState("");
@@ -146,7 +116,7 @@ export function JobStatusCard({
   const [draftNotRequired, setDraftNotRequired] = useState(false);
 
   const openProofModal = (
-    scope: "design" | TimelineStageId,
+    scope: TimelineStageId,
     itemKey: string,
     items: ModalItemOption[]
   ) => {
@@ -160,20 +130,12 @@ export function JobStatusCard({
     setModalOpen(true);
   };
 
-  const checkItem = (scope: "design" | TimelineStageId, itemKey: string) => {
-    if (scope === "design") {
-      void onDrawingToggle(itemKey as FrpDrawingStage, true);
-    } else {
-      setLocalChecks((prev) => ({ ...prev, [proofKey(scope, itemKey)]: true }));
-    }
+  const checkItem = (scope: TimelineStageId, itemKey: string) => {
+    setLocalChecks((prev) => ({ ...prev, [proofKey(scope, itemKey)]: true }));
   };
 
-  const uncheckItem = (scope: "design" | TimelineStageId, itemKey: string) => {
-    if (scope === "design") {
-      void onDrawingToggle(itemKey as FrpDrawingStage, false);
-    } else {
-      setLocalChecks((prev) => ({ ...prev, [proofKey(scope, itemKey)]: false }));
-    }
+  const uncheckItem = (scope: TimelineStageId, itemKey: string) => {
+    setLocalChecks((prev) => ({ ...prev, [proofKey(scope, itemKey)]: false }));
     // Unticking clears whatever was attached — the item is no longer marked
     // complete, so there's nothing current to show proof of.
     setProofs((prev) => {
@@ -196,11 +158,6 @@ export function JobStatusCard({
     checkItem(modalScope, draftItemKey);
     setModalOpen(false);
   };
-
-  const drawingItemOptions: ModalItemOption[] = drawingStages.map((s) => ({
-    key: s.stage,
-    label: s.label ?? s.stage,
-  }));
 
   return (
     <>
@@ -228,93 +185,10 @@ export function JobStatusCard({
         </label>
 
         <div className="mt-3">
-          {viewStage === "design" && (
-            <div className="space-y-2">
-              {drawingStages.map((item) => {
-                const proof = proofs[proofKey("design", item.stage)];
-                return (
-                  <label
-                    key={item.stage}
-                    title={
-                      item.completed && item.updatedAt
-                        ? `Ticked ${formatCreatedDate(item.updatedAt)}`
-                        : undefined
-                    }
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={item.completed}
-                      disabled={drawingBusy !== null}
-                      onChange={(e) =>
-                        e.target.checked
-                          ? openProofModal("design", item.stage, drawingItemOptions)
-                          : uncheckItem("design", item.stage)
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                    />
-                    {item.label ?? item.stage}
-                    {item.completed && proof && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          openProofModal("design", item.stage, drawingItemOptions);
-                        }}
-                        className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
-                      >
-                        {proof.notRequired ? (
-                          "N/A"
-                        ) : (
-                          <>
-                            <Paperclip className="h-3 w-3" />
-                            {proof.fileName}
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </label>
-                );
-              })}
-              {drawingError && (
-                <p className="col-span-full text-xs text-red-600">{drawingError}</p>
-              )}
-            </div>
-          )}
-
-          {/* Approval has no checklist of its own on the server — it is
-              gated by the same two Drawing boxes (ENGINEER_APPROVED /
-              CLIENT_APPROVED). Rendered here read-only, reusing the live
-              `drawingStages` data, so it can never disagree with Drawing's
-              own view of the same two items. */}
-          {viewStage === "approval" && (
-            <div className="space-y-2">
-              {drawingStages
-                .filter((item) => APPROVAL_KEYS.includes(item.stage))
-                .map((item) => (
-                  <label
-                    key={item.stage}
-                    className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-2.5 py-2 text-sm text-slate-600"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={item.completed}
-                      disabled
-                      className="h-4 w-4 rounded border-slate-300 text-orange-600 disabled:opacity-70"
-                    />
-                    {item.label ?? item.stage}
-                  </label>
-                ))}
-            </div>
-          )}
-
-          {viewStage === "completed" && (
-            <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
-              {job.status === "Complete" ? "All upstream work is done." : "Not reached yet."}
-            </p>
-          )}
-
-          {PREVIEW_ITEMS[viewStage] && (
+          {/* Design and Approval only ever rendered the drawing checklist,
+              which is gone along with its endpoints — they fall through to
+              the neutral placeholder below. */}
+          {PREVIEW_ITEMS[viewStage] ? (
             <div className="space-y-2">
               {PREVIEW_ITEMS[viewStage]!.map((item) => {
                 const checkKey = proofKey(viewStage, item.key);
@@ -359,6 +233,14 @@ export function JobStatusCard({
                 );
               })}
             </div>
+          ) : viewStage === "completed" ? (
+            <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
+              {job.status === "Complete" ? "All upstream work is done." : "Not reached yet."}
+            </p>
+          ) : (
+            <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
+              No checklist for this stage.
+            </p>
           )}
         </div>
       </WidgetCard>
