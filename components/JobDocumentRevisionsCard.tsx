@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileStack, Paperclip } from "lucide-react";
+import { FileStack, Paperclip, Pencil } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
+import { EditModal, ModalField } from "@/components/JobEditModal";
 import type { Job } from "@/lib/types";
 
 /**
@@ -29,6 +30,7 @@ interface PoVersion {
   reviewStatus: ReviewStatus;
   reviewedBy?: string;
   reviewedDate?: string;
+  reviewRemarks?: string;
 }
 
 /** Mock data — stands in for what a real "list PO versions" API would return. */
@@ -126,6 +128,7 @@ interface DrawingRevision {
   reviewStatus: ReviewStatus;
   reviewedBy?: string;
   reviewedDate?: string;
+  reviewRemarks?: string;
 }
 
 /** Mock data. File names follow the same "GA-drawing-Rev*.pdf" convention
@@ -238,44 +241,45 @@ function ReviewActions({
   status,
   reviewedBy,
   reviewedDate,
+  reviewRemarks,
   onApprove,
   onReject,
 }: {
   status: ReviewStatus;
   reviewedBy?: string;
   reviewedDate?: string;
+  reviewRemarks?: string;
   onApprove: () => void;
   onReject: () => void;
 }) {
-  if (status === "approved") {
+  if (status === "approved" || status === "rejected") {
     return (
-      <span className="text-xs text-slate-500">
-        Approved by {reviewedBy} · {reviewedDate}
-      </span>
-    );
-  }
-  if (status === "rejected") {
-    return (
-      <span className="text-xs text-slate-500">
-        Rejected by {reviewedBy} · {reviewedDate}
-      </span>
+      <p className="text-right text-xs text-slate-500">
+        {status === "approved" ? "Approved" : "Rejected"} by {reviewedBy} · {reviewedDate}
+        {reviewRemarks && (
+          <>
+            <br />
+            <span className="italic">&ldquo;{reviewRemarks}&rdquo;</span>
+          </>
+        )}
+      </p>
     );
   }
   return (
     <div className="flex items-center gap-2">
       <button
         type="button"
-        onClick={onApprove}
-        className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-      >
-        Approve
-      </button>
-      <button
-        type="button"
         onClick={onReject}
         className="inline-flex items-center rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700"
       >
         Reject
+      </button>
+      <button
+        type="button"
+        onClick={onApprove}
+        className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+      >
+        Approve
       </button>
     </div>
   );
@@ -304,7 +308,7 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
 
   const selectedPo = poVersions.find((v) => v.id === selectedPoId) ?? null;
 
-  const setPoReview = (status: ReviewStatus) => {
+  const setPoReview = (status: ReviewStatus, remark: string) => {
     if (!selectedPo) return;
     setPoVersions((prev) =>
       prev.map((v) =>
@@ -314,10 +318,67 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
               reviewStatus: status,
               reviewedBy: "You",
               reviewedDate: new Date().toISOString().slice(0, 10),
+              reviewRemarks: remark,
             }
           : v
       )
     );
+  };
+
+  /* ---------------------------------------------------------------- Edit PO version modal */
+  const [showEditPoModal, setShowEditPoModal] = useState(false);
+  const [poDraft, setPoDraft] = useState({
+    receivedDate: "",
+    fileName: "",
+    quoteQty: "",
+    quotePrice: "",
+    quoteScope: "",
+    poQty: "",
+    poPrice: "",
+    poScope: "",
+  });
+
+  const openEditPoModal = () => {
+    if (!selectedPo) return;
+    setPoDraft({
+      receivedDate: selectedPo.receivedDate,
+      fileName: selectedPo.fileName,
+      quoteQty: String(selectedPo.quoteQty),
+      quotePrice: String(selectedPo.quotePrice),
+      quoteScope: selectedPo.quoteScope,
+      poQty: String(selectedPo.poQty),
+      poPrice: String(selectedPo.poPrice),
+      poScope: selectedPo.poScope,
+    });
+    setShowEditPoModal(true);
+  };
+
+  const saveEditPoModal = () => {
+    if (!selectedPo) return;
+    setPoVersions((prev) =>
+      prev.map((v) =>
+        v.id === selectedPo.id
+          ? {
+              ...v,
+              receivedDate: poDraft.receivedDate,
+              fileName: poDraft.fileName.trim() || v.fileName,
+              quoteQty: Number(poDraft.quoteQty) || 0,
+              quotePrice: Number(poDraft.quotePrice) || 0,
+              quoteScope: poDraft.quoteScope.trim(),
+              poQty: Number(poDraft.poQty) || 0,
+              poPrice: Number(poDraft.poPrice) || 0,
+              poScope: poDraft.poScope.trim(),
+              // The figures just changed, so an earlier approval/rejection
+              // no longer speaks to what's actually in the record — back to
+              // pending so it gets looked at again.
+              reviewStatus: "pending",
+              reviewedBy: undefined,
+              reviewedDate: undefined,
+            }
+          : v
+      )
+    );
+    setShowEditPoModal(false);
   };
 
   /* ---------------------------------------------------------------- Drawing revisions state */
@@ -335,7 +396,7 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
 
   const selectedRev = drawingRevisions.find((r) => r.id === selectedRevId) ?? null;
 
-  const setRevReview = (status: ReviewStatus) => {
+  const setRevReview = (status: ReviewStatus, remark: string) => {
     if (!selectedRev) return;
     setDrawingRevisions((prev) =>
       prev.map((r) =>
@@ -345,13 +406,37 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
               reviewStatus: status,
               reviewedBy: "You",
               reviewedDate: new Date().toISOString().slice(0, 10),
+              reviewRemarks: remark,
             }
           : r
       )
     );
   };
 
+  /* ---------------------------------------------------------------- Approve / Reject remark modal */
+  // Shared by both the Purchase Orders and Drawings sides — clicking Approve
+  // or Reject on either never applies the decision directly, it opens this
+  // modal first, and the decision is only recorded once a remark is given
+  // and Save is pressed.
+  const [reviewModalTarget, setReviewModalTarget] = useState<"po" | "drawing" | null>(null);
+  const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">("approved");
+  const [reviewRemarkDraft, setReviewRemarkDraft] = useState("");
+
+  const openReviewModal = (target: "po" | "drawing", action: "approved" | "rejected") => {
+    setReviewModalTarget(target);
+    setReviewModalAction(action);
+    setReviewRemarkDraft("");
+  };
+
+  const saveReviewModal = () => {
+    if (!reviewRemarkDraft.trim()) return;
+    if (reviewModalTarget === "po") setPoReview(reviewModalAction, reviewRemarkDraft.trim());
+    if (reviewModalTarget === "drawing") setRevReview(reviewModalAction, reviewRemarkDraft.trim());
+    setReviewModalTarget(null);
+  };
+
   return (
+    <>
     <WidgetCard title="Document Versions" icon={FileStack} className={className}>
       <div className="mb-3 inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
         <button
@@ -385,24 +470,34 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
           </p>
         ) : (
           <div className="space-y-3">
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Version
-              <select
-                value={selectedPo.id}
-                onChange={(e) => setSelectedPoId(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
+            <div className="flex items-end gap-2">
+              <label className="block flex-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Version
+                <select
+                  value={selectedPo.id}
+                  onChange={(e) => setSelectedPoId(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
+                >
+                  {poVersions
+                    .slice()
+                    .reverse()
+                    .map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.versionLabel} · {v.receivedDate}
+                        {v.id === poVersions[poVersions.length - 1].id ? " (latest)" : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={openEditPoModal}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-2 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
               >
-                {poVersions
-                  .slice()
-                  .reverse()
-                  .map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.versionLabel} · {v.receivedDate}
-                      {v.id === poVersions[poVersions.length - 1].id ? " (latest)" : ""}
-                    </option>
-                  ))}
-              </select>
-            </label>
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </button>
+            </div>
 
             {(() => {
               const diffs = diffPoFields(selectedPo);
@@ -467,8 +562,9 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
                   status={selectedPo.reviewStatus}
                   reviewedBy={selectedPo.reviewedBy}
                   reviewedDate={selectedPo.reviewedDate}
-                  onApprove={() => setPoReview("approved")}
-                  onReject={() => setPoReview("rejected")}
+                  reviewRemarks={selectedPo.reviewRemarks}
+                  onApprove={() => openReviewModal("po", "approved")}
+                  onReject={() => openReviewModal("po", "rejected")}
                 />
               </div>
             )}
@@ -551,13 +647,108 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
                 status={selectedRev.reviewStatus}
                 reviewedBy={selectedRev.reviewedBy}
                 reviewedDate={selectedRev.reviewedDate}
-                onApprove={() => setRevReview("approved")}
-                onReject={() => setRevReview("rejected")}
+                reviewRemarks={selectedRev.reviewRemarks}
+                onApprove={() => openReviewModal("drawing", "approved")}
+                onReject={() => openReviewModal("drawing", "rejected")}
               />
             </div>
           )}
         </div>
       )}
     </WidgetCard>
+
+    {/* Rendered as a sibling of WidgetCard, not a child of it — see the same
+        note in JobStatusCard.tsx. WidgetCard's `.app-card-interactive`
+        article has `hover:-translate-y-0.5`, and an active `transform` on an
+        ancestor becomes the containing block for `position: fixed`
+        descendants, trapping the modal inside the card's box instead of the
+        real viewport whenever the cursor rests on the card. */}
+    <EditModal open={showEditPoModal} title="Edit Purchase Order Version" onClose={() => setShowEditPoModal(false)}>
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          <ModalField
+            label="Date received"
+            type="date"
+            value={poDraft.receivedDate}
+            onChange={(v) => setPoDraft((d) => ({ ...d, receivedDate: v }))}
+          />
+          <ModalField
+            label="File name"
+            value={poDraft.fileName}
+            onChange={(v) => setPoDraft((d) => ({ ...d, fileName: v }))}
+            disabled
+          />
+          <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Accepted quote (baseline)
+          </p>
+          <ModalField
+            label="Quote quantity"
+            type="number"
+            value={poDraft.quoteQty}
+            onChange={(v) => setPoDraft((d) => ({ ...d, quoteQty: v }))}
+          />
+          <ModalField
+            label="Quote price"
+            type="number"
+            value={poDraft.quotePrice}
+            onChange={(v) => setPoDraft((d) => ({ ...d, quotePrice: v }))}
+          />
+          <ModalField
+            label="Quote scope"
+            value={poDraft.quoteScope}
+            onChange={(v) => setPoDraft((d) => ({ ...d, quoteScope: v }))}
+          />
+          <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            This PO
+          </p>
+          <ModalField
+            label="PO quantity"
+            type="number"
+            value={poDraft.poQty}
+            onChange={(v) => setPoDraft((d) => ({ ...d, poQty: v }))}
+          />
+          <ModalField
+            label="PO price"
+            type="number"
+            value={poDraft.poPrice}
+            onChange={(v) => setPoDraft((d) => ({ ...d, poPrice: v }))}
+          />
+          <ModalField
+            label="PO scope"
+            value={poDraft.poScope}
+            onChange={(v) => setPoDraft((d) => ({ ...d, poScope: v }))}
+          />
+          <button className="btn-primary w-full" onClick={saveEditPoModal}>
+            Save changes
+          </button>
+        </div>
+      </EditModal>
+
+      <EditModal
+        open={reviewModalTarget !== null}
+        title={reviewModalAction === "approved" ? "Approve" : "Reject"}
+        onClose={() => setReviewModalTarget(null)}
+      >
+        <div className="space-y-3">
+          <ModalField
+            label="Remarks"
+            value={reviewRemarkDraft}
+            onChange={setReviewRemarkDraft}
+            placeholder={
+              reviewModalAction === "approved"
+                ? "Why this is being approved…"
+                : "Why this is being rejected…"
+            }
+            multiline
+          />
+          <button
+            className="btn-primary w-full"
+            onClick={saveReviewModal}
+            disabled={!reviewRemarkDraft.trim()}
+          >
+            {reviewModalAction === "approved" ? "Approve" : "Reject"}
+          </button>
+        </div>
+      </EditModal>
+    </>
   );
 }

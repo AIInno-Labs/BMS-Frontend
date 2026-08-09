@@ -12,23 +12,43 @@ export function ModalField({
   onChange,
   type = "text",
   placeholder,
+  disabled = false,
+  multiline = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   placeholder?: string;
+  disabled?: boolean;
+  /** Renders a <textarea> instead of a single-line <input>, for longer
+   *  free-text fields like remarks/notes. */
+  multiline?: boolean;
 }) {
+  const fieldClass =
+    "mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
   return (
     <label className="block text-sm font-medium text-slate-700">
       {label}
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300"
-      />
+      {multiline ? (
+        <textarea
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          rows={3}
+          className={`${fieldClass} resize-y`}
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className={fieldClass}
+        />
+      )}
     </label>
   );
 }
