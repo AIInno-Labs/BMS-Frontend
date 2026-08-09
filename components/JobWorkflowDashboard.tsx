@@ -7,13 +7,11 @@ import {
   CircleCheckBig,
   CircleDollarSign,
   MessageSquare,
-  ClipboardList,
   Download,
   Loader2,
   History,
   Mail,
   Package,
-  Pencil,
   Phone,
   Plus,
   Settings,
@@ -26,6 +24,10 @@ import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
+import { WidgetCard } from "@/components/JobWidgetCard";
+import { EditModal, ModalField } from "@/components/JobEditModal";
+import { JobStatusCard } from "@/components/JobStatusCard";
+import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
   DEFAULT_REQUIRED_INVENTORY,
@@ -482,7 +484,12 @@ export function JobWorkflowDashboard({
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
         </WidgetCard>
 
-        <WidgetCard title="Job Details" icon={Settings} onEdit={() => setShowJobModal(true)}>
+        <WidgetCard
+          title="Job Details"
+          icon={Settings}
+          onEdit={() => setShowJobModal(true)}
+          className="lg:col-span-2"
+        >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
             Assigned: {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
@@ -505,33 +512,17 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
         </WidgetCard>
 
-        <WidgetCard title="Drawing" icon={ClipboardList}>
-          <div className="space-y-2">
-            {drawingStages.map((item) => (
-              <label
-                key={item.stage}
-                title={
-                  item.completed && item.updatedAt
-                    ? `Ticked ${formatCreatedDate(item.updatedAt)}`
-                    : undefined
-                }
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
-              >
-                <input
-                  type="checkbox"
-                  checked={item.completed}
-                  disabled={drawingBusy !== null}
-                  onChange={(e) => void handleDrawingToggle(item.stage, e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                {item.label ?? item.stage}
-              </label>
-            ))}
-            {drawingError && (
-              <p className="col-span-full text-xs text-red-600">{drawingError}</p>
-            )}
-          </div>
-        </WidgetCard>
+        <JobStatusCard
+          job={job}
+          drawingStages={drawingStages}
+          drawingBusy={drawingBusy}
+          drawingError={drawingError}
+          onDrawingToggle={handleDrawingToggle}
+          drawingDoneCount={drawingDoneCount}
+          className="lg:col-span-3"
+        />
+
+        <JobDocumentRevisionsCard job={job} className="lg:col-span-3" />
 
         <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
           <label className="mt-2 inline-flex items-center gap-2 text-sm">
@@ -981,45 +972,6 @@ export function JobWorkflowDashboard({
   );
 }
 
-function WidgetCard({
-  title,
-  icon: Icon,
-  children,
-  onEdit,
-  headerAction,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  onEdit?: () => void;
-  headerAction?: React.ReactNode;
-}) {
-  return (
-    <article className="group app-card-interactive p-4 sm:p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#111827]">
-          <Icon className="h-4 w-4 shrink-0 text-[#F97316]" />
-          <span className="truncate">{title}</span>
-        </p>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {headerAction}
-          {onEdit && (
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 hover:text-[#111827] group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
-              onClick={onEdit}
-              aria-label={`Edit ${title}`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="space-y-1 text-sm text-slate-700">{children}</div>
-    </article>
-  );
-}
-
 function CustomerRow({
   icon: Icon,
   label,
@@ -1040,65 +992,3 @@ function CustomerRow({
   );
 }
 
-function ModalField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block text-sm font-medium text-slate-700">
-      {label}
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300"
-      />
-    </label>
-  );
-}
-
-function EditModal({
-  open,
-  title,
-  onClose,
-  children,
-  headerAction,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  headerAction?: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl p-5">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="min-w-0 truncate text-lg font-semibold text-[#111827]">{title}</h3>
-          <div className="flex shrink-0 items-center gap-2">
-            {headerAction}
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1 text-xs text-slate-600 hover:border-orange-200"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
