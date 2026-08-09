@@ -3,7 +3,11 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { listOrgParameters, upsertOrgParameter } from "@/lib/frp/api";
+import {
+  listOrgParameters,
+  upsertOrgParameter,
+  regenerateQuotientWebhookToken,
+} from "@/lib/frp/api";
 import type { ApplicationParameterDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 
@@ -15,8 +19,18 @@ const labelClass =
 
 const SECRET_SUFFIXES = ["_SECRET", "_API_KEY"];
 
+// Backend-managed: written by the "Generate token" action, never hand-edited.
+const GENERATED_PARAMS = new Set([
+  "QUOTIENT_WEBHOOK_TOKEN",
+  "QUOTIENT_WEBHOOK_URL",
+]);
+
 function isSecretParam(name: string) {
   return SECRET_SUFFIXES.some((s) => name.endsWith(s));
+}
+
+function isGeneratedParam(name: string) {
+  return GENERATED_PARAMS.has(name);
 }
 
 function groupOf(name: string): "SharePoint" | "Quotient" | "Other" {
@@ -32,6 +46,8 @@ export default function OrgIntegrationsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -133,6 +149,45 @@ export default function OrgIntegrationsPage() {
     }
   }
 
+  // Generate a fresh token + URL (no persistence); drop them into the read-only
+  // fields. They are stored only when the Quotient group is saved.
+  async function generateWebhookToken() {
+    setGenerating(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const resp = await regenerateQuotientWebhookToken();
+      setValues((prev) => ({
+        ...prev,
+        QUOTIENT_WEBHOOK_TOKEN: resp.webhookToken ?? "",
+        QUOTIENT_WEBHOOK_URL: resp.webhookUrl ?? "",
+      }));
+      setMessage("Token generated. Click Save Quotient to store it.");
+    } catch (err) {
+      setError(
+        err instanceof FrpApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Failed to generate token"
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function copyValue(name: string) {
+    const value = values[name] ?? "";
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(name);
+      setTimeout(() => setCopiedField((f) => (f === name ? null : f)), 1500);
+    } catch {
+      /* clipboard blocked; the field stays selectable as a fallback */
+    }
+  }
+
   if (authLoading || appRole !== "orgadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
@@ -168,10 +223,6 @@ export default function OrgIntegrationsPage() {
 
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Loading…</p>
-        ) : params.length === 0 ? (
-          <p className="mt-6 text-sm text-slate-500">
-            No org-editable integration parameters are available.
-          </p>
         ) : (
           (["SharePoint", "Quotient", "Other"] as const).map((group) => {
             const rows = grouped[group];
@@ -187,19 +238,50 @@ export default function OrgIntegrationsPage() {
                   const booleanType =
                     (row.paramType ?? "").toLowerCase() === "boolean";
                   const secret = isSecretParam(row.paramName);
+                  const generated = isGeneratedParam(row.paramName);
                   return (
                     <div key={row.paramName}>
                       <label className={labelClass} htmlFor={row.paramName}>
                         {row.paramName}
                         {row.inherited ? " (using platform default)" : ""}
                         {secret ? " — leave blank to keep" : ""}
+                        {generated ? " — generated, read-only" : ""}
                       </label>
                       {row.description ? (
                         <p className="mt-0.5 text-xs text-slate-500">
                           {row.description}
                         </p>
                       ) : null}
-                      {booleanType ? (
+                      {generated ? (
+                        <div className="mt-1.5 flex gap-2">
+                          <input
+                            id={row.paramName}
+                            readOnly
+                            className={`${inputClass} !mt-0 min-w-0 flex-1 bg-slate-50 font-mono text-xs text-slate-600`}
+                            value={values[row.paramName] ?? ""}
+                            onFocus={(e) => e.currentTarget.select()}
+                            placeholder="Generate a token to fill this"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void copyValue(row.paramName)}
+                            disabled={!values[row.paramName]}
+                            className="btn-secondary shrink-0 disabled:opacity-60"
+                          >
+                            {copiedField === row.paramName ? "Copied" : "Copy"}
+                          </button>
+                          {row.paramName === "QUOTIENT_WEBHOOK_TOKEN" && (
+                            <button
+                              type="button"
+                              onClick={() => void generateWebhookToken()}
+                              disabled={generating}
+                              className="btn-secondary shrink-0 disabled:opacity-60"
+                            >
+                              {generating ? "Generating…" : "Generate"}
+                            </button>
+                          )}
+                        </div>
+                      ) : booleanType ? (
                         <select
                           id={row.paramName}
                           className={inputClass}
@@ -247,6 +329,18 @@ export default function OrgIntegrationsPage() {
                 >
                   {saving ? "Saving…" : `Save ${group}`}
                 </button>
+                {group === "Quotient" && (
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    <span className="font-semibold text-slate-600">
+                      Add it in Quotient:
+                    </span>{" "}
+                    open Account Settings → Integrations → Webhooks, paste the
+                    saved <code className="font-mono">QUOTIENT_WEBHOOK_URL</code>{" "}
+                    above, and save. Quotient then POSTs each quote event to that
+                    URL. Regenerate the token to rotate it — remember to re-paste
+                    the new URL.
+                  </p>
+                )}
               </form>
             );
           })

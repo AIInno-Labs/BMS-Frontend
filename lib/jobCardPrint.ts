@@ -101,8 +101,10 @@ const EMPTY_PACK: JobCardPack = {
 };
 
 export function formatJobCardDate(isoDate: string | null | undefined): string {
-  if (!isoDate?.trim()) return "—";
-  const d = new Date(isoDate + "T12:00:00");
+  const trimmed = isoDate?.trim();
+  if (!trimmed) return "—";
+  const d = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
   const months = [
     "Jan",
     "Feb",
@@ -136,7 +138,9 @@ export function buildOfficialJobCardData(
   const sl = job.schedulingLogistics;
   const jobNumber = job.id.replace(/^JOB-/, "");
 
-  const fromCardScope = (pd?.scopeLines ?? []).map((s) => s.trim()).filter(Boolean);
+  const fromCardScope = (pd?.scopeLines ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
   const scopeLines = fromCardScope.length
     ? fromCardScope
     : [
@@ -158,7 +162,9 @@ export function buildOfficialJobCardData(
     : "";
   const raisedBy =
     nonempty(pd?.raisedBy) ??
-    (assignedName && assignedName !== "Unassigned" ? assignedName : undefined) ??
+    (assignedName && assignedName !== "Unassigned"
+      ? assignedName
+      : undefined) ??
     "";
 
   const customerAddress =
@@ -178,9 +184,13 @@ export function buildOfficialJobCardData(
     customerAddress,
     contactName: job.clientContactName || "",
     contactPhone:
-      nonempty(pd?.contactPhone) ?? nonempty(job.printDetails?.contactPhone) ?? "",
+      nonempty(pd?.contactPhone) ??
+      nonempty(job.printDetails?.contactPhone) ??
+      "",
     contactEmail:
-      nonempty(pd?.contactEmail) ?? nonempty(job.printDetails?.contactEmail) ?? "",
+      nonempty(pd?.contactEmail) ??
+      nonempty(job.printDetails?.contactEmail) ??
+      "",
     purchaseOrderNo: nonempty(pd?.purchaseOrderNo) ?? "",
     accountYesNo: pd?.accountYesNo === false ? "No" : "Yes",
     transport: nonempty(pd?.transport) ?? "FRP Engineering",
@@ -191,8 +201,7 @@ export function buildOfficialJobCardData(
       nonempty(sl?.carrierAccount) ??
       "",
     consignmentNote: nonempty(pd?.consignmentNote) ?? "",
-    despatchDate:
-      nonempty(pd?.despatchDate) ?? nonempty(sl?.shipDate) ?? "",
+    despatchDate: nonempty(pd?.despatchDate) ?? nonempty(sl?.shipDate) ?? "",
     deliveryDocket: nonempty(pd?.deliveryDocket) ?? "",
     scopeLines,
     scopeType: nonempty(pd?.scopeType) ?? "",
@@ -203,9 +212,7 @@ export function buildOfficialJobCardData(
     finish: nonempty(pd?.finish) ?? "",
     clipRows,
     notes:
-      nonempty(pd?.workflowExtras?.jobCardNotes) ??
-      nonempty(job.notes) ??
-      "",
+      nonempty(pd?.workflowExtras?.jobCardNotes) ?? nonempty(job.notes) ?? "",
     deliveryInstructions:
       nonempty(pd?.deliveryInstructions) ??
       nonempty(pd?.workflowExtras?.deliveryAddress) ??
@@ -224,8 +231,7 @@ export function buildOfficialJobCardData(
     status: job.status,
     priority: job.priority,
     assignedWorker: assignedName,
-    estimatedHours:
-      job.estimatedHours != null ? `${job.estimatedHours}h` : "",
+    estimatedHours: job.estimatedHours != null ? `${job.estimatedHours}h` : "",
   };
 }
 
