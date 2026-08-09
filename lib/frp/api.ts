@@ -16,8 +16,6 @@ import {
   type UserDTO,
 } from "@/lib/frp/types";
 import type {
-  FrpDrawingStageDTO,
-  FrpDrawingStage,
   FrpJobAuditHistoryDTO,
   FrpJobCardPayload,
   FrpJobContactDetailsDTO,
@@ -674,36 +672,6 @@ export async function listJobAudit(
   );
 }
 
-/* ------------------------------------------------------- drawing stages */
-
-/** `GET /jobs/{id}/drawing-stages` — all five, ticked or not. */
-export async function listDrawingStages(
-  dbId: string | number
-): Promise<FrpDrawingStageDTO[]> {
-  return frpFetch<FrpDrawingStageDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/drawing-stages`
-  );
-}
-
-/**
- * Tick or untick one stage.
- *
- * Returns the whole checklist, so the caller replaces its state wholesale
- * rather than patching one entry and risking a stale view of the other four.
- */
-export async function setDrawingStage(
-  dbId: string | number,
-  stage: FrpDrawingStage,
-  completed: boolean,
-  remarks?: string
-): Promise<FrpDrawingStageDTO[]> {
-  const q = new URLSearchParams({ completed: String(completed) });
-  if (remarks) q.set("remarks", remarks);
-  return frpFetch<FrpDrawingStageDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/drawing-stages/${stage}?${q}`,
-    { method: "PUT" }
-  );
-}
 
 /* ---------------------------------------------------------------- stages */
 

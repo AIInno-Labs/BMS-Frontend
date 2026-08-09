@@ -41,12 +41,7 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type {
-  FrpDrawingStage,
-  FrpDrawingStageDTO,
-  JobUpdateAuditAction,
-} from "@/lib/frp/job-mapper";
-import { listDrawingStages, setDrawingStage } from "@/lib/frp/api";
+import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -75,7 +70,6 @@ interface JobWorkflowDashboardProps {
  * values its CHECK constraint accepts, so the client keeping a parallel copy
  * could only ever drift from it.
  */
-const DRAWING_STAGE_COUNT = 5;
 
 type JobFile = JobFileRecord;
 
@@ -168,9 +162,6 @@ export function JobWorkflowDashboard({
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
-  const [drawingStages, setDrawingStages] = useState<FrpDrawingStageDTO[]>([]);
-  const [drawingError, setDrawingError] = useState<string | null>(null);
-  const [drawingBusy, setDrawingBusy] = useState<FrpDrawingStage | null>(null);
   const [fileUploadDraft, setFileUploadDraft] = useState({
     fileName: "",
     category: "Specification",
@@ -233,41 +224,6 @@ export function JobWorkflowDashboard({
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
   }, [job.id, fileSort]);
 
-  // The checklist lives on the server. Keyed on dbId because the API
-  // addresses jobs by their database id, not the job number.
-  //
-  // The fetch itself is cached per key in a ref, not just guarded by
-  // `cancelled`: React Strict Mode (dev only) mounts every component twice,
-  // and a plain `cancelled` flag only suppresses which invocation's result
-  // gets applied — the first invocation still fires its own GET, and since
-  // it gets cancelled almost immediately, a naive "skip the second mount"
-  // guard would mean nobody ever applies the result. Sharing one promise per
-  // key means both mounts attach to the same in-flight request instead.
-  const drawingStagesFetchRef = useRef<{
-    key: string;
-    promise: Promise<FrpDrawingStageDTO[]>;
-  } | null>(null);
-  useEffect(() => {
-    if (!job.dbId) return;
-    let mounted = true;
-    const key = job.dbId;
-    if (drawingStagesFetchRef.current?.key !== key) {
-      drawingStagesFetchRef.current = { key, promise: listDrawingStages(job.dbId) };
-    }
-    drawingStagesFetchRef.current.promise
-      .then((stages) => {
-        if (mounted) setDrawingStages(stages);
-      })
-      .catch((e) => {
-        if (mounted) {
-          setDrawingError(e instanceof Error ? e.message : "Could not load the drawing checklist");
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [job.dbId]);
-
   useEffect(() => {
     const nextPd = ensurePrintDetails(job);
     setCustomerDraft({
@@ -294,11 +250,6 @@ export function JobWorkflowDashboard({
     setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
   }, [job]);
 
-  const drawingDoneCount = useMemo(
-    () => drawingStages.filter((s) => s.completed).length,
-    [drawingStages]
-  );
-
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
     [files, fileSort]
@@ -307,33 +258,6 @@ export function JobWorkflowDashboard({
   const systemNote = job.createdAt
     ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
     : "Job created and added to the fabrication queue";
-
-  const handleDrawingToggle = async (stage: FrpDrawingStage, checked: boolean) => {
-    if (!job.dbId || drawingBusy) return;
-    setDrawingBusy(stage);
-    setDrawingError(null);
-    try {
-      // The server returns the whole checklist, so state is replaced rather
-      // than patched - no chance of the other four going stale.
-      const next = await setDrawingStage(job.dbId, stage, checked);
-      setDrawingStages(next);
-
-      const done = next.filter((s) => s.completed).length;
-      const by = (k: FrpDrawingStage) => next.find((s) => s.stage === k)?.completed;
-
-      if (done >= DRAWING_STAGE_COUNT) {
-        await onSavePatch({ status: "Ready to Manufacture" });
-      } else if (by("ENGINEER_APPROVED") && by("CLIENT_APPROVED")) {
-        await onSavePatch({ status: "Awaiting Manager Approval" });
-      }
-    } catch (e) {
-      // The tick is not applied locally first, so a failure leaves the boxes
-      // showing what the server actually holds rather than a lie.
-      setDrawingError(e instanceof Error ? e.message : "Could not save that tick");
-    } finally {
-      setDrawingBusy(null);
-    }
-  };
 
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
@@ -434,7 +358,7 @@ export function JobWorkflowDashboard({
         </div>
       </div>
 
-      <JobTimelineAnalytics job={job} drawingDoneCount={drawingDoneCount} />
+      <JobTimelineAnalytics job={job} />
 
       {!chatDrawerOpen && (
         <button
@@ -512,15 +436,7 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
         </WidgetCard>
 
-        <JobStatusCard
-          job={job}
-          drawingStages={drawingStages}
-          drawingBusy={drawingBusy}
-          drawingError={drawingError}
-          onDrawingToggle={handleDrawingToggle}
-          drawingDoneCount={drawingDoneCount}
-          className="lg:col-span-3"
-        />
+        <JobStatusCard job={job} className="lg:col-span-3" />
 
         <JobDocumentRevisionsCard job={job} className="lg:col-span-3" />
 
