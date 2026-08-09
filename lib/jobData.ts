@@ -64,11 +64,9 @@ export function getReadyToManufactureChartData(jobList: Job[]) {
 }
 
 export function formatDate(isoDate: string | null | undefined): string {
-  // Unguarded, `new Date("" + "T12:00:00")` renders the literal string
-  // "Invalid Date" into the table. formatShortDate and formatCreatedDate
-  // already guard; this one did not.
-  if (!isoDate?.trim()) return "—";
-  const d = new Date(isoDate + "T12:00:00");
+  const trimmed = isoDate?.trim();
+  if (!trimmed) return "—";
+  const d = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-US", {
     weekday: "short",
@@ -79,8 +77,11 @@ export function formatDate(isoDate: string | null | undefined): string {
 }
 
 export function formatShortDate(isoDate: string | null | undefined): string {
-  if (!isoDate?.trim()) return "—";
-  return new Date(isoDate + "T12:00:00").toLocaleDateString("en-AU", {
+  const trimmed = isoDate?.trim();
+  if (!trimmed) return "—";
+  const d = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-AU", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -120,7 +121,10 @@ export function completionPercentForJob(job: Job): number {
 }
 
 /** Whiteboard schedule rows derived from live jobs (no mock job list). */
-export function buildScheduleFromJobs(jobs: Job[], limit = 24): ScheduleEntry[] {
+export function buildScheduleFromJobs(
+  jobs: Job[],
+  limit = 24
+): ScheduleEntry[] {
   return [...jobs]
     .filter((j) => j.status !== "Cancelled" && j.status !== "Complete")
     .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))

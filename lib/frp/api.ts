@@ -4,7 +4,9 @@ import {
   type AuthenticationResponse,
   type CreateOrganizationRequest,
   type CreateUserRequest,
+  type IntegrationApiKeyDTO,
   type MfaSetupResponse,
+  type QuotientIntegrationDTO,
   type OrganizationDTO,
   type OrganizationProvisionResponse,
   type PageResponse,
@@ -97,7 +99,10 @@ async function parseError(res: Response): Promise<FrpApiError> {
     if (body && typeof body === "object") {
       const o = body as Record<string, unknown>;
       if (typeof o.error === "string" && o.error) message = o.error;
-      else if (typeof o.businessErrorDescription === "string" && o.businessErrorDescription) {
+      else if (
+        typeof o.businessErrorDescription === "string" &&
+        o.businessErrorDescription
+      ) {
         message = o.businessErrorDescription;
       } else if (typeof o.message === "string" && o.message) {
         message = o.message;
@@ -112,7 +117,10 @@ async function parseError(res: Response): Promise<FrpApiError> {
           .map(([field, msg]) => `${field}: ${String(msg)}`)
           .join("; ");
         if (detail) message = `${message} — ${detail}`;
-      } else if (Array.isArray(o.validationErrors) && o.validationErrors.length) {
+      } else if (
+        Array.isArray(o.validationErrors) &&
+        o.validationErrors.length
+      ) {
         message = `${message} — ${o.validationErrors.join("; ")}`;
       }
     }
@@ -122,7 +130,9 @@ async function parseError(res: Response): Promise<FrpApiError> {
   return new FrpApiError(res.status, message, body);
 }
 
-async function performTokenRefresh(refreshToken: string): Promise<SessionTokens> {
+async function performTokenRefresh(
+  refreshToken: string
+): Promise<SessionTokens> {
   const res = await fetch(`${getFrpApiBase()}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -251,7 +261,10 @@ export async function enableMfa(code: string): Promise<void> {
   });
 }
 
-export async function disableMfa(password: string, code: string): Promise<void> {
+export async function disableMfa(
+  password: string,
+  code: string
+): Promise<void> {
   await frpFetch("/auth/mfa/disable", {
     method: "POST",
     body: JSON.stringify({ password, code }),
@@ -261,8 +274,7 @@ export async function disableMfa(password: string, code: string): Promise<void> 
 export async function listParameters(
   organizationId?: number | null
 ): Promise<ApplicationParameterDTO[]> {
-  const q =
-    organizationId != null ? `?organizationId=${organizationId}` : "";
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
   return frpFetch<ApplicationParameterDTO[]>(`/admin/parameters${q}`);
 }
 
@@ -304,6 +316,71 @@ export async function upsertOrgParameter(
   return frpFetch<ApplicationParameterDTO>("/org/parameters", {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+// ---------------------------------------------------------------- Quotient
+
+export async function getQuotientIntegration(): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient");
+}
+
+export async function updateQuotientIntegration(
+  body: Partial<QuotientIntegrationDTO>
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Issue a new webhook token; returns the token, URL and expiry. Pass an
+ * optional ISO expiry to select the token's lifetime.
+ */
+export async function regenerateQuotientWebhookToken(
+  expiresAt?: string | null
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient/webhook-token", {
+    method: "POST",
+    body: JSON.stringify({ webhookExpiresAt: expiresAt ?? null }),
+  });
+}
+
+/** Revoke a webhook token by id (e.g. a leaked one). */
+export async function revokeQuotientWebhookToken(
+  id: number
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>(
+    `/integrations/quotient/webhook-token/${id}`,
+    { method: "DELETE" }
+  );
+}
+
+// ----------------------------------------------- integration API keys
+
+export async function listIntegrationApiKeys(
+  provider: string
+): Promise<IntegrationApiKeyDTO[]> {
+  return frpFetch<IntegrationApiKeyDTO[]>(`/integrations/${provider}/api-key`);
+}
+
+export async function issueIntegrationApiKey(
+  provider: string,
+  body: { apiKey: string; expiresAt?: string | null }
+): Promise<IntegrationApiKeyDTO> {
+  return frpFetch<IntegrationApiKeyDTO>(`/integrations/${provider}/api-key`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function revokeIntegrationApiKey(
+  provider: string,
+  id: number
+): Promise<IntegrationApiKeyDTO> {
+  return frpFetch<IntegrationApiKeyDTO>(`/integrations/${provider}/api-key/${id}`, {
+    method: "DELETE",
   });
 }
 
@@ -358,7 +435,9 @@ export async function updateMyProfile(
 
 /** Whether the current user can persist their own profile edits today. */
 export function canEditOwnProfile(me: UserDTO | null): boolean {
-  return Boolean(me?.id != null && me?.rolesPrivileges?.includes("USER_UPDATE"));
+  return Boolean(
+    me?.id != null && me?.rolesPrivileges?.includes("USER_UPDATE")
+  );
 }
 
 export async function listOrganizations(
@@ -443,7 +522,9 @@ export async function listPrivileges(params?: {
   return frpFetch<PrivilegeDTO[]>(`/privileges${qs ? `?${qs}` : ""}`);
 }
 
-export async function createPrivilege(body: PrivilegeDTO): Promise<PrivilegeDTO> {
+export async function createPrivilege(
+  body: PrivilegeDTO
+): Promise<PrivilegeDTO> {
   return frpFetch<PrivilegeDTO>("/privileges", {
     method: "POST",
     body: JSON.stringify(body),
@@ -497,7 +578,8 @@ export async function listJobs(
   if (params?.sort) q.set("sort", params.sort);
   if (params?.status) q.set("status", params.status);
   if (params?.priority) q.set("priority", params.priority);
-  if (params?.assignedTo != null) q.set("assignedTo", String(params.assignedTo));
+  if (params?.assignedTo != null)
+    q.set("assignedTo", String(params.assignedTo));
   if (params?.dueBefore) q.set("dueBefore", params.dueBefore);
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
@@ -688,49 +770,16 @@ export async function advanceJobStatus(
   await updateJobStage(dbId, match.id, { status: plan.status });
 }
 
-/* ------------------------------------------------------------- customers */
-
-/**
- * There is no `CustomerController` on the backend — `GET /customers` returns
- * 403 from the deny-by-default interceptor.
- *
- * Nothing calls one either: `JobDTO` carries `customerCompanyName` plus
- * `customerContactName/Email/Phone`, and `JobServiceImpl.resolveOrCreateCustomer`
- * matches the company by name and creates it (with its first contact) when
- * there is no match. The old `findOrCreateCustomer()` pre-step was both broken
- * and redundant, and threw before `POST /jobs` was ever reached.
- *
- * Add the client back here when Rev 2 §16 `CUSTOMER_READ` ships.
- */
-
-/* --------------------------------------------------------------- quotes */
-
-/** DEL-02 — returns empty when the backend quote module is not live yet. */
 export async function listQuotes(
   page = 0,
   size = 100
 ): Promise<PageResponse<Record<string, unknown>>> {
-  try {
-    return await frpFetch<PageResponse<Record<string, unknown>>>(
-      `/quotes?page=${page}&size=${size}`
-    );
-  } catch (err) {
-    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
-      return {
-        content: [],
-        number: 0,
-        size,
-        totalElements: 0,
-        totalPages: 0,
-        first: true,
-        last: true,
-      };
-    }
-    throw err;
-  }
+  return frpFetch<PageResponse<Record<string, unknown>>>(
+    `/quotes?page=${page}&size=${size}`
+  );
 }
 
-/** DEL-02 — null when quote module is not live yet. */
+/** Null when no quote exists with that number in the caller's organization. */
 export async function getQuote(
   quoteNumber: string
 ): Promise<Record<string, unknown> | null> {
@@ -739,7 +788,24 @@ export async function getQuote(
       `/quotes/${encodeURIComponent(quoteNumber)}`
     );
   } catch (err) {
-    if (err instanceof FrpApiError && (err.status === 404 || err.status === 501)) {
+    if (err instanceof FrpApiError && err.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** One ingest event by id, with full detail (incl. raw payload).
+ *  Null when no event exists with that id. */
+export async function getQuoteEvent(
+  eventId: number | string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await frpFetch<Record<string, unknown>>(
+      `/quotes/events/${encodeURIComponent(String(eventId))}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && err.status === 404) {
       return null;
     }
     throw err;
