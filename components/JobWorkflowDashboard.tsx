@@ -63,6 +63,8 @@ interface JobWorkflowDashboardProps {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => Promise<void>;
+  /** Refetch the job after a stage change so the page reflects the new status. */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -148,6 +150,7 @@ export function JobWorkflowDashboard({
   onPrint,
   onCancelJob,
   onSavePatch,
+  onJobChanged,
 }: JobWorkflowDashboardProps) {
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
@@ -436,7 +439,7 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
         </WidgetCard>
 
-        <JobStatusCard job={job} className="lg:col-span-3" />
+        <JobStatusCard job={job} onJobChanged={onJobChanged} className="lg:col-span-3" />
 
         <JobDocumentRevisionsCard job={job} className="lg:col-span-3" />
 

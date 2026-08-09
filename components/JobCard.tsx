@@ -496,6 +496,20 @@ export function JobCard({ jobId }: JobCardProps) {
     }
   };
 
+  // A stage change (from Status Control) can move the job's status/percent, so
+  // re-pull the job detail to keep the page's badge, timeline, and % in sync.
+  // Plain function (not a hook) — it sits after the component's early returns
+  // and is only ever called imperatively.
+  const handleJobChanged = async () => {
+    try {
+      const fresh = await loadJobDetail(jobId);
+      setJob(fresh);
+      if (!isEditing) setDraft(fresh);
+    } catch {
+      /* keep current data; Status Control already reflects the stage change */
+    }
+  };
+
   return (
     <main
       className={`min-h-screen overflow-x-hidden bg-slate-50 print:min-h-0 print:overflow-visible print:bg-white ${isWorker ? "worker-ui" : ""}`}
@@ -543,6 +557,7 @@ export function JobCard({ jobId }: JobCardProps) {
           onPrint={handlePrint}
           onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
+          onJobChanged={handleJobChanged}
         />
       )}
 

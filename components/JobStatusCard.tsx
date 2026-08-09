@@ -1,162 +1,219 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ListChecks, Paperclip } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
-import {
-  buildJobTimelineAnalytics,
-  TIMELINE_STAGES,
-  type TimelineStageId,
-} from "@/lib/jobTimelineAnalytics";
+import { listJobStages, updateJobStage } from "@/lib/frp/api";
+import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
+import type { FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
 import type { Job } from "@/lib/types";
 
 interface JobStatusCardProps {
   job: Job;
   className?: string;
+  /** Called after a stage change persists — lets the parent refetch the job so
+   *  the main page (status badge, timeline, %) reflects the new status. */
+  onJobChanged?: () => void | Promise<void>;
 }
 
-/** Dropdown options. "Draft" is intentionally excluded — it has no checklist
- *  and nothing to interact with, so it isn't offered as a view. */
-const SELECTABLE_STAGES = TIMELINE_STAGES.filter((s) => s.id !== "draft");
+const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
+  (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
 
-/**
- * Local-only preview checklists for Production / QC / Dispatch.
- *
- * Production's three real operations (mould/layup/cure) and the QC/Dispatch
- * milestones already exist on the backend, but there is no endpoint wired up
- * on the frontend for any of them yet, and QC/Dispatch have no checklist
- * items on the server at all. So these render as tickable boxes so the
- * design can be evaluated end-to-end, but ticking one only flips local
- * component state — it is never saved anywhere and resets on refresh. There
- * is deliberately no on-screen label calling this out; that explanation
- * belongs here, not in the UI.
- *
- * TODO(real API): once `PUT /jobs/{id}/stages/{stageId}` is wired up here,
- * replace `localChecks` below with state fetched from `GET /jobs/{id}/stages`
- * and have the checkbox onChange call that PUT instead of `toggleLocal`.
- */
-const PREVIEW_ITEMS: Partial<Record<TimelineStageId, { key: string; label: string }[]>> = {
-  production: [
-    { key: "mould", label: "Mould prep" },
-    { key: "layup", label: "Lay-up" },
-    { key: "cure", label: "Cure & trim" },
-  ],
-  qc: [
-    { key: "visual", label: "Visual inspection" },
-    { key: "dimensional", label: "Dimensional check" },
-    { key: "signoff", label: "QA sign-off" },
-  ],
-  dispatch: [
-    { key: "packed", label: "Packed for freight" },
-    { key: "photographed", label: "Photographed" },
-    { key: "shipped", label: "Handed to carrier" },
-  ],
+const STATUS_LABEL: Record<NonNullable<FrpJobStageDTO["status"]>, string> = {
+  PENDING: "Pending",
+  IN_PROGRESS: "In progress",
+  COMPLETE: "Done",
+  SKIPPED: "Skipped",
+  BLOCKED: "Blocked",
 };
 
-/** A single item a checkbox can point at, for the "status step" select
- *  inside the proof modal. Every scope is one of the local-only
- *  PREVIEW_ITEMS stages. */
-interface ModalItemOption {
-  key: string;
-  label: string;
+function statusPillClass(status: FrpJobStageDTO["status"]): string {
+  switch (status) {
+    case "COMPLETE":
+      return "border-green-200 bg-green-50 text-green-700";
+    case "IN_PROGRESS":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+    case "BLOCKED":
+      return "border-red-200 bg-red-50 text-red-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-500"; // PENDING / SKIPPED
+  }
 }
 
-/** What was attached (or waived) for one checklist item. Purely local —
- *  there is no attachment/remarks endpoint on the server for any stage yet,
- *  so nothing here is sent anywhere. */
+/**
+ * What was attached (or waived) when completing a stage that requires a
+ * document. Purely local for now — there is no attachment endpoint on the
+ * server yet, so the file name / remarks are not persisted; only the stage's
+ * COMPLETE status is (via `PUT /jobs/{id}/stages/{stageId}`). Keyed by stage id.
+ */
 interface ProofRecord {
   fileName?: string;
   remarks?: string;
   notRequired: boolean;
 }
 
-function proofKey(scope: TimelineStageId, itemKey: string): string {
-  return `${scope}-${itemKey}`;
-}
+/**
+ * Status Control — the live stage tree for a job, straight from
+ * `GET /jobs/{id}/stages`. The dropdown picks a milestone; its operations
+ * render as checkboxes whose ticked state is the real backend status. Ticking
+ * one PUTs the stage and refetches, so the per-stage bar, the milestone rollup,
+ * and the job's own status all move together (recomputed server-side in one
+ * transaction).
+ *
+ * Document upload is asked for only when a stage carries `docRequired` — every
+ * other stage ticks straight through. The upload itself is captured locally
+ * until an attachment endpoint exists.
+ */
+export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardProps) {
+  const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<number | null>(null);
 
-export function JobStatusCard({ job, className }: JobStatusCardProps) {
-  const timeline = useMemo(() => buildJobTimelineAnalytics(job), [job]);
+  // Local-only proof of the doc-required stages that have been completed,
+  // keyed by stage id — see ProofRecord.
+  const [proofs, setProofs] = useState<Record<number, ProofRecord>>({});
 
-  // Which stage's checklist the dropdown is currently showing. This is a
-  // *view* selection only — nothing is saved by picking a value here, only
-  // by ticking a box inside a checklist below.
-  const [viewStage, setViewStage] = useState<TimelineStageId>(
-    timeline.activeStageId === "draft" ? "design" : timeline.activeStageId
-  );
-  useEffect(() => {
-    // Re-center on the job's real current stage whenever a different job is
-    // opened, same pattern the rest of this dashboard already uses. "draft"
-    // is not a selectable option (see SELECTABLE_STAGES), so it falls back
-    // to "design".
-    setViewStage(timeline.activeStageId === "draft" ? "design" : timeline.activeStageId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.id]);
-
-  // Non-persisted placeholder state for Production / QC / Dispatch — see the
-  // TODO on PREVIEW_ITEMS above.
-  const [localChecks, setLocalChecks] = useState<Record<string, boolean>>({});
-
-  // What's been attached to each item that's been ticked, keyed the same way
-  // as `localChecks`. Local-only, same as everything else on this card.
-  const [proofs, setProofs] = useState<Record<string, ProofRecord>>({});
-
-  // --- The "attach proof" modal ---------------------------------------
-  // Ticking a box (unchecked -> checked) never ticks it directly — it opens
-  // this modal instead, and the box only becomes checked once the modal is
-  // saved (with a file, or with "no attachment required" ticked). Unticking
-  // an already-checked box skips the modal entirely — see the two onChange
-  // handlers below.
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalScope, setModalScope] = useState<TimelineStageId>("production");
-  const [modalItems, setModalItems] = useState<ModalItemOption[]>([]);
-  const [draftItemKey, setDraftItemKey] = useState("");
+  // The note modal, opened on every stage tick. It always offers the document
+  // option; the stage's own `docRequired` decides whether a document is
+  // mandatory. When not required, a "No attachment required" toggle is offered.
+  const [modalStage, setModalStage] = useState<FrpJobStageDTO | null>(null);
   const [draftFileName, setDraftFileName] = useState("");
   const [draftRemarks, setDraftRemarks] = useState("");
   const [draftNotRequired, setDraftNotRequired] = useState(false);
 
-  const openProofModal = (
-    scope: TimelineStageId,
-    itemKey: string,
-    items: ModalItemOption[]
-  ) => {
-    const existing = proofs[proofKey(scope, itemKey)];
-    setModalScope(scope);
-    setModalItems(items);
-    setDraftItemKey(itemKey);
-    setDraftFileName(existing?.fileName ?? "");
-    setDraftRemarks(existing?.remarks ?? "");
-    setDraftNotRequired(existing?.notRequired ?? false);
-    setModalOpen(true);
-  };
+  const load = useCallback(async () => {
+    if (!job.dbId) {
+      setStages([]);
+      setLoading(false);
+      return;
+    }
+    try {
+      setError(null);
+      setStages(await listJobStages(job.dbId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load stages");
+      setStages([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [job.dbId]);
 
-  const checkItem = (scope: TimelineStageId, itemKey: string) => {
-    setLocalChecks((prev) => ({ ...prev, [proofKey(scope, itemKey)]: true }));
-  };
+  useEffect(() => {
+    setLoading(true);
+    void load();
+  }, [load]);
 
-  const uncheckItem = (scope: TimelineStageId, itemKey: string) => {
-    setLocalChecks((prev) => ({ ...prev, [proofKey(scope, itemKey)]: false }));
-    // Unticking clears whatever was attached — the item is no longer marked
-    // complete, so there's nothing current to show proof of.
-    setProofs((prev) => {
-      const next = { ...prev };
-      delete next[proofKey(scope, itemKey)];
-      return next;
+  // "draft" is intentionally not shown in Status Control — it has no checklist
+  // and nothing to action.
+  const milestones = useMemo(
+    () => (stages ?? []).filter((m) => m.stageKey !== "draft").sort(bySortOrder),
+    [stages]
+  );
+
+  // Center the dropdown on the job's active stage the first time the tree
+  // arrives (and whenever a different job is opened) — the same behaviour the
+  // rest of the dashboard uses. Falls back to the first milestone with work.
+  useEffect(() => {
+    if (!milestones.length) return;
+    const active = buildJobTimelineAnalytics(job).activeStageId;
+    setSelectedKey((prev) => {
+      if (prev && milestones.some((m) => m.stageKey === prev)) return prev;
+      const onActive = milestones.find((m) => m.stageKey === active);
+      const withWork = milestones.find((m) => (m.children?.length ?? 0) > 0);
+      return (onActive ?? withWork ?? milestones[0]).stageKey ?? null;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [milestones, job.id]);
+
+  const selected = milestones.find((m) => m.stageKey === selectedKey) ?? null;
+
+  // A milestone drives its own operations; a childless milestone becomes its
+  // own single tickable item so the stage can still be advanced.
+  const items = useMemo<FrpJobStageDTO[]>(() => {
+    if (!selected) return [];
+    const kids = (selected.children ?? []).slice().sort(bySortOrder);
+    return kids.length ? kids : [selected];
+  }, [selected]);
+
+  /** Persist a stage change and refetch so all rollups move together. Returns
+   *  true on success. Also refreshes the parent job — a stage move can change
+   *  job.status/percent, which the main page shows. */
+  const persist = useCallback(
+    async (stage: FrpJobStageDTO, body: FrpJobStageUpdateRequest): Promise<boolean> => {
+      if (!job.dbId || stage.id == null) return false;
+      setSavingId(stage.id);
+      try {
+        await updateJobStage(job.dbId, stage.id, body);
+        await load();
+        await onJobChanged?.();
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save");
+        return false;
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [job.dbId, load, onJobChanged]
+  );
+
+  const openStageModal = (stage: FrpJobStageDTO) => {
+    const existing = stage.id != null ? proofs[stage.id] : undefined;
+    setModalStage(stage);
+    setDraftFileName(existing?.fileName ?? "");
+    // Prefill remarks from the local proof if any, else the stage's saved note.
+    setDraftRemarks(existing?.remarks ?? stage.notes ?? "");
+    // "No attachment required" is the inverse of the stage's docRequired flag.
+    setDraftNotRequired(!(stage.docRequired ?? false));
   };
 
-  const saveProofModal = () => {
-    if (!draftNotRequired && !draftFileName.trim()) return;
+  const onToggle = (stage: FrpJobStageDTO) => {
+    if (savingId != null) return;
+    if (stage.status === "COMPLETE") {
+      // Unticking clears any local proof and reverts the stage.
+      if (stage.id != null) {
+        setProofs((prev) => {
+          const nextProofs = { ...prev };
+          delete nextProofs[stage.id as number];
+          return nextProofs;
+        });
+      }
+      void persist(stage, { status: "PENDING" });
+      return;
+    }
+    // Ticking always opens the card — the user can add a remark (saved as the
+    // stage note), plus a document when the stage requires one.
+    openStageModal(stage);
+  };
+
+  const saveStageModal = async () => {
+    if (!modalStage || modalStage.id == null) return;
+    // A document is required unless "No attachment required" is ticked; when
+    // required, a file must be chosen to complete.
+    const docRequired = !draftNotRequired;
+    if (docRequired && !draftFileName.trim()) return;
+    const notes = draftRemarks.trim() || undefined;
+    const stage = modalStage;
+    // Remember what was attached / waived (local only - no attachment endpoint).
     setProofs((prev) => ({
       ...prev,
-      [proofKey(modalScope, draftItemKey)]: {
-        fileName: draftNotRequired ? undefined : draftFileName.trim(),
-        remarks: draftRemarks.trim() || undefined,
+      [stage.id as number]: {
+        fileName: draftFileName.trim() || undefined,
+        remarks: notes,
         notRequired: draftNotRequired,
       },
     }));
-    checkItem(modalScope, draftItemKey);
-    setModalOpen(false);
+    // "No attachment required" persists the docRequired flag; note is saved and
+    // the stage completes. Keep the modal open (spinner) until it returns.
+    const ok = await persist(stage, {
+      status: "COMPLETE",
+      notes,
+      docRequired,
+    });
+    if (ok) setModalStage(null);
   };
 
   return (
@@ -169,106 +226,147 @@ export function JobStatusCard({ job, className }: JobStatusCardProps) {
           <span className="text-sm font-semibold text-orange-700">{job.status}</span>
         </div>
 
-        <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          View checklist for
-          <select
-            value={viewStage}
-            onChange={(e) => setViewStage(e.target.value as TimelineStageId)}
-            className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
-          >
-            {SELECTABLE_STAGES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-        </label>
+        {loading ? (
+          <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-3 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading stages…
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        ) : milestones.length === 0 ? (
+          <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
+            No stages for this job yet.
+          </p>
+        ) : (
+          <>
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              View checklist for
+              <select
+                value={selectedKey ?? ""}
+                onChange={(e) => setSelectedKey(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
+              >
+                {milestones.map((m) => (
+                  <option key={m.stageKey} value={m.stageKey ?? ""}>
+                    {m.stageName}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <div className="mt-3">
-          {/* Design and Approval only ever rendered the drawing checklist,
-              which is gone along with its endpoints — they fall through to
-              the neutral placeholder below. */}
-          {PREVIEW_ITEMS[viewStage] ? (
-            <div className="space-y-2">
-              {PREVIEW_ITEMS[viewStage]!.map((item) => {
-                const checkKey = proofKey(viewStage, item.key);
-                const checked = Boolean(localChecks[checkKey]);
-                const proof = proofs[checkKey];
-                return (
-                  <label
-                    key={checkKey}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) =>
-                        e.target.checked
-                          ? openProofModal(viewStage, item.key, PREVIEW_ITEMS[viewStage]!)
-                          : uncheckItem(viewStage, item.key)
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+            {selected && (
+              <div className="mt-3">
+                {/* The top: the parent milestone itself — its name and rollup
+                    stay visible whether we drill into children below or the
+                    milestone is its own single tickable item. */}
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="min-w-0 shrink-0 truncate text-xs font-semibold text-slate-700">
+                    {selected.stageName}
+                  </span>
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-orange-500 transition-all"
+                      style={{ width: `${selected.percentComplete ?? 0}%` }}
                     />
-                    {item.label}
-                    {checked && proof && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          openProofModal(viewStage, item.key, PREVIEW_ITEMS[viewStage]!);
-                        }}
-                        className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
+                  </div>
+                  <span className="text-[11px] font-semibold tabular-nums text-slate-500">
+                    {selected.percentComplete ?? 0}%
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {items.map((item) => {
+                    const done = item.status === "COMPLETE";
+                    const saving = savingId === item.id;
+                    const proof = item.id != null ? proofs[item.id] : undefined;
+                    return (
+                      <label
+                        key={item.id ?? item.stageKey}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-sm ${
+                          done
+                            ? "border-green-200 bg-green-50/50"
+                            : "border-[#E5E7EB] bg-white hover:border-orange-200"
+                        } ${savingId != null ? "opacity-70" : ""}`}
                       >
-                        {proof.notRequired ? (
-                          "N/A"
+                        <input
+                          type="checkbox"
+                          checked={done}
+                          disabled={savingId != null}
+                          onChange={() => onToggle(item)}
+                          className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                        />
+                        <span className="min-w-0 flex-1 truncate">{item.stageName}</span>
+
+                        {done ? (
+                          // A completed stage is re-openable to view/edit its
+                          // note (and document proof, when doc-required).
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              openStageModal(item);
+                            }}
+                            className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
+                            aria-label="View or edit note"
+                          >
+                            {item.docRequired && proof ? (
+                              proof.notRequired ? (
+                                "N/A"
+                              ) : (
+                                <>
+                                  <Paperclip className="h-3 w-3" />
+                                  <span className="max-w-[7rem] truncate">{proof.fileName}</span>
+                                </>
+                              )
+                            ) : item.notes ? (
+                              <StickyNote className="h-3.5 w-3.5" />
+                            ) : (
+                              <Pencil className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        ) : item.docRequired ? (
+                          // emailRequired is backend-only; no UI indicator.
+                          <FileText
+                            className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                            aria-label="Document required"
+                          />
+                        ) : null}
+
+                        {saving ? (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-400" />
                         ) : (
-                          <>
-                            <Paperclip className="h-3 w-3" />
-                            {proof.fileName}
-                          </>
+                          <span
+                            className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${statusPillClass(
+                              item.status
+                            )}`}
+                          >
+                            {STATUS_LABEL[item.status ?? "PENDING"]}
+                          </span>
                         )}
-                      </button>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-          ) : viewStage === "completed" ? (
-            <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
-              {job.status === "Complete" ? "All upstream work is done." : "Not reached yet."}
-            </p>
-          ) : (
-            <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
-              No checklist for this stage.
-            </p>
-          )}
-        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </WidgetCard>
 
-      {/* Rendered as a sibling of WidgetCard, not a child of it. WidgetCard's
-          `.app-card-interactive` article has `hover:-translate-y-0.5` — any
-          active `transform` on an ancestor becomes the containing block for
-          `position: fixed` descendants, which trapped this modal inside the
-          card's box instead of the real viewport whenever the cursor was
-          resting on the card. Every other modal in this app is already a
-          sibling of its card for the same reason. */}
-      <EditModal open={modalOpen} title="Attach approval / proof document" onClose={() => setModalOpen(false)}>
+      {/* Sibling of WidgetCard, not a child — WidgetCard's `.app-card-interactive`
+          article uses `hover:-translate-y-0.5`, and an active `transform` on an
+          ancestor becomes the containing block for `position: fixed`, which would
+          trap this modal inside the card instead of the viewport. */}
+      <EditModal
+        open={modalStage != null}
+        title={`Add note — ${modalStage?.stageName ?? ""}`}
+        onClose={() => setModalStage(null)}
+      >
         <div className="space-y-3">
-          <label className="block text-sm font-medium text-slate-700">
-            Status step
-            <select
-              value={draftItemKey}
-              onChange={(e) => setDraftItemKey(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
-            >
-              {modalItems.map((it) => (
-                <option key={it.key} value={it.key}>
-                  {it.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
+          {/* Document is offered on every stage. "No attachment required"
+              persists the stage's docRequired flag (its inverse); when a
+              document IS required, a file must be attached to complete. */}
           <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -294,19 +392,28 @@ export function JobStatusCard({ job, className }: JobStatusCardProps) {
           )}
 
           <ModalField
-            label="Remarks (optional)"
+            label="Remarks (saved to stage note)"
             value={draftRemarks}
             onChange={setDraftRemarks}
-            placeholder="Any context for this approval…"
+            placeholder="Any context for this stage…"
             multiline
           />
 
           <button
-            className="btn-primary w-full"
-            onClick={saveProofModal}
-            disabled={!draftNotRequired && !draftFileName.trim()}
+            className="btn-primary inline-flex w-full items-center justify-center gap-2"
+            onClick={() => void saveStageModal()}
+            disabled={
+              (modalStage != null && savingId === modalStage.id) ||
+              (!draftNotRequired && !draftFileName.trim())
+            }
           >
-            Save
+            {modalStage != null && savingId === modalStage.id ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+              </>
+            ) : (
+              "Save & complete"
+            )}
           </button>
         </div>
       </EditModal>

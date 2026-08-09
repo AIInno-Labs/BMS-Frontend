@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -21,8 +21,11 @@ import {
   type JobTimelineAnalyticsData,
   type StageDetailInsight,
   type TimelineStageId,
+  type TimelineStageView,
   type TimelineSubStageView,
 } from "@/lib/jobTimelineAnalytics";
+import { listJobStages } from "@/lib/frp/api";
+import type { FrpJobStageDTO } from "@/lib/frp/job-mapper";
 import type { Job } from "@/lib/types";
 
 const STAGE_ICONS: Record<
@@ -278,10 +281,79 @@ export function JobTimelineAnalytics({
   job,
   drawingDoneCount = 0,
 }: JobTimelineAnalyticsProps) {
-  const data = useMemo(
+  // The mock, still used for the parts that have no server backing (dates,
+  // insights, risk/efficiency). Progress and per-stage completion are replaced
+  // below with the real stage tree.
+  const baseData = useMemo(
     () => buildJobTimelineAnalytics(job, drawingDoneCount),
     [job, drawingDoneCount]
   );
+
+  // The real stage tree — same source as Status Control. Refetched whenever the
+  // job object changes (onJobChanged bumps it after a stage edit), so the
+  // timeline moves with the actual work instead of a date-based estimate.
+  const [realStages, setRealStages] = useState<FrpJobStageDTO[] | null>(null);
+  useEffect(() => {
+    if (!job.dbId) {
+      setRealStages(null);
+      return;
+    }
+    let cancelled = false;
+    listJobStages(job.dbId)
+      .then((tree) => {
+        if (!cancelled) setRealStages(tree);
+      })
+      .catch(() => {
+        if (!cancelled) setRealStages(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId, job]);
+
+  // Milestone keys line up 1:1 with the timeline stage ids, so overlay the real
+  // percentage/state onto each stage and recompute the headline progress as the
+  // average of the six real milestones (draft..dispatch), matching the backend.
+  const data = useMemo<JobTimelineAnalyticsData>(() => {
+    if (!realStages || realStages.length === 0) return baseData;
+    const byKey = new Map<string, FrpJobStageDTO>();
+    for (const m of realStages) {
+      if (m.stageKey) byKey.set(m.stageKey, m);
+    }
+
+    const stages = baseData.stages.map((s) => {
+      const real = byKey.get(s.id);
+      if (!real) return s;
+      const pct = real.percentComplete ?? 0;
+      const state: TimelineStageView["state"] =
+        real.status === "COMPLETE"
+          ? "complete"
+          : real.status === "IN_PROGRESS" || pct > 0
+            ? "active"
+            : "upcoming";
+      return { ...s, completionPct: pct, state };
+    });
+
+    const ROLLUP: TimelineStageId[] = [
+      "draft",
+      "design",
+      "approval",
+      "production",
+      "qc",
+      "dispatch",
+    ];
+    const vals = ROLLUP.map((k) => byKey.get(k)?.percentComplete ?? 0);
+    const overallProgress = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+
+    // Furthest stage that is complete or active — drives the connector fill.
+    let activeIndex = 0;
+    stages.forEach((s, i) => {
+      if (s.state === "complete" || s.state === "active") activeIndex = i;
+    });
+
+    return { ...baseData, stages, overallProgress, activeIndex };
+  }, [baseData, realStages]);
+
   const [selected, setSelected] = useState<DetailKey | null>(null);
 
   const progressDisplay = useAnimatedNumber(data.overallProgress, 700);

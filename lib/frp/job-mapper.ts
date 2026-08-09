@@ -242,6 +242,10 @@ export interface FrpJobStageDTO {
   stageName?: string;
   stageType?: "MILESTONE" | "OPERATION";
   status?: "PENDING" | "IN_PROGRESS" | "COMPLETE" | "SKIPPED" | "BLOCKED";
+  /** Whether this stage requires a document / an email before it completes.
+   *  Seeded from the stage template default, editable per job. */
+  docRequired?: boolean;
+  emailRequired?: boolean;
   sortOrder?: number;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -256,6 +260,8 @@ export interface FrpJobStageUpdateRequest {
   status?: FrpJobStageDTO["status"];
   percentComplete?: number;
   notes?: string;
+  /** Toggle whether this stage requires a document. Editable per stage. */
+  docRequired?: boolean;
   assignedTeam?: string;
 }
 
