@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote } from "lucide-react";
+import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote, X } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
 import { listJobStages, updateJobStage } from "@/lib/frp/api";
@@ -48,7 +48,7 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
  * COMPLETE status is (via `PUT /jobs/{id}/stages/{stageId}`). Keyed by stage id.
  */
 interface ProofRecord {
-  fileName?: string;
+  fileNames?: string[];
   remarks?: string;
   notRequired: boolean;
 }
@@ -80,7 +80,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
   // option; the stage's own `docRequired` decides whether a document is
   // mandatory. When not required, a "No attachment required" toggle is offered.
   const [modalStage, setModalStage] = useState<FrpJobStageDTO | null>(null);
-  const [draftFileName, setDraftFileName] = useState("");
+  const [draftFileNames, setDraftFileNames] = useState<string[]>([]);
   const [draftRemarks, setDraftRemarks] = useState("");
   const [draftNotRequired, setDraftNotRequired] = useState(false);
 
@@ -163,7 +163,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
   const openStageModal = (stage: FrpJobStageDTO) => {
     const existing = stage.id != null ? proofs[stage.id] : undefined;
     setModalStage(stage);
-    setDraftFileName(existing?.fileName ?? "");
+    setDraftFileNames(existing?.fileNames ?? []);
     // Prefill remarks from the local proof if any, else the stage's saved note.
     setDraftRemarks(existing?.remarks ?? stage.notes ?? "");
     // "No attachment required" is the inverse of the stage's docRequired flag.
@@ -194,14 +194,14 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
     // A document is required unless "No attachment required" is ticked; when
     // required, a file must be chosen to complete.
     const docRequired = !draftNotRequired;
-    if (docRequired && !draftFileName.trim()) return;
+    if (docRequired && draftFileNames.length === 0) return;
     const notes = draftRemarks.trim() || undefined;
     const stage = modalStage;
     // Remember what was attached / waived (local only - no attachment endpoint).
     setProofs((prev) => ({
       ...prev,
       [stage.id as number]: {
-        fileName: draftFileName.trim() || undefined,
+        fileNames: draftFileNames.length ? draftFileNames : undefined,
         remarks: notes,
         notRequired: draftNotRequired,
       },
@@ -316,7 +316,11 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                               ) : (
                                 <>
                                   <Paperclip className="h-3 w-3" />
-                                  <span className="max-w-[7rem] truncate">{proof.fileName}</span>
+                                  <span className="max-w-[7rem] truncate">
+                                    {proof.fileNames && proof.fileNames.length > 1
+                                      ? `${proof.fileNames.length} files`
+                                      : proof.fileNames?.[0]}
+                                  </span>
                                 </>
                               )
                             ) : item.notes ? (
@@ -373,7 +377,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
               checked={draftNotRequired}
               onChange={(e) => {
                 setDraftNotRequired(e.target.checked);
-                if (e.target.checked) setDraftFileName("");
+                if (e.target.checked) setDraftFileNames([]);
               }}
               className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
             />
@@ -385,9 +389,44 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
               Upload document
               <input
                 type="file"
-                onChange={(e) => setDraftFileName(e.target.files?.[0]?.name ?? "")}
+                multiple
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []).map((f) => f.name);
+                  if (!picked.length) return;
+                  setDraftFileNames((prev) => [
+                    ...prev,
+                    ...picked.filter((name) => !prev.includes(name)),
+                  ]);
+                  // Allow re-picking the same file name after removal.
+                  e.target.value = "";
+                }}
                 className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
               />
+              {draftFileNames.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  {draftFileNames.map((name, index) => (
+                    <div
+                      key={`${name}-${index}`}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-2"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5 text-sm font-normal text-orange-800">
+                        <FileText className="h-4 w-4 shrink-0" aria-hidden />
+                        <span className="truncate">{name}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraftFileNames((prev) => prev.filter((_, i) => i !== index))
+                        }
+                        className="shrink-0 rounded-md p-0.5 text-orange-600 hover:bg-orange-100"
+                        aria-label={`Remove ${name}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </label>
           )}
 
@@ -404,7 +443,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
             onClick={() => void saveStageModal()}
             disabled={
               (modalStage != null && savingId === modalStage.id) ||
-              (!draftNotRequired && !draftFileName.trim())
+              (!draftNotRequired && draftFileNames.length === 0)
             }
           >
             {modalStage != null && savingId === modalStage.id ? (

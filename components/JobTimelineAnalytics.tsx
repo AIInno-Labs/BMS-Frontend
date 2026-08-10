@@ -75,6 +75,68 @@ interface JobTimelineAnalyticsProps {
   drawingDoneCount?: number;
 }
 
+/**
+ * Real per-operation rows (Scope, CAD, Mould, Layup, ...) from the same stage
+ * tree Status Control reads and edits (`GET /jobs/{id}/stages`), keyed under
+ * their milestone as `children`. Replaces the old drawingDoneCount guesswork,
+ * which never received a real count and always rendered every sub-stage as
+ * "not started".
+ *
+ * The checklist only ever writes PENDING / SKIPPED / COMPLETE to an
+ * operation — nothing sets IN_PROGRESS. So "current" isn't a stored status;
+ * it's inferred the same way Status Control centers itself: the first
+ * operation under the active milestone that isn't finished yet.
+ */
+function subStagesFromReal(
+  children: FrpJobStageDTO[] | undefined,
+  milestoneState: TimelineStageView["state"]
+): TimelineSubStageView[] | undefined {
+  if (!children?.length) return undefined;
+  const sorted = [...children].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+
+  const isFinished = (op: FrpJobStageDTO) =>
+    op.status === "COMPLETE" || op.status === "SKIPPED";
+
+  const explicitActiveIndex = sorted.findIndex(
+    (op) => op.status === "IN_PROGRESS" || op.status === "BLOCKED"
+  );
+  const firstUnfinishedIndex = sorted.findIndex((op) => !isFinished(op));
+  const activeIndex =
+    milestoneState === "active"
+      ? explicitActiveIndex >= 0
+        ? explicitActiveIndex
+        : firstUnfinishedIndex
+      : -1;
+
+  return sorted.map((op, index) => {
+    const state: TimelineSubStageView["state"] =
+      milestoneState === "complete" || isFinished(op)
+        ? "complete"
+        : index === activeIndex
+          ? "active"
+          : "upcoming";
+    const durationLabel =
+      state === "active" && op.startedAt
+        ? `${Math.max(
+            1,
+            Math.round(
+              (Date.now() - new Date(op.startedAt).getTime()) / 86400000
+            )
+          )} D`
+        : undefined;
+    return {
+      id: op.stageKey ?? String(op.id ?? ""),
+      title: op.stageName ?? op.stageKey ?? "",
+      shortLabel: op.stageName ?? op.stageKey ?? "",
+      state,
+      completionPct: op.percentComplete ?? (state === "complete" ? 100 : 0),
+      durationLabel,
+    };
+  });
+}
+
 function DetailPanel({
   title,
   onClose,
@@ -118,17 +180,11 @@ function MinorTimelineNode({ sub }: { sub: TimelineSubStageView }) {
     <div className="relative z-10 flex min-w-0 flex-1 flex-col items-center">
       <div className="relative flex h-5 w-5 items-center justify-center" title={sub.title}>
         {isActive ? (
-          <>
-            <span
-              className="absolute inset-0 rounded-full border-2 border-red-500"
-              aria-hidden
-            />
-            <span className="relative flex h-3 w-3 items-center justify-center rounded-full bg-red-500">
-              <span className="h-1 w-1 rounded-full bg-white" aria-hidden />
-            </span>
-          </>
+          <span className="relative flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-red-400 ring-offset-2 ring-offset-white">
+            <span className="h-1 w-1 rounded-full bg-white" aria-hidden />
+          </span>
         ) : isComplete ? (
-          <span className="h-3.5 w-3.5 rounded-full border-2 border-slate-400 bg-slate-400" />
+          <span className="h-3.5 w-3.5 rounded-full border-2 border-red-500 bg-red-500" />
         ) : (
           <span className="h-3.5 w-3.5 rounded-full border-2 border-slate-300 bg-white" />
         )}
@@ -331,7 +387,8 @@ export function JobTimelineAnalytics({
           : real.status === "IN_PROGRESS" || pct > 0
             ? "active"
             : "upcoming";
-      return { ...s, completionPct: pct, state };
+      const subStages = subStagesFromReal(real.children, state) ?? s.subStages;
+      return { ...s, completionPct: pct, state, subStages };
     });
 
     const ROLLUP: TimelineStageId[] = [
