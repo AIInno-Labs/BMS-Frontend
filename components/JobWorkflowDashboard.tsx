@@ -404,7 +404,7 @@ export function JobWorkflowDashboard({
       />
 
       <div className="mt-4 space-y-4">
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-2">
         <WidgetCard title="Customer Details" icon={User} onEdit={() => setShowCustomerModal(true)}>
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
@@ -415,7 +415,6 @@ export function JobWorkflowDashboard({
           title="Job Details"
           icon={Settings}
           onEdit={() => setShowJobModal(true)}
-          className="lg:col-span-2"
         >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
@@ -439,9 +438,9 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
         </WidgetCard>
 
-        <JobStatusCard job={job} onJobChanged={onJobChanged} className="lg:col-span-3" />
+        <JobStatusCard job={job} onJobChanged={onJobChanged} className="lg:col-span-2" />
 
-        <JobDocumentRevisionsCard job={job} className="lg:col-span-3" />
+        <JobDocumentRevisionsCard job={job} className="lg:col-span-2" />
 
         <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
           <label className="mt-2 inline-flex items-center gap-2 text-sm">
