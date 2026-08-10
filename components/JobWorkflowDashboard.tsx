@@ -442,72 +442,78 @@ export function JobWorkflowDashboard({
 
         <JobDocumentRevisionsCard job={job} className="lg:col-span-2" />
 
-        <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
-          <label className="mt-2 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-              disabled={isSaving}
-              onChange={(e) =>
-                void onSavePatch({
-                  status: e.target.checked ? "In Fabrication" : "Pending",
-                })
-              }
-              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-            />
-            Ready to Manufacture
-          </label>
-        </WidgetCard>
+        {/* Its own 3-column row, nested inside the outer 2-col grid (hence
+            lg:col-span-2 on the wrapper) — these three cards are short enough
+            to sit side by side on large screens instead of wrapping to a
+            second row under a plain 2-col track. */}
+        <div className="grid gap-4 lg:col-span-2 lg:grid-cols-3">
+          <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
+            <label className="mt-2 inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
+                disabled={isSaving}
+                onChange={(e) =>
+                  void onSavePatch({
+                    status: e.target.checked ? "In Fabrication" : "Pending",
+                  })
+                }
+                className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+              />
+              Ready to Manufacture
+            </label>
+          </WidgetCard>
 
-        <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
-          <div className="space-y-1.5">
-            {inventoryDraft.map((item) => (
-              <p key={item.label} className="text-sm text-slate-700">
-                {item.label} · Qty {item.qty}
-              </p>
-            ))}
-          </div>
-        </WidgetCard>
-
-        <WidgetCard title="Payment Status" icon={CircleDollarSign}>
-          <fieldset className="mt-2 space-y-2">
-            <legend className="text-sm text-slate-700">Payment received</legend>
-            <div className="flex flex-wrap gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === true}
-                  disabled={isSaving}
-                  onChange={() => handlePaymentReceivedChange(true)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                Yes
-              </label>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === false}
-                  disabled={isSaving}
-                  onChange={() => handlePaymentReceivedChange(false)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                No
-              </label>
+          <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
+            <div className="space-y-1.5">
+              {inventoryDraft.map((item) => (
+                <p key={item.label} className="text-sm text-slate-700">
+                  {item.label} · Qty {item.qty}
+                </p>
+              ))}
             </div>
-          </fieldset>
-          <label className="mt-3 block text-sm text-slate-700">
-            <span className="mb-1 block">Estimated due date for payment</span>
-            <input
-              type="date"
-              value={extras.paymentDueDate ?? ""}
-              disabled={isSaving}
-              onChange={(e) => handlePaymentDueDateChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
-            />
-          </label>
-        </WidgetCard>
+          </WidgetCard>
+
+          <WidgetCard title="Payment Status" icon={CircleDollarSign}>
+            <fieldset className="mt-2 space-y-2">
+              <legend className="text-sm text-slate-700">Payment received</legend>
+              <div className="flex flex-wrap gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`payment-received-${job.id}`}
+                    checked={extras.paymentReceived === true}
+                    disabled={isSaving}
+                    onChange={() => handlePaymentReceivedChange(true)}
+                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                  />
+                  Yes
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`payment-received-${job.id}`}
+                    checked={extras.paymentReceived === false}
+                    disabled={isSaving}
+                    onChange={() => handlePaymentReceivedChange(false)}
+                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                  />
+                  No
+                </label>
+              </div>
+            </fieldset>
+            <label className="mt-3 block text-sm text-slate-700">
+              <span className="mb-1 block">Estimated due date for payment</span>
+              <input
+                type="date"
+                value={extras.paymentDueDate ?? ""}
+                disabled={isSaving}
+                onChange={(e) => handlePaymentDueDateChange(e.target.value)}
+                className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
+              />
+            </label>
+          </WidgetCard>
+        </div>
 
       </section>
 

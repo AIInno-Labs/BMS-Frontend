@@ -281,9 +281,9 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                     const saving = savingId === item.id;
                     const proof = item.id != null ? proofs[item.id] : undefined;
                     return (
-                      <label
+                      <div
                         key={item.id ?? item.stageKey}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-sm ${
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-sm ${
                           done
                             ? "border-green-200 bg-green-50/50"
                             : "border-[#E5E7EB] bg-white hover:border-orange-200"
@@ -294,7 +294,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                           checked={done}
                           disabled={savingId != null}
                           onChange={() => onToggle(item)}
-                          className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                          className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-orange-600 focus:ring-orange-300"
                         />
                         <span className="min-w-0 flex-1 truncate">{item.stageName}</span>
 
@@ -348,7 +348,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                             {STATUS_LABEL[item.status ?? "PENDING"]}
                           </span>
                         )}
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
