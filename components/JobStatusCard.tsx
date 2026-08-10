@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote, X } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
@@ -104,7 +104,14 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
   useEffect(() => {
     setLoading(true);
     void load();
-  }, [load]);
+    // Also refetch whenever the job's status changes from elsewhere on the
+    // page — e.g. the Manufacturing "Ready to Manufacture" checkbox, or the
+    // Stage/status field in the Edit Job Details modal. Both write through
+    // the plain job PUT, which the backend applies by rewriting the stage
+    // tree server-side (see job-mapper.ts), but `load` itself only depends
+    // on job.dbId, so without this the checklist here goes stale until a
+    // full page reload remounts the component.
+  }, [load, job.status]);
 
   // "draft" is intentionally not shown in Status Control — it has no checklist
   // and nothing to action.
@@ -114,19 +121,30 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
   );
 
   // Center the dropdown on the job's active stage the first time the tree
-  // arrives (and whenever a different job is opened) — the same behaviour the
-  // rest of the dashboard uses. Falls back to the first milestone with work.
+  // arrives, whenever a different job is opened, AND whenever the active
+  // stage itself moves (e.g. ticking "Ready to Manufacture" advances the job
+  // from Draft to Production) — otherwise the dropdown is left pointing at a
+  // milestone that's no longer where the work actually is, even though the
+  // checklist underneath it did refresh. Once the operator has manually
+  // picked a milestone that's still the active one, further re-renders leave
+  // their choice alone.
+  const lastActiveStageRef = useRef<string | null>(null);
   useEffect(() => {
     if (!milestones.length) return;
     const active = buildJobTimelineAnalytics(job).activeStageId;
+    const activeStageMoved =
+      lastActiveStageRef.current !== null && lastActiveStageRef.current !== active;
+    lastActiveStageRef.current = active;
     setSelectedKey((prev) => {
-      if (prev && milestones.some((m) => m.stageKey === prev)) return prev;
+      if (prev && !activeStageMoved && milestones.some((m) => m.stageKey === prev)) {
+        return prev;
+      }
       const onActive = milestones.find((m) => m.stageKey === active);
       const withWork = milestones.find((m) => (m.children?.length ?? 0) > 0);
       return (onActive ?? withWork ?? milestones[0]).stageKey ?? null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [milestones, job.id]);
+  }, [milestones, job.id, job.status]);
 
   const selected = milestones.find((m) => m.stageKey === selectedKey) ?? null;
 
