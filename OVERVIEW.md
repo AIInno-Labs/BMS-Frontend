@@ -254,7 +254,7 @@ Two providers hold shared state; there is no Redux/Zustand layer.
 | [`lib/audit/`](./lib/audit/) | Audit type definitions for jobs and Quotient events |
 | [`lib/statusColors.ts`](./lib/statusColors.ts) | Single source of truth for status colour tokens |
 | [`lib/aiMock.ts`](./lib/aiMock.ts) | **Mock**, not a model call — `generateAiEstimate`, `getOptimizedSchedule`, `parseNaturalLanguageQuery`. Consumed by `JobCard`, `JobsList`, `JobsFilterBar` |
-| [`lib/mockData.ts`](./lib/mockData.ts), [`laborMock.ts`](./lib/laborMock.ts), [`jobNotesChatDemo.ts`](./lib/jobNotesChatDemo.ts) | Demo fixtures |
+| [`lib/mockData.ts`](./lib/mockData.ts), [`laborMock.ts`](./lib/laborMock.ts) | Demo fixtures |
 
 ---
 

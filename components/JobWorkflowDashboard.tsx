@@ -161,8 +161,6 @@ export function JobWorkflowDashboard({
   const [showFileModal, setShowFileModal] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [noteDraft, setNoteDraft] = useState("");
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
@@ -208,20 +206,7 @@ export function JobWorkflowDashboard({
     ) {
       setFileSort(savedSort);
     }
-    const raw = window.localStorage.getItem(`frp-notes-${job.id}`);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as string[];
-        if (Array.isArray(parsed)) setNotes(parsed);
-      } catch {
-        // Ignore malformed demo cache.
-      }
-    }
   }, [job.id]);
-
-  useEffect(() => {
-    window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
-  }, [job.id, notes]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-files-${job.id}`, JSON.stringify(files));
@@ -302,9 +287,9 @@ export function JobWorkflowDashboard({
     [files, fileSort]
   );
 
-  const systemNote = job.createdAt
-    ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
-    : "Job created and added to the fabrication queue";
+  // The synthesised "job created" chat line is gone: the thread now shows real
+  // messages only. That event already lives in the audit trail (JOB_CREATED),
+  // which is where a system event belongs.
 
   const handleDrawingToggle = async (stage: FrpDrawingStage, checked: boolean) => {
     if (!job.dbId || drawingBusy) return;
@@ -335,14 +320,6 @@ export function JobWorkflowDashboard({
 
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
-
-  const postNote = () => {
-    if (!noteDraft.trim()) return;
-    setNotes((prev) =>
-      [`${new Date().toLocaleTimeString()} ${noteDraft.trim()}`, ...prev].slice(0, 24)
-    );
-    setNoteDraft("");
-  };
 
   const savePaymentExtras = (
     nextExtras: JobWorkflowExtras,
@@ -455,11 +432,7 @@ export function JobWorkflowDashboard({
         open={chatDrawerOpen}
         onClose={() => setChatDrawerOpen(false)}
         jobId={job.id}
-        systemNote={systemNote}
-        notes={notes}
-        noteDraft={noteDraft}
-        onNoteDraftChange={setNoteDraft}
-        onPostNote={postNote}
+        dbId={job.dbId}
       />
 
       <JobWorkflowExtrasSection
