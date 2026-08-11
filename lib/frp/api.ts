@@ -20,6 +20,7 @@ import type {
   FrpJobCardPayload,
   FrpJobContactDetailsDTO,
   FrpJobCountsDTO,
+  FrpJobDocumentDTO,
   FrpJobDTO,
   FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
@@ -180,7 +181,13 @@ async function frpFetch<T>(
 ): Promise<T> {
   const useAuth = opts?.auth !== false;
   const headers = new Headers(init.headers);
-  if (!headers.has("Content-Type") && init.body) {
+  // FormData bodies must keep the browser-generated multipart boundary —
+  // setting Content-Type ourselves would drop it and break the upload.
+  if (
+    !headers.has("Content-Type") &&
+    init.body &&
+    !(init.body instanceof FormData)
+  ) {
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
@@ -705,6 +712,35 @@ export async function scanJobStage(
     `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}/scan`,
     { method: "POST" }
   );
+}
+
+/* -------------------------------------------------------------- documents */
+
+/** `POST /jobs/{id}/documents` — multipart upload, one file per call. */
+export async function uploadJobDocument(
+  dbId: string | number,
+  params: {
+    jobStageId: number;
+    file: File;
+    documentName?: string;
+    remarks?: string;
+  }
+): Promise<FrpJobDocumentDTO> {
+  const form = new FormData();
+  form.set("jobStageId", String(params.jobStageId));
+  form.set("file", params.file);
+  if (params.documentName) form.set("documentName", params.documentName);
+  if (params.remarks) form.set("remarks", params.remarks);
+
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
+    { method: "POST", body: form }
+  );
+}
+
+/** `DELETE /documents/{id}`. */
+export async function deleteJobDocument(id: number): Promise<void> {
+  await frpFetch<void>(`/documents/${id}`, { method: "DELETE" });
 }
 
 /**

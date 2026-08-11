@@ -254,6 +254,9 @@ export interface FrpJobStageDTO {
   assignedTeam?: string | null;
   percentComplete?: number | null;
   children?: FrpJobStageDTO[];
+  /** Documents uploaded against this stage — populated server-side on every
+   *  `GET /jobs/{id}/stages` and stage PUT/scan response. */
+  documents?: FrpJobDocumentDTO[];
 }
 
 export interface FrpJobStageUpdateRequest {
@@ -263,6 +266,21 @@ export interface FrpJobStageUpdateRequest {
   /** Toggle whether this stage requires a document. Editable per stage. */
   docRequired?: boolean;
   assignedTeam?: string;
+}
+
+/** `JobDocumentDTO` — a document attached to a job stage. */
+export interface FrpJobDocumentDTO {
+  id?: number;
+  jobId?: number;
+  jobStageId?: number;
+  documentName?: string;
+  documentType?: "DRAWING" | "PHOTO" | "CERTIFICATE" | "DELIVERY_DOCKET" | "JOB_CARD_PDF" | "COI" | "OTHER";
+  mimeType?: string;
+  sizeBytes?: number;
+  remarks?: string;
+  documentVersion?: number;
+  uploadedBy?: number;
+  uploadedAt?: string;
 }
 
 /**
