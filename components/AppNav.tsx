@@ -17,14 +17,41 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS, type AccessKey } from "@/lib/frp/access";
 
-type NavLink = { href: string; label: string; icon: LucideIcon };
+type NavLink = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** Access key (looked up in ACCESS_PRIVILEGE_MAP) required to see this link. Omit for always-visible links. */
+  accessKey?: AccessKey;
+};
 
 const orgUserManagerLinks: NavLink[] = [
-  { href: "/", label: "Dashboard", icon: House },
-  { href: "/jobs", label: "Jobs", icon: ListChecks },
-  { href: "/quotes", label: "Quotes", icon: PackageSearch },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  {
+    href: "/",
+    label: "Dashboard",
+    icon: House,
+    accessKey: ACCESS_KEYS.DASHBOARD_VIEW,
+  },
+  {
+    href: "/jobs",
+    label: "Jobs",
+    icon: ListChecks,
+    accessKey: ACCESS_KEYS.JOBS_VIEW,
+  },
+  {
+    href: "/quotes",
+    label: "Quotes",
+    icon: PackageSearch,
+    accessKey: ACCESS_KEYS.QUOTES_VIEW,
+  },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
+  },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
   { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
@@ -71,7 +98,7 @@ function NavLinkItem({ href, label, icon: Icon }: NavLink) {
 }
 
 export function AppNav({ compact = false }: { compact?: boolean }) {
-  const { appRole, isAuthenticated } = useAuth();
+  const { appRole, isAuthenticated, can } = useAuth();
 
   let sectionLabel: string | null = null;
   let links: NavLink[] = orgUserManagerLinks;
@@ -86,6 +113,12 @@ export function AppNav({ compact = false }: { compact?: boolean }) {
     sectionLabel = isAuthenticated ? "Workspace" : null;
     links = orgUserManagerLinks;
   }
+
+  // Org admins are always seeded with every non-platform privilege (see
+  // PRIVILEGE_MODEL.md), so only custom-role org users can ever be missing
+  // one — but the filter runs for everyone, it just never removes anything
+  // for the other roles since they have no `accessKey` requirement set.
+  links = links.filter((link) => !link.accessKey || can(link.accessKey));
 
   return (
     <nav

@@ -28,7 +28,6 @@ import {
 /** `JobSummaryDTO` — the list projection. Deliberately excludes `jobCard`. */
 export interface FrpJobSummaryDTO {
   id?: number;
-  version?: number;
   jobNumber?: string;
   quoteNumber?: string | null;
   origin?: JobOrigin;
@@ -39,6 +38,8 @@ export interface FrpJobSummaryDTO {
   priority?: string;
   resinCode?: string | null;
   assignedUserId?: number | null;
+  /** Quote owner's name; present even when no matching user (id then null). */
+  ownerName?: string | null;
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
@@ -48,7 +49,6 @@ export interface FrpJobSummaryDTO {
 /** `JobDTO` — the full record returned by `GET /jobs/{id}`. */
 export interface FrpJobDTO {
   id?: number;
-  version?: number;
   /** Server-allocated, `READ_ONLY` — supplying it on create is ignored. */
   jobNumber?: string;
   quoteNumber?: string | null;
@@ -68,6 +68,14 @@ export interface FrpJobDTO {
   stageStatusLabel?: string;
   resinCode?: string | null;
   assignedUserId?: number | null;
+  /** Quote owner's name; present even when no matching user (id then null). */
+  ownerName?: string | null;
+  /** Customer order/PO number, captured from a Quotient acceptance. */
+  orderNumber?: string | null;
+  /** Raw source payload the job was raised from (e.g. the Quotient webhook). */
+  payload?: Record<string, unknown> | null;
+  /** The quote's line items (Quotient `selected_items`), verbatim. */
+  measurement?: Array<Record<string, unknown>> | null;
   estimatedHours?: number | null;
   alert?: string | null;
   /** Free working notes, saved through the normal job update. Distinct from
@@ -199,29 +207,6 @@ export interface FrpJobCardPayload {
   manualInstructions?: string;
 }
 
-/**
- * `DrawingStageDTO` — one line of the drawing checklist.
- *
- * The backend returns all five whether ticked or not, and owns the label, so
- * the client no longer keeps its own copy of the list.
- */
-export interface FrpDrawingStageDTO {
-  stage: FrpDrawingStage;
-  label?: string;
-  completed: boolean;
-  updatedBy?: number | null;
-  updatedAt?: string | null;
-  remarks?: string | null;
-}
-
-/** Pinned by `ck_drawing_stage`; sending anything else is a 400. */
-export type FrpDrawingStage =
-  | "MEASUREMENTS_TAKEN"
-  | "DRAWING_CREATED"
-  | "CLIENT_APPROVED"
-  | "ENGINEER_APPROVED"
-  | "REV_A_ISSUED";
-
 /** `JobCountsDTO` — `GET /jobs/counts`. */
 export interface FrpJobCountsDTO {
   total?: number;
@@ -257,6 +242,10 @@ export interface FrpJobStageDTO {
   stageName?: string;
   stageType?: "MILESTONE" | "OPERATION";
   status?: "PENDING" | "IN_PROGRESS" | "COMPLETE" | "SKIPPED" | "BLOCKED";
+  /** Whether this stage requires a document / an email before it completes.
+   *  Seeded from the stage template default, editable per job. */
+  docRequired?: boolean;
+  emailRequired?: boolean;
   sortOrder?: number;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -271,6 +260,8 @@ export interface FrpJobStageUpdateRequest {
   status?: FrpJobStageDTO["status"];
   percentComplete?: number;
   notes?: string;
+  /** Toggle whether this stage requires a document. Editable per stage. */
+  docRequired?: boolean;
   assignedTeam?: string;
 }
 
@@ -329,7 +320,6 @@ function userIdToBackend(id?: string | null): number | null {
 export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
   return {
     dbId: dto.id != null ? String(dto.id) : undefined,
-    version: dto.version,
     id: dto.jobNumber ?? "",
     clientName: dto.customerCompanyName ?? "",
     projectName: dto.projectName ?? "",
@@ -344,6 +334,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: null,
     notes: dto.notes ?? null,
+    ownerName: dto.ownerName ?? null,
     manufacturingRequired: true,
     installRequired: false,
     qaCompleted: false,
@@ -378,7 +369,19 @@ function schedulingLogisticsToUi(
   };
 }
 
-function schedulingLogisticsToBackend(
+/** The contact-details body the job carries in its flat fields. Shared by the
+ *  create request (folded in) and the dedicated PUT /jobs/{id}/contact-details. */
+export function uiJobToContactDetails(job: Job): FrpJobContactDetailsDTO {
+  return {
+    companyName: job.clientName || undefined,
+    contactName: job.clientContactName || undefined,
+    email: job.printDetails?.contactEmail || undefined,
+    phone: job.printDetails?.contactPhone || undefined,
+    address: job.clientAddress || undefined,
+  };
+}
+
+export function schedulingLogisticsToBackend(
   sl: JobSchedulingLogistics | null | undefined
 ): FrpJobSchedulingLogisticsDTO | undefined {
   if (!sl) return undefined;
@@ -406,28 +409,38 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
   // someone fills in the card.
 
   const printDetails: JobCardPrintDetails = {
-    purchaseOrderNo: card?.purchaseOrderNo,
-    contactPhone: card?.contactPhone ?? dto.contactDetails?.phone ?? undefined,
-    contactEmail: card?.contactEmail ?? dto.contactDetails?.email ?? undefined,
+    // Empty strings in jobCard must not block contactDetails / logistics fallbacks.
+    purchaseOrderNo: card?.purchaseOrderNo || undefined,
+    contactPhone:
+      card?.contactPhone || dto.contactDetails?.phone || undefined,
+    contactEmail:
+      card?.contactEmail || dto.contactDetails?.email || undefined,
     accountYesNo: card?.accountCustomer,
-    raisedBy: card?.raisedBy,
-    transport: card?.transport,
-    transportCompany: card?.transportCompany,
-    freightAccount: card?.freightAccount,
-    consignmentNote: card?.consignmentNote,
-    despatchDate: card?.despatchDate,
-    deliveryDocket: card?.deliveryDocket,
-    scopeType: spec?.constructionType,
-    thickness: spec?.thicknessMm,
-    mesh: spec?.meshSize,
-    colour: spec?.colour,
-    finish: spec?.finishType,
+    raisedBy: card?.raisedBy || undefined,
+    transport: card?.transport || undefined,
+    transportCompany: card?.transportCompany || undefined,
+    freightAccount:
+      card?.freightAccount ||
+      dto.schedulingLogistics?.freightAccount ||
+      undefined,
+    consignmentNote: card?.consignmentNote || undefined,
+    despatchDate:
+      card?.despatchDate || dto.schedulingLogistics?.shipDate || undefined,
+    deliveryDocket: card?.deliveryDocket || undefined,
+    scopeType: spec?.constructionType || undefined,
+    thickness: spec?.thicknessMm || undefined,
+    mesh: spec?.meshSize || undefined,
+    colour: spec?.colour || undefined,
+    finish: spec?.finishType || undefined,
     clipRows: (card?.clipRows ?? []).map((r) => ({
       clip: r.clip ?? "",
       qty: r.qty ?? "",
       packedBy: r.packedBy ?? "",
     })),
-    deliveryInstructions: card?.deliveryInstructions,
+    deliveryInstructions:
+      card?.deliveryInstructions ||
+      dto.schedulingLogistics?.deliveryAddress ||
+      undefined,
     packs: packsFromPayload(card?.packs),
     scopeLines: card?.scopeLines ?? [],
     workflowExtras: {
@@ -435,8 +448,14 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       sampleRequired: card?.sampleRequired,
       coiRequired: card?.coiRequired,
       shipmentMethod: card?.shipmentMethod,
-      billingAddress: card?.billingAddress,
-      deliveryAddress: card?.deliveryAddress,
+      billingAddress:
+        card?.billingAddress ||
+        dto.schedulingLogistics?.billingAddress ||
+        undefined,
+      deliveryAddress:
+        card?.deliveryAddress ||
+        dto.schedulingLogistics?.deliveryAddress ||
+        undefined,
       materialRows: (card?.materialRows ?? []).map((m) => ({
         material: m.material ?? "",
         qty: m.qty ?? "",
@@ -444,7 +463,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       })),
       programHistory: card?.programHistory ?? [],
       additionalNotes: card?.additionalNotes,
-      jobCardNotes: card?.notes,
+      jobCardNotes: card?.notes || dto.notes || undefined,
       paymentReceived: card?.paymentReceived ?? null,
       paymentDueDate: card?.paymentDueDate,
     },
@@ -452,11 +471,11 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
 
   return {
     dbId: dto.id != null ? String(dto.id) : undefined,
-    version: dto.version,
     id: dto.jobNumber ?? "",
     // The per-job details row is authoritative; the flat field is the
     // denormalised copy the list projection uses.
     clientName: dto.contactDetails?.companyName ?? dto.customerCompanyName ?? "",
+    clientAddress: dto.contactDetails?.address || undefined,
     projectName: dto.projectName ?? "",
     date: card?.dateRaised ?? dto.createdDate?.slice(0, 10) ?? "",
     dueDate: dto.dueDate ?? null,
@@ -468,6 +487,9 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
+    ownerName: dto.ownerName ?? null,
+    orderNumber: dto.orderNumber ?? null,
+    measurement: dto.measurement ?? null,
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
@@ -505,12 +527,9 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
   return {
     jobNumber: job.id?.trim() || undefined,
     quoteNumber: job.quoteNumber || undefined,
-    contactDetails: {
-      companyName: job.clientName || undefined,
-      contactName: job.clientContactName || undefined,
-      email: job.printDetails?.contactEmail || undefined,
-      phone: job.printDetails?.contactPhone || undefined,
-    },
+    // Folded into create because the job does not exist yet, so the dedicated
+    // panel endpoints (which need a job id) cannot be called first.
+    contactDetails: uiJobToContactDetails(job),
     projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
@@ -538,21 +557,13 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
   if (job.dbId == null) {
     throw new Error(`Job ${job.id} has no database id — cannot update.`);
   }
-  if (job.version == null) {
-    throw new Error(
-      `Job ${job.id} has no version — refresh before saving, or the backend will reject the write.`
-    );
-  }
+  // contactDetails and schedulingLogistics are NOT sent here: on update they are
+  // persisted through their own endpoints (PUT /jobs/{id}/contact-details and
+  // /scheduling-logistics), chained after this call in JobsContext.updateJob,
+  // the same way the job card is. This body is job-level fields only.
   return {
     id: Number(job.dbId),
-    version: job.version,
     quoteNumber: job.quoteNumber ?? undefined,
-    contactDetails: {
-      companyName: job.clientName || undefined,
-      contactName: job.clientContactName || undefined,
-      email: job.printDetails?.contactEmail || undefined,
-      phone: job.printDetails?.contactPhone || undefined,
-    },
     projectName: job.projectName,
     dueDate: job.dueDate ?? undefined,
     priority: priorityToBackend(job.priority),
@@ -562,7 +573,6 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
-    schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
   };
 }
 

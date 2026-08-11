@@ -288,7 +288,11 @@ export async function printJobCardPdf(jobId: string): Promise<void> {
 
 /** @deprecated Use printJobCardPdf */
 export function openJobCardPdfPrint(jobId: string): void {
-  void printJobCardPdf(jobId).catch(() => {
-    window.alert("Failed to prepare job card PDF. Please try again.");
+  void printJobCardPdf(jobId).catch((err) => {
+    // Callers should prefer async printJobCardPdf + in-app error UI.
+    // Avoid window.alert — surface via console for any leftover call sites.
+    console.error(
+      err instanceof Error ? err.message : "Failed to prepare job card PDF."
+    );
   });
 }

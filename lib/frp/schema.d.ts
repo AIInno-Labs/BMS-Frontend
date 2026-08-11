@@ -607,6 +607,10 @@ export interface components {
             };
             measurement?: {
                 [key: string]: Record<string, never>;
+            }[];
+            /** Raw source payload; sent only on the single-quote endpoint. */
+            payload?: {
+                [key: string]: Record<string, never>;
             };
             events?: components["schemas"]["QuotientEventDTO"][];
         };

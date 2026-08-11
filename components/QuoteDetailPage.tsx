@@ -1,24 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
   factoryStatusLabel,
   isFactoryComplete,
   journeyOutcomeLabel,
+  progressLabel,
 } from "@/lib/quotes/labels";
 import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
-import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
+import { formatCreatedDate } from "@/lib/mockData";
 import { getQuote } from "@/lib/frp/api";
+import { useAuth } from "@/context/AuthContext";
+import { FIELD_KEYS } from "@/lib/frp/access";
 
 /**
  * The Spring Boot `/quotes/{quoteNumber}` endpoint returns `QuotationDTO`
- * (camelCase, no `line_items`/`questions`, `events` uses different field
- * names) — not the full Quotient-shaped record this page was designed
- * against. Normalize defensively instead of crashing on the gap, same
- * pattern QuotesPage already uses for the list endpoint.
+ * (backend-owned field names, not the full Quotient-shaped record this page
+ * was originally designed against) — normalized here against the actual DTO
+ * shape rather than assumed field names.
  */
 function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
   const journeyRaw = String(
@@ -31,74 +33,162 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
       ? journeyRaw
       : "open";
 
+  const fromDetails = (raw.fromDetails ?? {}) as Record<string, unknown>;
   const quoteFor = (raw.quoteFor ?? raw.quote_for ?? {}) as Record<
     string,
     unknown
   >;
+  const payload = (raw.payload ?? {}) as Record<string, unknown>;
+  // `payload.selected_items` (real Quotient shape: item_code, discount,
+  // tax_rate, cost_price etc.) is only present on the single-quote read.
+  // `measurement` is the backend's own flat DB projection (description/
+  // quantity/unitPrice/total) — used as a fallback for seeded rows that
+  // never got a real payload.
+  const selectedItems = Array.isArray(payload.selected_items)
+    ? (payload.selected_items as Record<string, unknown>[])
+    : null;
+  const lineItems =
+    selectedItems ??
+    (Array.isArray(raw.measurement)
+      ? (raw.measurement as Record<string, unknown>[])
+      : []);
   const rawEvents = (raw.events ?? []) as Record<string, unknown>[];
 
   const str = (v: unknown): string | null =>
-    v === null || v === undefined ? null : String(v);
+    v === null || v === undefined || v === "" ? null : String(v);
+  const num = (v: unknown): number | null =>
+    typeof v === "number" ? v : null;
+
+  /** Walks a dotted path (`"accepted.order_number"`) through a plain object. */
+  const at = (obj: Record<string, unknown>, path: string): unknown =>
+    path.split(".").reduce<unknown>((cur, key) => {
+      if (cur === null || typeof cur !== "object") return undefined;
+      return (cur as Record<string, unknown>)[key];
+    }, obj);
+
+  const contact = str(quoteFor.contact) ?? str(quoteFor.contact_name);
+  const [contactFirst, ...contactRest] = contact?.split(/\s+/) ?? [];
+  const contactLast = contactRest.join(" ");
+
+  // Real Quotient deliveries nest phone/address as objects; seed.sql's fake
+  // rows don't set them at all. Handle the real (object) shape, falling back
+  // to a flat string in case a future seed/backend change flattens it.
+  const phoneRaw = quoteFor.phone;
+  const phoneObj =
+    phoneRaw && typeof phoneRaw === "object"
+      ? (phoneRaw as Record<string, unknown>)
+      : null;
+  const addressObj = (quoteFor.address ?? {}) as Record<string, unknown>;
+
+  const nameFirst = str(quoteFor.name_first) ?? str(contactFirst);
+  const nameLast = str(quoteFor.name_last) ?? str(contactLast || null);
+  const fullName =
+    [nameFirst, nameLast].filter(Boolean).join(" ") || contact;
+
+  // `eventDetails` is the payload slice for whichever event `lastEvent`
+  // names - already unwrapped (IS payload.accepted, not payload.accepted
+  // wrapped in something else). Classify by lastEvent so it only feeds the
+  // section it actually describes.
+  const lastEventCode = String(raw.lastEvent ?? raw.last_event_name ?? "");
+  const eventDetails = (raw.eventDetails ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const acceptedDetails =
+    eventDetails && (lastEventCode === "quote_accepted" || lastEventCode === "quote_completed")
+      ? eventDetails
+      : null;
+  const declinedDetails =
+    eventDetails && lastEventCode === "quote_declined" ? eventDetails : null;
+  const viewedDetails =
+    eventDetails && lastEventCode === "customer_viewed" ? eventDetails : null;
 
   return {
     id: str(raw.id) ?? "",
     quote_number: String(raw.quoteNumber ?? raw.quote_number ?? ""),
     title: str(raw.title),
     quote_status: str(raw.status ?? raw.quote_status),
-    progress: str(raw.progress),
+    progress: str(raw.progress) ?? str(at(payload, "progress")),
     journey_outcome,
     last_event_name: str(raw.lastEvent ?? raw.last_event_name),
     factory_job_status: str(raw.factoryStatus ?? raw.factory_job_status),
     job_id: str(raw.jobId ?? raw.job_id),
     quote_url: str(raw.quoteUrl ?? raw.quote_url),
-    quote_from: str(quoteFor.from ?? raw.quoteFrom),
-    quote_for_label: str(quoteFor.label),
-    first_sent: str(raw.firstSent ?? raw.first_sent),
-    valid_until: str(raw.validUntil ?? raw.valid_until),
-    is_archived: Boolean(raw.isArchived ?? raw.is_archived ?? false),
-    currency: String(raw.currency ?? "AUD"),
-    amounts_are: str(raw.amountsAre ?? raw.amounts_are),
-    overall_discount: (raw.overallDiscount as number | null) ?? null,
-    total_includes_tax: (raw.totalIncludesTax as number | null) ?? null,
-    total_excludes_tax: (raw.totalExcludesTax as number | null) ?? null,
-    discount_amount_includes_tax:
-      (raw.discountAmountIncludesTax as number | null) ?? null,
-    discount_amount_excludes_tax:
-      (raw.discountAmountExcludesTax as number | null) ?? null,
-    deposit_percent: (raw.depositPercent as number | null) ?? null,
-    deposit_amount_includes_tax:
-      (raw.depositAmountIncludesTax as number | null) ?? null,
-    deposit_amount_excludes_tax:
-      (raw.depositAmountExcludesTax as number | null) ?? null,
-    item_headings: str(raw.itemHeadings ?? raw.item_headings),
-    customer_name: String(raw.company ?? quoteFor.company_name ?? ""),
-    quote_for_company_name: String(
-      raw.company ?? quoteFor.company_name ?? ""
+    quote_from:
+      str(fromDetails.name) ??
+      str(fromDetails.contactName) ??
+      str(fromDetails.businessName) ??
+      str(at(payload, "from")),
+    quote_for_label:
+      fullName ??
+      str(quoteFor.company_name) ??
+      str(quoteFor.company) ??
+      str(at(payload, "for")),
+    first_sent: str(at(payload, "first_sent")),
+    valid_until: str(at(payload, "valid_until")) ?? str(raw.validUntil ?? raw.valid_until),
+    is_archived: Boolean(
+      raw.archived ?? raw.isArchived ?? raw.is_archived ?? at(payload, "is_archived") ?? false
     ),
-    quote_for_name_first: str(quoteFor.name_first),
-    quote_for_name_last: str(quoteFor.name_last),
-    quote_for_contact_name: str(quoteFor.contact_name),
+    currency: String(at(payload, "currency") ?? raw.currency ?? "AUD"),
+    amounts_are: str(at(payload, "amounts_are")) ?? str(raw.amountsAre ?? raw.amounts_are),
+    overall_discount: num(at(payload, "overall_discount")),
+    total_includes_tax: num(at(payload, "total_includes_tax")),
+    total_excludes_tax: num(at(payload, "total_excludes_tax")),
+    discount_amount_includes_tax: num(at(payload, "discount_amount_includes_tax")),
+    discount_amount_excludes_tax: num(at(payload, "discount_amount_excludes_tax")),
+    deposit_percent: num(at(payload, "deposit_percent")),
+    deposit_amount_includes_tax: num(at(payload, "deposit_amount_includes_tax")),
+    deposit_amount_excludes_tax: num(at(payload, "deposit_amount_excludes_tax")),
+    item_headings: str(at(payload, "item_headings")) ?? str(raw.itemHeadings ?? raw.item_headings),
+    customer_name: String(raw.company ?? quoteFor.company ?? quoteFor.company_name ?? ""),
+    quote_for_company_name: String(
+      raw.company ?? quoteFor.company ?? quoteFor.company_name ?? ""
+    ),
+    quote_for_name_first: nameFirst,
+    quote_for_name_last: nameLast,
+    quote_for_contact_name: contact,
     quote_for_email: str(quoteFor.email),
-    quote_for_phone: str(quoteFor.phone),
-    quote_for_phone_type: str(quoteFor.phone_type),
-    quote_for_street: str(quoteFor.street),
-    quote_for_city: str(quoteFor.city),
-    quote_for_state: str(quoteFor.state),
-    quote_for_zip: str(quoteFor.zip),
-    quote_for_country: str(quoteFor.country),
-    accepted_order_number: str(raw.acceptedOrderNumber),
-    accepted_comments: str(raw.acceptedComments),
-    accepted_when: str(raw.acceptedWhen),
-    accepted_on_behalf: (raw.acceptedOnBehalf as boolean | null) ?? null,
-    declined_comments: str(raw.declinedComments),
-    declined_when: str(raw.declinedWhen),
-    viewed_when: str(raw.viewedWhen),
-    viewed_total_views: (raw.viewedTotalViews as number | null) ?? null,
+    quote_for_phone: phoneObj ? str(phoneObj.value) : str(quoteFor.phone),
+    quote_for_phone_type: phoneObj
+      ? str(phoneObj.type)
+      : str(quoteFor.phone_type),
+    quote_for_street: str(addressObj.street) ?? str(quoteFor.street),
+    quote_for_city: str(addressObj.city) ?? str(quoteFor.city),
+    quote_for_state: str(addressObj.state) ?? str(quoteFor.state),
+    quote_for_zip: str(addressObj.zip) ?? str(quoteFor.zip),
+    quote_for_country: str(addressObj.country) ?? str(quoteFor.country),
+    accepted_order_number:
+      str(acceptedDetails?.order_number) ?? str(at(payload, "accepted.order_number")),
+    accepted_comments: str(acceptedDetails?.comments) ?? str(at(payload, "accepted.comments")),
+    accepted_when: str(acceptedDetails?.when) ?? str(at(payload, "accepted.when")),
+    accepted_on_behalf:
+      (acceptedDetails?.accepted_on_behalf as boolean | null) ??
+      (at(payload, "accepted.accepted_on_behalf") as boolean | null) ??
+      null,
+    declined_comments: str(declinedDetails?.comments) ?? str(at(payload, "declined.comments")),
+    declined_when: str(declinedDetails?.when) ?? str(at(payload, "declined.when")),
+    viewed_when: str(viewedDetails?.when) ?? str(at(payload, "viewed.when")),
+    viewed_total_views:
+      num(viewedDetails?.total_views) ?? num(at(payload, "viewed.total_views")),
     last_question_text: str(raw.lastQuestionText),
     last_question_when: str(raw.lastQuestionWhen),
     created_at: String(raw.createdDate ?? raw.created_at ?? ""),
-    updated_at: String(raw.lastModifiedDate ?? raw.updated_at ?? ""),
-    line_items: Array.isArray(raw.line_items) ? (raw.line_items as QuotientQuote["line_items"]) : [],
+    updated_at: String(raw.occurredAt ?? raw.lastModifiedDate ?? raw.updated_at ?? ""),
+    line_items: lineItems.map((item, i) => ({
+      sl_no: i + 1,
+      item_code: str(item.item_code ?? item.itemCode),
+      heading: str(item.heading) ?? str(item.description),
+      description: str(item.description),
+      sales_category: str(item.sales_category ?? item.salesCategory),
+      tax_rate: str(item.tax_rate ?? item.taxRate),
+      tax_description: str(item.tax_description ?? item.taxDescription),
+      subscription: str(item.subscription),
+      discount: num(item.discount),
+      cost_price: num(item.cost_price ?? item.costPrice),
+      unit_price: num(item.unit_price ?? item.unitPrice),
+      quantity: num(item.quantity),
+      item_total: num(item.total ?? item.item_total ?? item.itemTotal),
+    })),
     questions: Array.isArray(raw.questions) ? (raw.questions as QuotientQuote["questions"]) : [],
     events: rawEvents.map((ev) => ({
       id: String(ev.id ?? ""),
@@ -106,7 +196,7 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
       processing_status: String(
         ev.processingStatus ??
           ev.processing_status ??
-          (ev.processed ? "processed" : "pending")
+          (ev.processed ? "processed" : ev.failed ? "failed" : "pending")
       ),
       processing_error: str(ev.processError ?? ev.processing_error),
       created_at: String(ev.occurredAt ?? ev.created_at ?? ""),
@@ -168,6 +258,8 @@ const EVENT_LABELS: Record<string, string> = {
 };
 
 export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
+  const { canField } = useAuth();
+  const canSeeRate = canField(FIELD_KEYS.RATE, "READ");
   const [quote, setQuote] = useState<QuotientQuote | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,9 +282,12 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
     }
   }, [quoteNumber]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (lastLoadedKeyRef.current === quoteNumber) return;
+    lastLoadedKeyRef.current = quoteNumber;
     void load();
-  }, [load]);
+  }, [load, quoteNumber]);
 
   if (loading) {
     return (
@@ -266,7 +361,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
               quote_status: {quote.quote_status ?? "—"}
             </span>
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800">
-              progress: {quote.progress ?? "—"}
+              progress: {progressLabel(quote.progress, quote.journey_outcome)}
             </span>
             <span
               className={`rounded-md px-2 py-1 text-xs font-semibold ${
@@ -298,7 +393,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
               <Field label="from" value={quote.quote_from} />
               <Field label="for" value={quote.quote_for_label} />
               <Field label="first_sent" value={quote.first_sent ? formatCreatedDate(quote.first_sent) : null} />
-              <Field label="valid_until" value={quote.valid_until ? formatShortDate(quote.valid_until) : null} />
+              <Field label="valid_until" value={quote.valid_until ? formatCreatedDate(quote.valid_until) : null} />
               <Field label="currency" value={quote.currency} />
               <Field label="amounts_are" value={quote.amounts_are} />
               <Field label="is_archived" value={quote.is_archived ? "true" : "false"} />
@@ -381,8 +476,10 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
                     <th className="px-2 py-2">item_code</th>
                     <th className="px-2 py-2">heading</th>
                     <th className="px-2 py-2">quantity</th>
-                    <th className="px-2 py-2">unit_price</th>
+                    {canSeeRate && <th className="px-2 py-2">unit_price</th>}
                     <th className="px-2 py-2">item_total</th>
+                    {canSeeRate && <th className="px-2 py-2">discount</th>}
+                    <th className="px-2 py-2">tax_rate</th>
                     <th className="px-2 py-2">sales_category</th>
                   </tr>
                 </thead>
@@ -398,10 +495,23 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
                             {line.description}
                           </p>
                         )}
+                        {line.subscription && (
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            subscription: {line.subscription}
+                          </p>
+                        )}
                       </td>
                       <td className="px-2 py-2">{line.quantity ?? "—"}</td>
-                      <td className="px-2 py-2">{line.unit_price ?? "—"}</td>
+                      {canSeeRate && (
+                        <td className="px-2 py-2">{line.unit_price ?? "—"}</td>
+                      )}
                       <td className="px-2 py-2">{line.item_total ?? "—"}</td>
+                      {canSeeRate && (
+                        <td className="px-2 py-2">{line.discount ?? "—"}</td>
+                      )}
+                      <td className="px-2 py-2" title={line.tax_description ?? undefined}>
+                        {line.tax_rate ? `${line.tax_rate}%` : "—"}
+                      </td>
                       <td className="px-2 py-2 text-slate-600">{line.sales_category ?? "—"}</td>
                     </tr>
                   ))}
