@@ -7,13 +7,11 @@ import {
   CircleCheckBig,
   CircleDollarSign,
   MessageSquare,
-  ClipboardList,
   Download,
   Loader2,
   History,
   Mail,
   Package,
-  Pencil,
   Phone,
   Plus,
   Settings,
@@ -26,6 +24,10 @@ import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
+import { WidgetCard } from "@/components/JobWidgetCard";
+import { EditModal, ModalField } from "@/components/JobEditModal";
+import { JobStatusCard } from "@/components/JobStatusCard";
+import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
   DEFAULT_REQUIRED_INVENTORY,
@@ -39,12 +41,7 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type {
-  FrpDrawingStage,
-  FrpDrawingStageDTO,
-  JobUpdateAuditAction,
-} from "@/lib/frp/job-mapper";
-import { listDrawingStages, setDrawingStage } from "@/lib/frp/api";
+import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -66,6 +63,8 @@ interface JobWorkflowDashboardProps {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => Promise<void>;
+  /** Refetch the job after a stage change so the page reflects the new status. */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -73,7 +72,6 @@ interface JobWorkflowDashboardProps {
  * values its CHECK constraint accepts, so the client keeping a parallel copy
  * could only ever drift from it.
  */
-const DRAWING_STAGE_COUNT = 5;
 
 type JobFile = JobFileRecord;
 
@@ -152,6 +150,7 @@ export function JobWorkflowDashboard({
   onPrint,
   onCancelJob,
   onSavePatch,
+  onJobChanged,
 }: JobWorkflowDashboardProps) {
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
@@ -166,9 +165,6 @@ export function JobWorkflowDashboard({
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
-  const [drawingStages, setDrawingStages] = useState<FrpDrawingStageDTO[]>([]);
-  const [drawingError, setDrawingError] = useState<string | null>(null);
-  const [drawingBusy, setDrawingBusy] = useState<FrpDrawingStage | null>(null);
   const [fileUploadDraft, setFileUploadDraft] = useState({
     fileName: "",
     category: "Specification",
@@ -231,41 +227,6 @@ export function JobWorkflowDashboard({
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
   }, [job.id, fileSort]);
 
-  // The checklist lives on the server. Keyed on dbId because the API
-  // addresses jobs by their database id, not the job number.
-  //
-  // The fetch itself is cached per key in a ref, not just guarded by
-  // `cancelled`: React Strict Mode (dev only) mounts every component twice,
-  // and a plain `cancelled` flag only suppresses which invocation's result
-  // gets applied — the first invocation still fires its own GET, and since
-  // it gets cancelled almost immediately, a naive "skip the second mount"
-  // guard would mean nobody ever applies the result. Sharing one promise per
-  // key means both mounts attach to the same in-flight request instead.
-  const drawingStagesFetchRef = useRef<{
-    key: string;
-    promise: Promise<FrpDrawingStageDTO[]>;
-  } | null>(null);
-  useEffect(() => {
-    if (!job.dbId) return;
-    let mounted = true;
-    const key = job.dbId;
-    if (drawingStagesFetchRef.current?.key !== key) {
-      drawingStagesFetchRef.current = { key, promise: listDrawingStages(job.dbId) };
-    }
-    drawingStagesFetchRef.current.promise
-      .then((stages) => {
-        if (mounted) setDrawingStages(stages);
-      })
-      .catch((e) => {
-        if (mounted) {
-          setDrawingError(e instanceof Error ? e.message : "Could not load the drawing checklist");
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [job.dbId]);
-
   useEffect(() => {
     const nextPd = ensurePrintDetails(job);
     setCustomerDraft({
@@ -292,11 +253,6 @@ export function JobWorkflowDashboard({
     setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
   }, [job]);
 
-  const drawingDoneCount = useMemo(
-    () => drawingStages.filter((s) => s.completed).length,
-    [drawingStages]
-  );
-
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
     [files, fileSort]
@@ -305,33 +261,6 @@ export function JobWorkflowDashboard({
   const systemNote = job.createdAt
     ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
     : "Job created and added to the fabrication queue";
-
-  const handleDrawingToggle = async (stage: FrpDrawingStage, checked: boolean) => {
-    if (!job.dbId || drawingBusy) return;
-    setDrawingBusy(stage);
-    setDrawingError(null);
-    try {
-      // The server returns the whole checklist, so state is replaced rather
-      // than patched - no chance of the other four going stale.
-      const next = await setDrawingStage(job.dbId, stage, checked);
-      setDrawingStages(next);
-
-      const done = next.filter((s) => s.completed).length;
-      const by = (k: FrpDrawingStage) => next.find((s) => s.stage === k)?.completed;
-
-      if (done >= DRAWING_STAGE_COUNT) {
-        await onSavePatch({ status: "Ready to Manufacture" });
-      } else if (by("ENGINEER_APPROVED") && by("CLIENT_APPROVED")) {
-        await onSavePatch({ status: "Awaiting Manager Approval" });
-      }
-    } catch (e) {
-      // The tick is not applied locally first, so a failure leaves the boxes
-      // showing what the server actually holds rather than a lie.
-      setDrawingError(e instanceof Error ? e.message : "Could not save that tick");
-    } finally {
-      setDrawingBusy(null);
-    }
-  };
 
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
@@ -432,7 +361,7 @@ export function JobWorkflowDashboard({
         </div>
       </div>
 
-      <JobTimelineAnalytics job={job} drawingDoneCount={drawingDoneCount} />
+      <JobTimelineAnalytics job={job} />
 
       {!chatDrawerOpen && (
         <button
@@ -475,14 +404,18 @@ export function JobWorkflowDashboard({
       />
 
       <div className="mt-4 space-y-4">
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-2">
         <WidgetCard title="Customer Details" icon={User} onEdit={() => setShowCustomerModal(true)}>
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
         </WidgetCard>
 
-        <WidgetCard title="Job Details" icon={Settings} onEdit={() => setShowJobModal(true)}>
+        <WidgetCard
+          title="Job Details"
+          icon={Settings}
+          onEdit={() => setShowJobModal(true)}
+        >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
             Assigned: {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
@@ -505,100 +438,82 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
         </WidgetCard>
 
-        <WidgetCard title="Drawing" icon={ClipboardList}>
-          <div className="space-y-2">
-            {drawingStages.map((item) => (
-              <label
-                key={item.stage}
-                title={
-                  item.completed && item.updatedAt
-                    ? `Ticked ${formatCreatedDate(item.updatedAt)}`
-                    : undefined
+        <JobStatusCard job={job} onJobChanged={onJobChanged} className="lg:col-span-2" />
+
+        <JobDocumentRevisionsCard job={job} className="lg:col-span-2" />
+
+        {/* Its own 3-column row, nested inside the outer 2-col grid (hence
+            lg:col-span-2 on the wrapper) — these three cards are short enough
+            to sit side by side on large screens instead of wrapping to a
+            second row under a plain 2-col track. */}
+        <div className="grid gap-4 lg:col-span-2 lg:grid-cols-3">
+          <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
+            <label className="mt-2 inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
+                disabled={isSaving}
+                onChange={(e) =>
+                  void onSavePatch({
+                    status: e.target.checked ? "In Fabrication" : "Pending",
+                  })
                 }
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
-              >
-                <input
-                  type="checkbox"
-                  checked={item.completed}
-                  disabled={drawingBusy !== null}
-                  onChange={(e) => void handleDrawingToggle(item.stage, e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                {item.label ?? item.stage}
-              </label>
-            ))}
-            {drawingError && (
-              <p className="col-span-full text-xs text-red-600">{drawingError}</p>
-            )}
-          </div>
-        </WidgetCard>
+                className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+              />
+              Ready to Manufacture
+            </label>
+          </WidgetCard>
 
-        <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
-          <label className="mt-2 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-              disabled={isSaving}
-              onChange={(e) =>
-                void onSavePatch({
-                  status: e.target.checked ? "In Fabrication" : "Pending",
-                })
-              }
-              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-            />
-            Ready to Manufacture
-          </label>
-        </WidgetCard>
-
-        <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
-          <div className="space-y-1.5">
-            {inventoryDraft.map((item) => (
-              <p key={item.label} className="text-sm text-slate-700">
-                {item.label} · Qty {item.qty}
-              </p>
-            ))}
-          </div>
-        </WidgetCard>
-
-        <WidgetCard title="Payment Status" icon={CircleDollarSign}>
-          <fieldset className="mt-2 space-y-2">
-            <legend className="text-sm text-slate-700">Payment received</legend>
-            <div className="flex flex-wrap gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === true}
-                  disabled={isSaving}
-                  onChange={() => handlePaymentReceivedChange(true)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                Yes
-              </label>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === false}
-                  disabled={isSaving}
-                  onChange={() => handlePaymentReceivedChange(false)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                No
-              </label>
+          <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
+            <div className="space-y-1.5">
+              {inventoryDraft.map((item) => (
+                <p key={item.label} className="text-sm text-slate-700">
+                  {item.label} · Qty {item.qty}
+                </p>
+              ))}
             </div>
-          </fieldset>
-          <label className="mt-3 block text-sm text-slate-700">
-            <span className="mb-1 block">Estimated due date for payment</span>
-            <input
-              type="date"
-              value={extras.paymentDueDate ?? ""}
-              disabled={isSaving}
-              onChange={(e) => handlePaymentDueDateChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
-            />
-          </label>
-        </WidgetCard>
+          </WidgetCard>
+
+          <WidgetCard title="Payment Status" icon={CircleDollarSign}>
+            <fieldset className="mt-2 space-y-2">
+              <legend className="text-sm text-slate-700">Payment received</legend>
+              <div className="flex flex-wrap gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`payment-received-${job.id}`}
+                    checked={extras.paymentReceived === true}
+                    disabled={isSaving}
+                    onChange={() => handlePaymentReceivedChange(true)}
+                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                  />
+                  Yes
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`payment-received-${job.id}`}
+                    checked={extras.paymentReceived === false}
+                    disabled={isSaving}
+                    onChange={() => handlePaymentReceivedChange(false)}
+                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                  />
+                  No
+                </label>
+              </div>
+            </fieldset>
+            <label className="mt-3 block text-sm text-slate-700">
+              <span className="mb-1 block">Estimated due date for payment</span>
+              <input
+                type="date"
+                value={extras.paymentDueDate ?? ""}
+                disabled={isSaving}
+                onChange={(e) => handlePaymentDueDateChange(e.target.value)}
+                className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
+              />
+            </label>
+          </WidgetCard>
+        </div>
 
       </section>
 
@@ -981,45 +896,6 @@ export function JobWorkflowDashboard({
   );
 }
 
-function WidgetCard({
-  title,
-  icon: Icon,
-  children,
-  onEdit,
-  headerAction,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  onEdit?: () => void;
-  headerAction?: React.ReactNode;
-}) {
-  return (
-    <article className="group app-card-interactive p-4 sm:p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#111827]">
-          <Icon className="h-4 w-4 shrink-0 text-[#F97316]" />
-          <span className="truncate">{title}</span>
-        </p>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {headerAction}
-          {onEdit && (
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 hover:text-[#111827] group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
-              onClick={onEdit}
-              aria-label={`Edit ${title}`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="space-y-1 text-sm text-slate-700">{children}</div>
-    </article>
-  );
-}
-
 function CustomerRow({
   icon: Icon,
   label,
@@ -1040,65 +916,3 @@ function CustomerRow({
   );
 }
 
-function ModalField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block text-sm font-medium text-slate-700">
-      {label}
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300"
-      />
-    </label>
-  );
-}
-
-function EditModal({
-  open,
-  title,
-  onClose,
-  children,
-  headerAction,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  headerAction?: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl p-5">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="min-w-0 truncate text-lg font-semibold text-[#111827]">{title}</h3>
-          <div className="flex shrink-0 items-center gap-2">
-            {headerAction}
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1 text-xs text-slate-600 hover:border-orange-200"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}

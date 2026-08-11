@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
@@ -21,8 +21,11 @@ import {
   type JobTimelineAnalyticsData,
   type StageDetailInsight,
   type TimelineStageId,
+  type TimelineStageView,
   type TimelineSubStageView,
 } from "@/lib/jobTimelineAnalytics";
+import { listJobStages } from "@/lib/frp/api";
+import type { FrpJobStageDTO } from "@/lib/frp/job-mapper";
 import type { Job } from "@/lib/types";
 
 const STAGE_ICONS: Record<
@@ -72,6 +75,68 @@ interface JobTimelineAnalyticsProps {
   drawingDoneCount?: number;
 }
 
+/**
+ * Real per-operation rows (Scope, CAD, Mould, Layup, ...) from the same stage
+ * tree Status Control reads and edits (`GET /jobs/{id}/stages`), keyed under
+ * their milestone as `children`. Replaces the old drawingDoneCount guesswork,
+ * which never received a real count and always rendered every sub-stage as
+ * "not started".
+ *
+ * The checklist only ever writes PENDING / SKIPPED / COMPLETE to an
+ * operation — nothing sets IN_PROGRESS. So "current" isn't a stored status;
+ * it's inferred the same way Status Control centers itself: the first
+ * operation under the active milestone that isn't finished yet.
+ */
+function subStagesFromReal(
+  children: FrpJobStageDTO[] | undefined,
+  milestoneState: TimelineStageView["state"]
+): TimelineSubStageView[] | undefined {
+  if (!children?.length) return undefined;
+  const sorted = [...children].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+
+  const isFinished = (op: FrpJobStageDTO) =>
+    op.status === "COMPLETE" || op.status === "SKIPPED";
+
+  const explicitActiveIndex = sorted.findIndex(
+    (op) => op.status === "IN_PROGRESS" || op.status === "BLOCKED"
+  );
+  const firstUnfinishedIndex = sorted.findIndex((op) => !isFinished(op));
+  const activeIndex =
+    milestoneState === "active"
+      ? explicitActiveIndex >= 0
+        ? explicitActiveIndex
+        : firstUnfinishedIndex
+      : -1;
+
+  return sorted.map((op, index) => {
+    const state: TimelineSubStageView["state"] =
+      milestoneState === "complete" || isFinished(op)
+        ? "complete"
+        : index === activeIndex
+          ? "active"
+          : "upcoming";
+    const durationLabel =
+      state === "active" && op.startedAt
+        ? `${Math.max(
+            1,
+            Math.round(
+              (Date.now() - new Date(op.startedAt).getTime()) / 86400000
+            )
+          )} D`
+        : undefined;
+    return {
+      id: op.stageKey ?? String(op.id ?? ""),
+      title: op.stageName ?? op.stageKey ?? "",
+      shortLabel: op.stageName ?? op.stageKey ?? "",
+      state,
+      completionPct: op.percentComplete ?? (state === "complete" ? 100 : 0),
+      durationLabel,
+    };
+  });
+}
+
 function DetailPanel({
   title,
   onClose,
@@ -115,17 +180,11 @@ function MinorTimelineNode({ sub }: { sub: TimelineSubStageView }) {
     <div className="relative z-10 flex min-w-0 flex-1 flex-col items-center">
       <div className="relative flex h-5 w-5 items-center justify-center" title={sub.title}>
         {isActive ? (
-          <>
-            <span
-              className="absolute inset-0 rounded-full border-2 border-red-500"
-              aria-hidden
-            />
-            <span className="relative flex h-3 w-3 items-center justify-center rounded-full bg-red-500">
-              <span className="h-1 w-1 rounded-full bg-white" aria-hidden />
-            </span>
-          </>
+          <span className="relative flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-red-400 ring-offset-2 ring-offset-white">
+            <span className="h-1 w-1 rounded-full bg-white" aria-hidden />
+          </span>
         ) : isComplete ? (
-          <span className="h-3.5 w-3.5 rounded-full border-2 border-slate-400 bg-slate-400" />
+          <span className="h-3.5 w-3.5 rounded-full border-2 border-red-500 bg-red-500" />
         ) : (
           <span className="h-3.5 w-3.5 rounded-full border-2 border-slate-300 bg-white" />
         )}
@@ -278,10 +337,80 @@ export function JobTimelineAnalytics({
   job,
   drawingDoneCount = 0,
 }: JobTimelineAnalyticsProps) {
-  const data = useMemo(
+  // The mock, still used for the parts that have no server backing (dates,
+  // insights, risk/efficiency). Progress and per-stage completion are replaced
+  // below with the real stage tree.
+  const baseData = useMemo(
     () => buildJobTimelineAnalytics(job, drawingDoneCount),
     [job, drawingDoneCount]
   );
+
+  // The real stage tree — same source as Status Control. Refetched whenever the
+  // job object changes (onJobChanged bumps it after a stage edit), so the
+  // timeline moves with the actual work instead of a date-based estimate.
+  const [realStages, setRealStages] = useState<FrpJobStageDTO[] | null>(null);
+  useEffect(() => {
+    if (!job.dbId) {
+      setRealStages(null);
+      return;
+    }
+    let cancelled = false;
+    listJobStages(job.dbId)
+      .then((tree) => {
+        if (!cancelled) setRealStages(tree);
+      })
+      .catch(() => {
+        if (!cancelled) setRealStages(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId, job]);
+
+  // Milestone keys line up 1:1 with the timeline stage ids, so overlay the real
+  // percentage/state onto each stage and recompute the headline progress as the
+  // average of the six real milestones (draft..dispatch), matching the backend.
+  const data = useMemo<JobTimelineAnalyticsData>(() => {
+    if (!realStages || realStages.length === 0) return baseData;
+    const byKey = new Map<string, FrpJobStageDTO>();
+    for (const m of realStages) {
+      if (m.stageKey) byKey.set(m.stageKey, m);
+    }
+
+    const stages = baseData.stages.map((s) => {
+      const real = byKey.get(s.id);
+      if (!real) return s;
+      const pct = real.percentComplete ?? 0;
+      const state: TimelineStageView["state"] =
+        real.status === "COMPLETE"
+          ? "complete"
+          : real.status === "IN_PROGRESS" || pct > 0
+            ? "active"
+            : "upcoming";
+      const subStages = subStagesFromReal(real.children, state) ?? s.subStages;
+      return { ...s, completionPct: pct, state, subStages };
+    });
+
+    const ROLLUP: TimelineStageId[] = [
+      "draft",
+      "design",
+      "approval",
+      "production",
+      "qc",
+      "dispatch",
+    ];
+    const vals = ROLLUP.map((k) => byKey.get(k)?.percentComplete ?? 0);
+    const overallProgress = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+
+    // Furthest stage that is complete or active — drives the connector fill.
+    let activeIndex = 0;
+    stages.forEach((s, i) => {
+      if (s.state === "complete" || s.state === "active") activeIndex = i;
+    });
+
+    return { ...baseData, stages, overallProgress, activeIndex };
+  }, [baseData, realStages]);
+
   const [selected, setSelected] = useState<DetailKey | null>(null);
 
   const progressDisplay = useAnimatedNumber(data.overallProgress, 700);
