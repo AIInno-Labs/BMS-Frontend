@@ -3,6 +3,8 @@ export type JobFileRecord = {
   category: string;
   time: string;
   uploadedAt?: number;
+  /** Backend document id when the row came from `GET /jobs/{id}/documents`. */
+  documentId?: number;
 };
 
 export type JobFileSortMode = "recents" | "newest" | "name" | "category";

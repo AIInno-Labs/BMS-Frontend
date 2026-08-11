@@ -15,6 +15,8 @@ interface JobStatusCardProps {
   /** Called after a stage change persists — lets the parent refetch the job so
    *  the main page (status badge, timeline, %) reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
+  /** Called after a document is uploaded or deleted so Document Versions can refetch. */
+  onDocumentsChanged?: () => void;
 }
 
 const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
@@ -54,7 +56,12 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
  * `/jobs/{id}/documents` before the stage PUT fires; the backend also refuses
  * to COMPLETE a doc-required stage with no document on record.
  */
-export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardProps) {
+export function JobStatusCard({
+  job,
+  className,
+  onJobChanged,
+  onDocumentsChanged,
+}: JobStatusCardProps) {
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -217,12 +224,14 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
         )
       );
       setUploading(false);
-      const failed = results.filter((r) => r.status === "rejected").length;
+      const uploaded = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - uploaded;
       if (failed > 0) {
         setError(
           `${failed} of ${draftFiles.length} document upload${draftFiles.length > 1 ? "s" : ""} failed.`
         );
       }
+      if (uploaded > 0) onDocumentsChanged?.();
     }
 
     // "No attachment required" persists the docRequired flag; note is saved and
@@ -249,6 +258,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
           ? { ...prev, documents: (prev.documents ?? []).filter((d) => d.id !== docId) }
           : prev
       );
+      onDocumentsChanged?.();
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not delete document");
@@ -473,6 +483,15 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                 }}
                 className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
               />
+              {selectedKey === "production" ? (
+                <p className="mt-1.5 text-xs font-normal text-slate-500">
+                  Uploaded POs appear under Document Versions for quote comparison.
+                </p>
+              ) : selectedKey === "design" ? (
+                <p className="mt-1.5 text-xs font-normal text-slate-500">
+                  Uploaded drawings appear under Document Versions.
+                </p>
+              ) : null}
               {draftFiles.length > 0 && (
                 <div className="mt-2 space-y-1.5">
                   {draftFiles.map((file, index) => (

@@ -1,267 +1,139 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FileStack, Paperclip, Pencil } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { FileStack, Loader2, Paperclip, Pencil } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
+import { useAuth } from "@/context/AuthContext";
+import {
+  compareJobDocument,
+  downloadJobDocument,
+  listJobDocuments,
+  listUsers,
+  updateJobDocument,
+} from "@/lib/frp/api";
+import type {
+  FrpDocumentStatus,
+  FrpJobDocumentDTO,
+  FrpPoComparisonDTO,
+} from "@/lib/frp/job-mapper";
 import type { Job } from "@/lib/types";
 
-/**
- * Shared review state for both document types below. "pending" only means
- * something for entries that actually have a difference to review (a PO
- * variance, or a drawing revision with changes) — see the banner logic in
- * each section for how that's decided.
- */
 type ReviewStatus = "pending" | "approved" | "rejected";
+type DocTab = "po" | "drawing";
 
-/* ============================================================ Purchase Orders */
-
-interface PoVersion {
-  id: string;
-  versionLabel: string; // "v1", "v2", ...
-  receivedDate: string; // yyyy-mm-dd
-  fileName: string;
-  quoteQty: number;
-  quotePrice: number;
-  quoteScope: string;
-  poQty: number;
-  poPrice: number;
-  poScope: string;
-  reviewStatus: ReviewStatus;
-  reviewedBy?: string;
-  reviewedDate?: string;
-  reviewRemarks?: string;
+function toReviewStatus(status?: FrpDocumentStatus): ReviewStatus {
+  if (status === "ACCEPTED") return "approved";
+  if (status === "REJECTED") return "rejected";
+  return "pending";
 }
 
-/** Mock data — stands in for what a real "list PO versions" API would return. */
-function defaultMockPoVersions(): PoVersion[] {
-  return [
-    {
-      id: "v1",
-      versionLabel: "v1",
-      receivedDate: "2026-07-14",
-      fileName: "PO-5001-v1.pdf",
-      quoteQty: 100,
-      quotePrice: 500000,
-      quoteScope: "Standard walkway grating",
-      poQty: 100,
-      poPrice: 500000,
-      poScope: "Standard walkway grating",
-      reviewStatus: "approved",
-    },
-    {
-      id: "v2",
-      versionLabel: "v2",
-      receivedDate: "2026-07-22",
-      fileName: "PO-5001-v2.pdf",
-      quoteQty: 100,
-      quotePrice: 500000,
-      quoteScope: "Standard walkway grating",
-      poQty: 120,
-      poPrice: 500000,
-      poScope: "Standard walkway grating",
-      reviewStatus: "approved",
-      reviewedBy: "Dana Whitfield",
-      reviewedDate: "2026-07-23",
-    },
-    {
-      id: "v3",
-      versionLabel: "v3",
-      receivedDate: "2026-08-05",
-      fileName: "PO-5001-v3.pdf",
-      quoteQty: 100,
-      quotePrice: 500000,
-      quoteScope: "Standard walkway grating",
-      poQty: 120,
-      poPrice: 512000,
-      poScope: "Standard walkway grating + handrail extension",
-      reviewStatus: "pending",
-    },
-  ];
+function fromReviewStatus(status: ReviewStatus): FrpDocumentStatus {
+  if (status === "approved") return "ACCEPTED";
+  if (status === "rejected") return "REJECTED";
+  return "ACTIVE";
 }
 
-function fmtMoney(n: number): string {
-  return `$${n.toLocaleString("en-AU")}`;
+function versionOptionLabel(doc: FrpJobDocumentDTO, latestId: number | null): string {
+  const ver = doc.documentVersion != null ? `v${doc.documentVersion}` : "v?";
+  const name = doc.documentName?.trim() || "Untitled";
+  const latest = doc.id != null && doc.id === latestId ? " (latest)" : "";
+  return `${ver} · ${name}${latest}`;
 }
 
-interface FieldDiff {
-  label: string;
-  quoteValue: string;
-  poValue: string;
-  differs: boolean;
+function sortByVersionDesc(docs: FrpJobDocumentDTO[]): FrpJobDocumentDTO[] {
+  return [...docs].sort((a, b) => {
+    const av = a.documentVersion ?? 0;
+    const bv = b.documentVersion ?? 0;
+    if (bv !== av) return bv - av;
+    return (b.id ?? 0) - (a.id ?? 0);
+  });
 }
 
-function diffPoFields(v: PoVersion): FieldDiff[] {
-  return [
-    {
-      label: "Quantity",
-      quoteValue: `${v.quoteQty} units`,
-      poValue: `${v.poQty} units`,
-      differs: v.quoteQty !== v.poQty,
-    },
-    {
-      label: "Price",
-      quoteValue: fmtMoney(v.quotePrice),
-      poValue: fmtMoney(v.poPrice),
-      differs: v.quotePrice !== v.poPrice,
-    },
-    {
-      label: "Scope",
-      quoteValue: v.quoteScope,
-      poValue: v.poScope,
-      differs: v.quoteScope.trim() !== v.poScope.trim(),
-    },
-  ];
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
-/* =============================================================== Drawings */
-
-interface DrawingRevision {
-  id: string;
-  revisionLabel: string; // "Rev A", "Rev B", ...
-  issuedDate: string;
-  fileName: string;
-  issuedBy: string;
-  /** What changed vs. the previous revision. Empty on the first revision —
-   *  there is nothing before it to compare against. */
-  changes: string[];
-  reviewStatus: ReviewStatus;
-  reviewedBy?: string;
-  reviewedDate?: string;
-  reviewRemarks?: string;
+function asMapList(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> =>
+      !!item && typeof item === "object" && !Array.isArray(item)
+  );
 }
 
-/** Mock data. File names follow the same "GA-drawing-Rev*.pdf" convention
- *  already used in the seed data for other jobs. */
-function defaultMockDrawingRevisions(): DrawingRevision[] {
-  return [
-    {
-      id: "revA",
-      revisionLabel: "Rev A",
-      issuedDate: "2026-07-10",
-      fileName: "GA-drawing-RevA.pdf",
-      issuedBy: "Engineering — S. Patel",
-      changes: [],
-      reviewStatus: "approved",
-    },
-    {
-      id: "revB",
-      revisionLabel: "Rev B",
-      issuedDate: "2026-07-18",
-      fileName: "GA-drawing-RevB.pdf",
-      issuedBy: "Engineering — S. Patel",
-      changes: [
-        "Mesh size changed from 50×50mm to 40×40mm per client request",
-        "Stanchion spacing corrected to 900mm centres",
-      ],
-      reviewStatus: "approved",
-      reviewedBy: "Dana Whitfield",
-      reviewedDate: "2026-07-19",
-    },
-    {
-      id: "revC",
-      revisionLabel: "Rev C",
-      issuedDate: "2026-07-29",
-      fileName: "GA-drawing-RevC.pdf",
-      issuedBy: "Engineering — S. Patel",
-      changes: [
-        "Added handrail mounting bracket detail (Detail C)",
-        "Overall length dimension updated to 6400mm",
-      ],
-      reviewStatus: "pending",
-    },
-  ];
+/** Build `editedDocumentData` from the simple qty / price / scope edit form. */
+function buildEditedPoData(
+  base: Record<string, unknown> | null | undefined,
+  poQty: number,
+  poPrice: number,
+  poScope: string
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(base ?? {}) };
+  const lines = asMapList(next.lineItems);
+  const first = lines[0] ? { ...lines[0] } : {};
+  first.quantity = poQty;
+  first.description = poScope;
+  next.lineItems = [first];
+
+  const totals = { ...asRecord(next.totals) };
+  totals.amountAfterTax = poPrice;
+  next.totals = totals;
+  return next;
 }
 
-// ---------------------------------------------------------------------------
-// localStorage stand-in for real Purchase Order and Drawing Revision APIs.
-//
-// Neither has a backend yet — no tables, no endpoints. So both document
-// types are saved into the browser's own localStorage, under keys scoped to
-// the job's id, the same trick this dashboard's other cards already use for
-// the "Project documents" file list and the chat notes (see
-// JobWorkflowDashboard.tsx's `loadFiles` / `frp-files-${job.id}`). The first
-// time a job is opened there's nothing saved yet, so each seeds in its own
-// mock data above — again, the same trick `defaultDemoFiles()` uses for
-// Project Documents.
-//
-// This means: it looks and behaves like a real save (survives a refresh),
-// but it only exists in *this* browser, on *this* computer.
-//
-// FOR THE DEVELOPER WIRING UP THE REAL APIS:
-// Once real endpoints exist for Purchase Orders (e.g.
-// `GET /jobs/{id}/purchase-orders`, `.../signoff`) and for Drawing revisions
-// (e.g. `GET /jobs/{id}/drawing-revisions`, `.../review`), replace the four
-// load/save functions below with real network calls, delete the two
-// `defaultMock...` functions, and remove this comment block. Nothing else in
-// this component should need to change shape — the rest of the file only
-// ever calls these four functions.
-// ---------------------------------------------------------------------------
-function poStorageKey(jobId: string): string {
-  return `frp-purchase-orders-${jobId}`;
-}
-function drawingRevisionStorageKey(jobId: string): string {
-  return `frp-drawing-revisions-${jobId}`;
+function parseMoneyLike(raw: string): number {
+  const cleaned = raw.replace(/[^0-9.-]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function loadPoVersions(jobId: string): PoVersion[] {
-  if (typeof window === "undefined") return [];
-  const raw = window.localStorage.getItem(poStorageKey(jobId));
-  if (!raw) return defaultMockPoVersions();
-  try {
-    const parsed = JSON.parse(raw) as PoVersion[];
-    return Array.isArray(parsed) && parsed.length ? parsed : defaultMockPoVersions();
-  } catch {
-    return defaultMockPoVersions();
-  }
-}
-function savePoVersions(jobId: string, versions: PoVersion[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(poStorageKey(jobId), JSON.stringify(versions));
+function parseQtyLike(raw: string): number {
+  const cleaned = raw.replace(/[^0-9.-]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function loadDrawingRevisions(jobId: string): DrawingRevision[] {
-  if (typeof window === "undefined") return [];
-  const raw = window.localStorage.getItem(drawingRevisionStorageKey(jobId));
-  if (!raw) return defaultMockDrawingRevisions();
-  try {
-    const parsed = JSON.parse(raw) as DrawingRevision[];
-    return Array.isArray(parsed) && parsed.length ? parsed : defaultMockDrawingRevisions();
-  } catch {
-    return defaultMockDrawingRevisions();
-  }
+function formatReviewDate(iso?: string | null): string | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return d.toISOString().slice(0, 10);
 }
-function saveDrawingRevisions(jobId: string, revisions: DrawingRevision[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(drawingRevisionStorageKey(jobId), JSON.stringify(revisions));
-}
-// --------------------------------------------------------------- end stand-in
 
 function ReviewActions({
   status,
   reviewedBy,
   reviewedDate,
-  reviewRemarks,
+  remarks,
   onApprove,
   onReject,
+  busy,
 }: {
   status: ReviewStatus;
-  reviewedBy?: string;
-  reviewedDate?: string;
-  reviewRemarks?: string;
+  reviewedBy?: string | null;
+  reviewedDate?: string | null;
+  remarks?: string | null;
   onApprove: () => void;
   onReject: () => void;
+  busy?: boolean;
 }) {
   if (status === "approved" || status === "rejected") {
+    const verb = status === "approved" ? "Approved" : "Rejected";
+    const by = reviewedBy?.trim();
+    const when = reviewedDate?.trim();
     return (
       <p className="text-right text-xs text-slate-500">
-        {status === "approved" ? "Approved" : "Rejected"} by {reviewedBy} · {reviewedDate}
-        {reviewRemarks && (
+        {by ? `${verb} by ${by}` : verb}
+        {when ? ` · ${when}` : ""}
+        {remarks ? (
           <>
             <br />
-            <span className="italic">&ldquo;{reviewRemarks}&rdquo;</span>
+            <span className="italic">&ldquo;{remarks}&rdquo;</span>
           </>
-        )}
+        ) : null}
       </p>
     );
   }
@@ -269,15 +141,17 @@ function ReviewActions({
     <div className="flex items-center gap-2">
       <button
         type="button"
+        disabled={busy}
         onClick={onReject}
-        className="inline-flex items-center rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700"
+        className="inline-flex items-center rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
       >
         Reject
       </button>
       <button
         type="button"
+        disabled={busy}
         onClick={onApprove}
-        className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+        className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
       >
         Approve
       </button>
@@ -288,48 +162,33 @@ function ReviewActions({
 interface JobDocumentRevisionsCardProps {
   job: Job;
   className?: string;
+  /** Bumped by Status Control after upload/delete so this card refetches. */
+  refreshKey?: number;
 }
 
-export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevisionsCardProps) {
-  const [docType, setDocType] = useState<"po" | "drawing">("po");
+export function JobDocumentRevisionsCard({
+  job,
+  className,
+  refreshKey = 0,
+}: JobDocumentRevisionsCardProps) {
+  const { user: me } = useAuth();
+  const [docType, setDocType] = useState<DocTab>("po");
 
-  /* ---------------------------------------------------------------- Purchase Orders state */
-  const [poVersions, setPoVersions] = useState<PoVersion[]>([]);
-  const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
+  const [poDocs, setPoDocs] = useState<FrpJobDocumentDTO[]>([]);
+  const [drawingDocs, setDrawingDocs] = useState<FrpJobDocumentDTO[]>([]);
+  const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
+  const [selectedDrawingId, setSelectedDrawingId] = useState<number | null>(null);
+  const [userNamesById, setUserNamesById] = useState<Record<number, string>>({});
 
-  useEffect(() => {
-    const loaded = loadPoVersions(job.id);
-    setPoVersions(loaded);
-    setSelectedPoId(loaded.length ? loaded[loaded.length - 1].id : null);
-  }, [job.id]);
-  useEffect(() => {
-    savePoVersions(job.id, poVersions);
-  }, [job.id, poVersions]);
+  const [comparison, setComparison] = useState<FrpPoComparisonDTO | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareUnavailable, setCompareUnavailable] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const selectedPo = poVersions.find((v) => v.id === selectedPoId) ?? null;
-
-  const setPoReview = (status: ReviewStatus, remark: string) => {
-    if (!selectedPo) return;
-    setPoVersions((prev) =>
-      prev.map((v) =>
-        v.id === selectedPo.id
-          ? {
-              ...v,
-              reviewStatus: status,
-              reviewedBy: "You",
-              reviewedDate: new Date().toISOString().slice(0, 10),
-              reviewRemarks: remark,
-            }
-          : v
-      )
-    );
-  };
-
-  /* ---------------------------------------------------------------- Edit PO version modal */
   const [showEditPoModal, setShowEditPoModal] = useState(false);
   const [poDraft, setPoDraft] = useState({
-    receivedDate: "",
-    fileName: "",
     quoteQty: "",
     quotePrice: "",
     quoteScope: "",
@@ -338,377 +197,603 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
     poScope: "",
   });
 
+  const [reviewModalTarget, setReviewModalTarget] = useState<DocTab | null>(null);
+  const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">(
+    "approved"
+  );
+  const [reviewRemarkDraft, setReviewRemarkDraft] = useState("");
+
+  const dbId = job.dbId;
+
+  useEffect(() => {
+    let cancelled = false;
+    listUsers(0, 200)
+      .then((page) => {
+        if (cancelled) return;
+        const map: Record<number, string> = {};
+        for (const u of page.content ?? []) {
+          if (u.id == null) continue;
+          map[u.id] = u.displayName?.trim() || u.email || u.username || `User ${u.id}`;
+        }
+        if (me?.id != null) {
+          map[me.id] =
+            me.displayName?.trim() || me.email || me.username || map[me.id] || `User ${me.id}`;
+        }
+        setUserNamesById(map);
+      })
+      .catch(() => {
+        // USER_READ may be missing; still resolve the signed-in reviewer.
+        if (cancelled || me?.id == null) return;
+        setUserNamesById({
+          [me.id]:
+            me.displayName?.trim() || me.email || me.username || `User ${me.id}`,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [me]);
+
+  const resolveUserName = useCallback(
+    (userId?: number | null) => {
+      if (userId == null) return null;
+      return userNamesById[userId] ?? `User ${userId}`;
+    },
+    [userNamesById]
+  );
+
+  const loadDocuments = useCallback(async () => {
+    if (!dbId) {
+      setPoDocs([]);
+      setDrawingDocs([]);
+      setSelectedPoId(null);
+      setSelectedDrawingId(null);
+      setComparison(null);
+      return;
+    }
+    setListLoading(true);
+    setError(null);
+    try {
+      const [production, drawings] = await Promise.all([
+        listJobDocuments(dbId, { type: "PRODUCTION", sort: "ALL" }),
+        listJobDocuments(dbId, { type: "DRAWING", sort: "ALL" }),
+      ]);
+      const poSorted = sortByVersionDesc(production);
+      const drawingSorted = sortByVersionDesc(drawings);
+      setPoDocs(poSorted);
+      setDrawingDocs(drawingSorted);
+      setSelectedPoId((prev) => {
+        if (prev != null && poSorted.some((d) => d.id === prev)) return prev;
+        return poSorted[0]?.id ?? null;
+      });
+      setSelectedDrawingId((prev) => {
+        if (prev != null && drawingSorted.some((d) => d.id === prev)) return prev;
+        return drawingSorted[0]?.id ?? null;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load documents");
+      setPoDocs([]);
+      setDrawingDocs([]);
+    } finally {
+      setListLoading(false);
+    }
+  }, [dbId]);
+
+  useEffect(() => {
+    void loadDocuments();
+  }, [loadDocuments, refreshKey]);
+
+  // Poll while OCR/LLM is still running in the background after a fast upload.
+  useEffect(() => {
+    if (!dbId || docType !== "po" || selectedPoId == null) return;
+    const selected = poDocs.find((d) => d.id === selectedPoId);
+    if (selected?.extractionStatus !== "PENDING") return;
+    const timer = window.setInterval(() => {
+      void loadDocuments();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [dbId, docType, selectedPoId, poDocs, loadDocuments]);
+
+  useEffect(() => {
+    if (!dbId || selectedPoId == null || docType !== "po") {
+      setComparison(null);
+      setCompareUnavailable(false);
+      return;
+    }
+    const selected = poDocs.find((d) => d.id === selectedPoId);
+    if (selected?.extractionStatus === "PENDING") {
+      setComparison(null);
+      setCompareUnavailable(false);
+      setCompareLoading(false);
+      return;
+    }
+    if (selected?.extractionStatus === "FAILED") {
+      setComparison(null);
+      setCompareUnavailable(true);
+      setCompareLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCompareLoading(true);
+    setCompareUnavailable(false);
+    compareJobDocument(dbId, selectedPoId)
+      .then((data) => {
+        if (cancelled) return;
+        setComparison(data);
+        setCompareUnavailable(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setComparison(null);
+        setCompareUnavailable(true);
+      })
+      .finally(() => {
+        if (!cancelled) setCompareLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dbId, selectedPoId, docType, poDocs]);
+
+  const selectedPo = poDocs.find((d) => d.id === selectedPoId) ?? null;
+  const selectedDrawing =
+    drawingDocs.find((d) => d.id === selectedDrawingId) ?? null;
+  const latestPoId = poDocs[0]?.id ?? null;
+  const latestDrawingId = drawingDocs[0]?.id ?? null;
+
   const openEditPoModal = () => {
-    if (!selectedPo) return;
+    if (!comparison) return;
+    const fields = comparison.fields ?? [];
+    const qty = fields.find((f) => f.field === "Quantity");
+    const price = fields.find((f) => f.field === "Price");
+    const scope = fields.find((f) => f.field === "Scope");
     setPoDraft({
-      receivedDate: selectedPo.receivedDate,
-      fileName: selectedPo.fileName,
-      quoteQty: String(selectedPo.quoteQty),
-      quotePrice: String(selectedPo.quotePrice),
-      quoteScope: selectedPo.quoteScope,
-      poQty: String(selectedPo.poQty),
-      poPrice: String(selectedPo.poPrice),
-      poScope: selectedPo.poScope,
+      quoteQty: qty?.quote ?? "",
+      quotePrice: price?.quote ?? "",
+      quoteScope: scope?.quote ?? "",
+      poQty: qty?.thisPo ?? "",
+      poPrice: price?.thisPo ?? "",
+      poScope: scope?.thisPo ?? "",
     });
     setShowEditPoModal(true);
   };
 
-  const saveEditPoModal = () => {
-    if (!selectedPo) return;
-    setPoVersions((prev) =>
-      prev.map((v) =>
-        v.id === selectedPo.id
-          ? {
-              ...v,
-              receivedDate: poDraft.receivedDate,
-              fileName: poDraft.fileName.trim() || v.fileName,
-              quoteQty: Number(poDraft.quoteQty) || 0,
-              quotePrice: Number(poDraft.quotePrice) || 0,
-              quoteScope: poDraft.quoteScope.trim(),
-              poQty: Number(poDraft.poQty) || 0,
-              poPrice: Number(poDraft.poPrice) || 0,
-              poScope: poDraft.poScope.trim(),
-              // The figures just changed, so an earlier approval/rejection
-              // no longer speaks to what's actually in the record — back to
-              // pending so it gets looked at again.
-              reviewStatus: "pending",
-              reviewedBy: undefined,
-              reviewedDate: undefined,
-            }
-          : v
-      )
-    );
-    setShowEditPoModal(false);
+  const saveEditPoModal = async () => {
+    if (!selectedPo?.id || !comparison) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      const base =
+        comparison.editedDocumentData ??
+        comparison.extractedData ??
+        comparison.documentData ??
+        {};
+      await updateJobDocument(selectedPo.id, {
+        editedDocumentData: buildEditedPoData(
+          base,
+          parseQtyLike(poDraft.poQty),
+          parseMoneyLike(poDraft.poPrice),
+          poDraft.poScope.trim()
+        ),
+        status: "ACTIVE",
+      });
+      setShowEditPoModal(false);
+      await loadDocuments();
+      // Force compare refresh for the same id
+      const refreshed = await compareJobDocument(dbId!, selectedPo.id);
+      setComparison(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save PO edits");
+    } finally {
+      setActionBusy(false);
+    }
   };
 
-  /* ---------------------------------------------------------------- Drawing revisions state */
-  const [drawingRevisions, setDrawingRevisions] = useState<DrawingRevision[]>([]);
-  const [selectedRevId, setSelectedRevId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loaded = loadDrawingRevisions(job.id);
-    setDrawingRevisions(loaded);
-    setSelectedRevId(loaded.length ? loaded[loaded.length - 1].id : null);
-  }, [job.id]);
-  useEffect(() => {
-    saveDrawingRevisions(job.id, drawingRevisions);
-  }, [job.id, drawingRevisions]);
-
-  const selectedRev = drawingRevisions.find((r) => r.id === selectedRevId) ?? null;
-
-  const setRevReview = (status: ReviewStatus, remark: string) => {
-    if (!selectedRev) return;
-    setDrawingRevisions((prev) =>
-      prev.map((r) =>
-        r.id === selectedRev.id
-          ? {
-              ...r,
-              reviewStatus: status,
-              reviewedBy: "You",
-              reviewedDate: new Date().toISOString().slice(0, 10),
-              reviewRemarks: remark,
-            }
-          : r
-      )
-    );
-  };
-
-  /* ---------------------------------------------------------------- Approve / Reject remark modal */
-  // Shared by both the Purchase Orders and Drawings sides — clicking Approve
-  // or Reject on either never applies the decision directly, it opens this
-  // modal first, and the decision is only recorded once a remark is given
-  // and Save is pressed.
-  const [reviewModalTarget, setReviewModalTarget] = useState<"po" | "drawing" | null>(null);
-  const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">("approved");
-  const [reviewRemarkDraft, setReviewRemarkDraft] = useState("");
-
-  const openReviewModal = (target: "po" | "drawing", action: "approved" | "rejected") => {
+  const openReviewModal = (target: DocTab, action: "approved" | "rejected") => {
     setReviewModalTarget(target);
     setReviewModalAction(action);
     setReviewRemarkDraft("");
   };
 
-  const saveReviewModal = () => {
-    if (!reviewRemarkDraft.trim()) return;
-    if (reviewModalTarget === "po") setPoReview(reviewModalAction, reviewRemarkDraft.trim());
-    if (reviewModalTarget === "drawing") setRevReview(reviewModalAction, reviewRemarkDraft.trim());
-    setReviewModalTarget(null);
+  const saveReviewModal = async () => {
+    if (!reviewRemarkDraft.trim() || !reviewModalTarget) return;
+    const docId =
+      reviewModalTarget === "po" ? selectedPo?.id : selectedDrawing?.id;
+    if (docId == null) return;
+
+    setActionBusy(true);
+    setError(null);
+    try {
+      await updateJobDocument(docId, {
+        status: fromReviewStatus(reviewModalAction),
+        remarks: reviewRemarkDraft.trim(),
+      });
+      setReviewModalTarget(null);
+      await loadDocuments();
+      if (reviewModalTarget === "po" && dbId) {
+        const refreshed = await compareJobDocument(dbId, docId);
+        setComparison(refreshed);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update review status");
+    } finally {
+      setActionBusy(false);
+    }
   };
+
+  const openDownload = async (docId: number | undefined) => {
+    if (docId == null) return;
+    setError(null);
+    try {
+      const result = await downloadJobDocument(docId);
+      if (result.downloadUrl) {
+        window.open(result.downloadUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setError("Download URL was empty");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not download document");
+    }
+  };
+
+  const poReviewStatus = toReviewStatus(comparison?.status ?? selectedPo?.status);
+  const drawingReviewStatus = toReviewStatus(selectedDrawing?.status);
+  const varianceFields = (comparison?.fields ?? []).filter((f) => f.variance);
+  const anyVariance = varianceFields.length > 0 || !!comparison?.needsReview;
+
+  const poBanner = (() => {
+    if (!comparison) return null;
+    const changedLabels = varianceFields.map((f) => f.field).filter(Boolean).join(", ");
+    if (!anyVariance) {
+      return {
+        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        text: comparison.conclusion || "Matches the accepted quote — no review needed.",
+      };
+    }
+    if (poReviewStatus === "approved") {
+      return {
+        className: "border-amber-200 bg-amber-50 text-amber-900",
+        text: `Variance in ${changedLabels || "fields"} — reviewed & approved.`,
+      };
+    }
+    if (poReviewStatus === "rejected") {
+      return {
+        className: "border-red-300 bg-red-100 text-red-800",
+        text: `Variance in ${changedLabels || "fields"} — rejected, needs a corrected PO.`,
+      };
+    }
+    return {
+      className: "border-red-200 bg-red-50 text-red-700",
+      text:
+        comparison.conclusion ||
+        `Variance detected in ${changedLabels || "fields"} — needs review.`,
+    };
+  })();
+
+  const drawingBanner = (() => {
+    if (!selectedDrawing) return null;
+    const notes = selectedDrawing.remarks?.trim();
+    if (!notes) {
+      return {
+        className: "border-slate-200 bg-slate-50 text-slate-600",
+        text: "No review notes on this drawing yet.",
+      };
+    }
+    if (drawingReviewStatus === "approved") {
+      return {
+        className: "border-amber-200 bg-amber-50 text-amber-900",
+        text: "Drawing reviewed & approved.",
+      };
+    }
+    if (drawingReviewStatus === "rejected") {
+      return {
+        className: "border-red-300 bg-red-100 text-red-800",
+        text: "Drawing rejected — needs a corrected revision.",
+      };
+    }
+    return {
+      className: "border-red-200 bg-red-50 text-red-700",
+      text: "Drawing pending review.",
+    };
+  })();
 
   return (
     <>
-    <WidgetCard title="Document Versions" icon={FileStack} className={className}>
-      <div className="mb-3 inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
-        <button
-          type="button"
-          onClick={() => setDocType("po")}
-          className={`rounded-md px-3 py-1.5 transition-colors ${
-            docType === "po"
-              ? "bg-white text-orange-700 shadow-sm border border-orange-200"
-              : "text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          Purchase Orders
-        </button>
-        <button
-          type="button"
-          onClick={() => setDocType("drawing")}
-          className={`rounded-md px-3 py-1.5 transition-colors ${
-            docType === "drawing"
-              ? "bg-white text-orange-700 shadow-sm border border-orange-200"
-              : "text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          Drawings
-        </button>
-      </div>
+      <WidgetCard title="Document Versions" icon={FileStack} className={className}>
+        <div className="mb-3 inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setDocType("po")}
+            className={`rounded-md px-3 py-1.5 transition-colors ${
+              docType === "po"
+                ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Purchase Orders
+          </button>
+          <button
+            type="button"
+            onClick={() => setDocType("drawing")}
+            className={`rounded-md px-3 py-1.5 transition-colors ${
+              docType === "drawing"
+                ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Drawings
+          </button>
+        </div>
 
-      {docType === "po" ? (
-        poVersions.length === 0 || !selectedPo ? (
+        {!dbId ? (
           <p className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#FAFBFC] px-3 py-4 text-center text-sm text-slate-500">
-            No purchase orders linked to this job yet.
+            This job is not linked to the backend yet.
           </p>
+        ) : listLoading ? (
+          <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-4 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading documents…
+          </div>
         ) : (
-          <div className="space-y-3">
-            <div className="flex items-end gap-2">
-              <label className="block flex-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Version
-                <select
-                  value={selectedPo.id}
-                  onChange={(e) => setSelectedPoId(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
-                >
-                  {poVersions
-                    .slice()
-                    .reverse()
-                    .map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.versionLabel} · {v.receivedDate}
-                        {v.id === poVersions[poVersions.length - 1].id ? " (latest)" : ""}
+          <>
+            {error ? (
+              <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            ) : null}
+
+            {docType === "po" ? (
+              poDocs.length === 0 || !selectedPo ? (
+                <div className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#FAFBFC] px-3 py-4 text-center">
+                  <p className="text-sm text-slate-600">
+                    No purchase order uploaded yet. Complete a{" "}
+                    <span className="font-semibold text-slate-800">production</span> stage
+                    in Status Control and attach the PO file in{" "}
+                    <span className="font-semibold text-slate-800">Add note</span> — versions
+                    will show here for review.
+                  </p>
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Upload happens in Status Control, not here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-end gap-2">
+                    <label className="block flex-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Version
+                      <select
+                        value={selectedPo.id ?? ""}
+                        onChange={(e) => setSelectedPoId(Number(e.target.value))}
+                        className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
+                      >
+                        {poDocs.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {versionOptionLabel(v, latestPoId)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={openEditPoModal}
+                      disabled={!comparison?.editable || compareLoading || actionBusy}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-2 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </button>
+                  </div>
+
+                  {selectedPo.extractionStatus === "PENDING" ? (
+                    <div className="space-y-3">
+                      <p className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                        Extracting PO data in the background (OCR → LLM)… this
+                        card will update when ready.
+                      </p>
+                      <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
+                        <button
+                          type="button"
+                          onClick={() => openDownload(selectedPo.id)}
+                          className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
+                        >
+                          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedPo.documentName || "Document"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : compareLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Comparing with quote…
+                    </div>
+                  ) : comparison ? (
+                    <>
+                      {poBanner ? (
+                        <p
+                          className={`rounded-lg border px-3 py-2 text-sm font-medium ${poBanner.className}`}
+                        >
+                          {poBanner.text}
+                        </p>
+                      ) : null}
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                              <th className="pb-1 pr-2 font-semibold">Field</th>
+                              <th className="pb-1 pr-2 font-semibold">Quote</th>
+                              <th className="pb-1 font-semibold">This PO</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(comparison.fields ?? []).map((d) => (
+                              <tr key={d.field} className="border-t border-[#EEF1F4]">
+                                <td className="py-1.5 pr-2 font-semibold text-slate-700">
+                                  {d.field}
+                                </td>
+                                <td className="py-1.5 pr-2 text-slate-600">{d.quote ?? "—"}</td>
+                                <td
+                                  className={`py-1.5 font-medium ${
+                                    d.variance ? "text-red-600" : "text-emerald-600"
+                                  }`}
+                                >
+                                  {d.thisPo ?? "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
+                        <button
+                          type="button"
+                          onClick={() => openDownload(selectedPo.id)}
+                          className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
+                        >
+                          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+                          {comparison.documentName || selectedPo.documentName || "Document"}
+                        </button>
+                      </div>
+
+                      {anyVariance ? (
+                        <div className="flex items-center justify-end">
+                          <ReviewActions
+                            status={poReviewStatus}
+                            reviewedBy={resolveUserName(selectedPo.modifiedBy)}
+                            reviewedDate={formatReviewDate(selectedPo.modifiedAt)}
+                            remarks={comparison.notes ?? selectedPo.remarks}
+                            busy={actionBusy}
+                            onApprove={() => openReviewModal("po", "approved")}
+                            onReject={() => openReviewModal("po", "rejected")}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                        {selectedPo.extractionStatus === "FAILED" || compareUnavailable
+                          ? "PO extraction failed. Please upload the file again."
+                          : "No comparison available for this purchase order yet."}
+                      </p>
+                      <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
+                        <button
+                          type="button"
+                          onClick={() => openDownload(selectedPo.id)}
+                          className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
+                        >
+                          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+                          {selectedPo.documentName || "Document"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            ) : drawingDocs.length === 0 || !selectedDrawing ? (
+              <div className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#FAFBFC] px-3 py-4 text-center">
+                <p className="text-sm text-slate-600">
+                  No drawing uploaded yet. Complete a{" "}
+                  <span className="font-semibold text-slate-800">design</span> stage in
+                  Status Control and attach the drawing file in{" "}
+                  <span className="font-semibold text-slate-800">Add note</span> — revisions
+                  will show here.
+                </p>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Upload happens in Status Control, not here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Revision
+                  <select
+                    value={selectedDrawing.id ?? ""}
+                    onChange={(e) => setSelectedDrawingId(Number(e.target.value))}
+                    className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
+                  >
+                    {drawingDocs.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {versionOptionLabel(r, latestDrawingId)}
                       </option>
                     ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={openEditPoModal}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-2 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit
-              </button>
-            </div>
+                  </select>
+                </label>
 
-            {(() => {
-              const diffs = diffPoFields(selectedPo);
-              const anyDiff = diffs.some((d) => d.differs);
-              const changedLabels = diffs.filter((d) => d.differs).map((d) => d.label).join(", ");
-              let bannerClass = "border-emerald-200 bg-emerald-50 text-emerald-700";
-              let bannerText = "Matches the accepted quote — no review needed.";
-              if (anyDiff) {
-                if (selectedPo.reviewStatus === "approved") {
-                  bannerClass = "border-amber-200 bg-amber-50 text-amber-900";
-                  bannerText = `Variance in ${changedLabels} — reviewed & approved.`;
-                } else if (selectedPo.reviewStatus === "rejected") {
-                  bannerClass = "border-red-300 bg-red-100 text-red-800";
-                  bannerText = `Variance in ${changedLabels} — rejected, needs a corrected PO.`;
-                } else {
-                  bannerClass = "border-red-200 bg-red-50 text-red-700";
-                  bannerText = `Variance detected in ${changedLabels} — needs review.`;
-                }
-              }
-              return (
-                <p className={`rounded-lg border px-3 py-2 text-sm font-medium ${bannerClass}`}>
-                  {bannerText}
-                </p>
-              );
-            })()}
+                {drawingBanner ? (
+                  <p
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium ${drawingBanner.className}`}
+                  >
+                    {drawingBanner.text}
+                  </p>
+                ) : null}
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
-                    <th className="pb-1 pr-2 font-semibold">Field</th>
-                    <th className="pb-1 pr-2 font-semibold">Quote</th>
-                    <th className="pb-1 font-semibold">This PO</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {diffPoFields(selectedPo).map((d) => (
-                    <tr key={d.label} className="border-t border-[#EEF1F4]">
-                      <td className="py-1.5 pr-2 font-semibold text-slate-700">{d.label}</td>
-                      <td className="py-1.5 pr-2 text-slate-600">{d.quoteValue}</td>
-                      <td
-                        className={`py-1.5 font-medium ${d.differs ? "text-red-600" : "text-emerald-600"}`}
-                      >
-                        {d.poValue}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Notes
+                  </p>
+                  {selectedDrawing.remarks?.trim() ? (
+                    <p className="mt-1.5 text-sm text-slate-700">{selectedDrawing.remarks}</p>
+                  ) : (
+                    <p className="mt-1 text-sm text-slate-500">No remarks on this revision.</p>
+                  )}
+                </div>
 
-            <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-              <span className="inline-flex items-center gap-1.5">
-                <Paperclip className="h-3.5 w-3.5 text-slate-400" />
-                {selectedPo.fileName}
-              </span>
-            </div>
+                <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => openDownload(selectedDrawing.id)}
+                    className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
+                  >
+                    <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+                    {selectedDrawing.documentName || "Drawing"}
+                  </button>
+                  {selectedDrawing.milestoneStageName ? (
+                    <span className="text-xs text-slate-500">
+                      {selectedDrawing.milestoneStageName}
+                    </span>
+                  ) : null}
+                </div>
 
-            {diffPoFields(selectedPo).some((d) => d.differs) && (
-              <div className="flex items-center justify-end">
-                <ReviewActions
-                  status={selectedPo.reviewStatus}
-                  reviewedBy={selectedPo.reviewedBy}
-                  reviewedDate={selectedPo.reviewedDate}
-                  reviewRemarks={selectedPo.reviewRemarks}
-                  onApprove={() => openReviewModal("po", "approved")}
-                  onReject={() => openReviewModal("po", "rejected")}
-                />
+                <div className="flex items-center justify-end">
+                  <ReviewActions
+                    status={drawingReviewStatus}
+                    reviewedBy={resolveUserName(selectedDrawing.modifiedBy)}
+                    reviewedDate={formatReviewDate(selectedDrawing.modifiedAt)}
+                    remarks={selectedDrawing.remarks}
+                    busy={actionBusy}
+                    onApprove={() => openReviewModal("drawing", "approved")}
+                    onReject={() => openReviewModal("drawing", "rejected")}
+                  />
+                </div>
               </div>
             )}
-          </div>
-        )
-      ) : drawingRevisions.length === 0 || !selectedRev ? (
-        <p className="rounded-lg border border-dashed border-[#E5E7EB] bg-[#FAFBFC] px-3 py-4 text-center text-sm text-slate-500">
-          No drawing revisions recorded for this job yet.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Revision
-            <select
-              value={selectedRev.id}
-              onChange={(e) => setSelectedRevId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
-            >
-              {drawingRevisions
-                .slice()
-                .reverse()
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.revisionLabel} · {r.issuedDate}
-                    {r.id === drawingRevisions[drawingRevisions.length - 1].id ? " (latest)" : ""}
-                  </option>
-                ))}
-            </select>
-          </label>
+          </>
+        )}
+      </WidgetCard>
 
-          {(() => {
-            const hasChanges = selectedRev.changes.length > 0;
-            let bannerClass = "border-slate-200 bg-slate-50 text-slate-600";
-            let bannerText = "Initial issue — no prior revision to compare.";
-            if (hasChanges) {
-              if (selectedRev.reviewStatus === "approved") {
-                bannerClass = "border-amber-200 bg-amber-50 text-amber-900";
-                bannerText = "Changes reviewed & approved.";
-              } else if (selectedRev.reviewStatus === "rejected") {
-                bannerClass = "border-red-300 bg-red-100 text-red-800";
-                bannerText = "Changes rejected — needs a corrected revision.";
-              } else {
-                bannerClass = "border-red-200 bg-red-50 text-red-700";
-                bannerText = "Changes pending review.";
-              }
-            }
-            return (
-              <p className={`rounded-lg border px-3 py-2 text-sm font-medium ${bannerClass}`}>
-                {bannerText}
-              </p>
-            );
-          })()}
-
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              What changed vs. the previous revision
-            </p>
-            {selectedRev.changes.length === 0 ? (
-              <p className="mt-1 text-sm text-slate-500">Nothing to compare — this is the first revision.</p>
-            ) : (
-              <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                {selectedRev.changes.map((change, i) => (
-                  <li key={i}>{change}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-            <span className="inline-flex items-center gap-1.5">
-              <Paperclip className="h-3.5 w-3.5 text-slate-400" />
-              {selectedRev.fileName}
-            </span>
-            <span className="text-xs text-slate-500">{selectedRev.issuedBy}</span>
-          </div>
-
-          {selectedRev.changes.length > 0 && (
-            <div className="flex items-center justify-end">
-              <ReviewActions
-                status={selectedRev.reviewStatus}
-                reviewedBy={selectedRev.reviewedBy}
-                reviewedDate={selectedRev.reviewedDate}
-                reviewRemarks={selectedRev.reviewRemarks}
-                onApprove={() => openReviewModal("drawing", "approved")}
-                onReject={() => openReviewModal("drawing", "rejected")}
-              />
-            </div>
-          )}
-        </div>
-      )}
-    </WidgetCard>
-
-    {/* Rendered as a sibling of WidgetCard, not a child of it — see the same
-        note in JobStatusCard.tsx. WidgetCard's `.app-card-interactive`
-        article has `hover:-translate-y-0.5`, and an active `transform` on an
-        ancestor becomes the containing block for `position: fixed`
-        descendants, trapping the modal inside the card's box instead of the
-        real viewport whenever the cursor rests on the card. */}
-    <EditModal open={showEditPoModal} title="Edit Purchase Order Version" onClose={() => setShowEditPoModal(false)}>
+      <EditModal
+        open={showEditPoModal}
+        title="Edit Purchase Order Version"
+        onClose={() => setShowEditPoModal(false)}
+      >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          <ModalField
-            label="Date received"
-            type="date"
-            value={poDraft.receivedDate}
-            onChange={(v) => setPoDraft((d) => ({ ...d, receivedDate: v }))}
-          />
-          <ModalField
-            label="File name"
-            value={poDraft.fileName}
-            onChange={(v) => setPoDraft((d) => ({ ...d, fileName: v }))}
-            disabled
-          />
           <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Accepted quote (baseline)
           </p>
-          <ModalField
-            label="Quote quantity"
-            type="number"
-            value={poDraft.quoteQty}
-            onChange={(v) => setPoDraft((d) => ({ ...d, quoteQty: v }))}
-          />
-          <ModalField
-            label="Quote price"
-            type="number"
-            value={poDraft.quotePrice}
-            onChange={(v) => setPoDraft((d) => ({ ...d, quotePrice: v }))}
-          />
-          <ModalField
-            label="Quote scope"
-            value={poDraft.quoteScope}
-            onChange={(v) => setPoDraft((d) => ({ ...d, quoteScope: v }))}
-          />
+          <ModalField label="Quote quantity" value={poDraft.quoteQty} onChange={() => {}} disabled />
+          <ModalField label="Quote price" value={poDraft.quotePrice} onChange={() => {}} disabled />
+          <ModalField label="Quote scope" value={poDraft.quoteScope} onChange={() => {}} disabled />
           <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             This PO
           </p>
           <ModalField
             label="PO quantity"
-            type="number"
             value={poDraft.poQty}
             onChange={(v) => setPoDraft((d) => ({ ...d, poQty: v }))}
           />
           <ModalField
             label="PO price"
-            type="number"
             value={poDraft.poPrice}
             onChange={(v) => setPoDraft((d) => ({ ...d, poPrice: v }))}
           />
@@ -717,8 +802,12 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
             value={poDraft.poScope}
             onChange={(v) => setPoDraft((d) => ({ ...d, poScope: v }))}
           />
-          <button className="btn-primary w-full" onClick={saveEditPoModal}>
-            Save changes
+          <button
+            className="btn-primary w-full"
+            onClick={() => void saveEditPoModal()}
+            disabled={actionBusy}
+          >
+            {actionBusy ? "Saving…" : "Save changes"}
           </button>
         </div>
       </EditModal>
@@ -742,10 +831,14 @@ export function JobDocumentRevisionsCard({ job, className }: JobDocumentRevision
           />
           <button
             className="btn-primary w-full"
-            onClick={saveReviewModal}
-            disabled={!reviewRemarkDraft.trim()}
+            onClick={() => void saveReviewModal()}
+            disabled={!reviewRemarkDraft.trim() || actionBusy}
           >
-            {reviewModalAction === "approved" ? "Approve" : "Reject"}
+            {actionBusy
+              ? "Saving…"
+              : reviewModalAction === "approved"
+                ? "Approve"
+                : "Reject"}
           </button>
         </div>
       </EditModal>

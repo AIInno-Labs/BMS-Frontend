@@ -16,16 +16,21 @@ import {
   type UserDTO,
 } from "@/lib/frp/types";
 import type {
+  FrpDocumentDownloadDTO,
+  FrpDocumentSort,
+  FrpDocumentType,
   FrpJobAuditHistoryDTO,
   FrpJobCardPayload,
   FrpJobContactDetailsDTO,
   FrpJobCountsDTO,
   FrpJobDocumentDTO,
+  FrpJobDocumentUpdateRequest,
   FrpJobDTO,
   FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
   FrpJobSummaryDTO,
+  FrpPoComparisonDTO,
 } from "@/lib/frp/job-mapper";
 import {
   STATUS_TARGET_STAGE,
@@ -716,6 +721,25 @@ export async function scanJobStage(
 
 /* -------------------------------------------------------------- documents */
 
+/** `GET /jobs/{id}/documents` — soft-deleted excluded. */
+export async function listJobDocuments(
+  dbId: string | number,
+  params?: {
+    type?: FrpDocumentType;
+    editedBy?: number;
+    sort?: FrpDocumentSort;
+  }
+): Promise<FrpJobDocumentDTO[]> {
+  const q = new URLSearchParams();
+  if (params?.type) q.set("type", params.type);
+  if (params?.editedBy != null) q.set("editedBy", String(params.editedBy));
+  if (params?.sort) q.set("sort", params.sort);
+  const qs = q.toString();
+  return frpFetch<FrpJobDocumentDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents${qs ? `?${qs}` : ""}`
+  );
+}
+
 /** `POST /jobs/{id}/documents` — multipart upload, one file per call. */
 export async function uploadJobDocument(
   dbId: string | number,
@@ -736,6 +760,37 @@ export async function uploadJobDocument(
     `/jobs/${encodeURIComponent(String(dbId))}/documents`,
     { method: "POST", body: form }
   );
+}
+
+/**
+ * `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only.
+ * Compares extracted / edited PO data against the job quote.
+ */
+export async function compareJobDocument(
+  dbId: string | number,
+  documentId: number
+): Promise<FrpPoComparisonDTO> {
+  return frpFetch<FrpPoComparisonDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents/${documentId}/compare`
+  );
+}
+
+/** `PUT /documents/{id}` — partial update (status, remarks, editedDocumentData, …). */
+export async function updateJobDocument(
+  id: number,
+  body: FrpJobDocumentUpdateRequest
+): Promise<FrpJobDocumentDTO> {
+  return frpFetch<FrpJobDocumentDTO>(`/documents/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `GET /documents/{id}/download` — short-lived signed SharePoint URL. */
+export async function downloadJobDocument(
+  id: number
+): Promise<FrpDocumentDownloadDTO> {
+  return frpFetch<FrpDocumentDownloadDTO>(`/documents/${id}/download`);
 }
 
 /** `DELETE /documents/{id}`. */

@@ -42,7 +42,7 @@ interface JobWorkflowExtrasSectionProps {
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
   onUploadFile: () => void;
-  onDownloadFile: (fileName: string) => void;
+  onDownloadFile: (file: JobFileRecord) => void;
 }
 
 function addDaysIso(days: number): string {
