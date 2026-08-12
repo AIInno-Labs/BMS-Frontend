@@ -84,6 +84,72 @@ function buildEditedPoData(
   return next;
 }
 
+/** Preserve pointwise Scope text from compare (`\r\n`, `* ` bullets). */
+function ComparisonValue({
+  value,
+  className,
+}: {
+  value?: string | null;
+  className?: string;
+}) {
+  const text = (value ?? "—").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return <span className={`whitespace-pre-line ${className ?? ""}`}>{text}</span>;
+}
+
+/**
+ * Normalize compare Price strings for display as `{CODE} {amount}` when the
+ * currency is known (from extract totals, or inferred from symbols like A$).
+ * If currency is unknown, keep the API value as-is — never invent AUD.
+ */
+function inferCurrencyFromMoneyText(raw: string): string | null {
+  const t = raw.trim();
+  if (/^A\$/i.test(t) || /\bAUD\b/i.test(t)) return "AUD";
+  if (/^US\$/i.test(t) || /\bUSD\b/i.test(t)) return "USD";
+  if (/^NZ\$/i.test(t) || /\bNZD\b/i.test(t)) return "NZD";
+  if (/^CA\$/i.test(t) || /\bCAD\b/i.test(t)) return "CAD";
+  if (/^£/.test(t) || /\bGBP\b/i.test(t)) return "GBP";
+  if (/^€/.test(t) || /\bEUR\b/i.test(t)) return "EUR";
+  // India
+  if (/^₹/.test(t) || /^Rs\.?\s?/i.test(t) || /\bINR\b/i.test(t)) return "INR";
+  // Saudi Arabia / Gulf
+  if (
+    /^﷼/.test(t) ||
+    /^SR\.?\s?/i.test(t) ||
+    /\bSAR\b/i.test(t) ||
+    /\briyal\b/i.test(t)
+  ) {
+    return "SAR";
+  }
+  if (/^د\.إ/i.test(t) || /\bAED\b/i.test(t) || /\bdirham\b/i.test(t)) return "AED";
+  if (/^\$/.test(t)) return null; // bare $ — ambiguous
+  return null;
+}
+
+function formatCompareMoneyDisplay(
+  raw?: string | null,
+  currencyCode?: string | null
+): string {
+  if (raw == null) return "—";
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "—") return "—";
+  const amount = parseMoneyLike(trimmed);
+  if (!Number.isFinite(amount) || !/[0-9]/.test(trimmed)) return trimmed;
+  const code =
+    (currencyCode?.trim() || inferCurrencyFromMoneyText(trimmed) || "").toUpperCase() ||
+    null;
+  if (!code) return trimmed; // don't invent a currency
+  return `${code} ${Math.round(amount)}`;
+}
+
+function displayCompareFieldValue(
+  field: string | undefined,
+  raw?: string | null,
+  currencyCode?: string | null
+): string {
+  if (field === "Price") return formatCompareMoneyDisplay(raw, currencyCode);
+  return raw ?? "—";
+}
+
 function parseMoneyLike(raw: string): number {
   const cleaned = raw.replace(/[^0-9.-]/g, "");
   const n = Number(cleaned);
@@ -290,7 +356,7 @@ export function JobDocumentRevisionsCard({
     if (selected?.extractionStatus !== "PENDING") return;
     const timer = window.setInterval(() => {
       void loadDocuments();
-    }, 3000);
+    }, 30_000);
     return () => window.clearInterval(timer);
   }, [dbId, docType, selectedPoId, poDocs, loadDocuments]);
 
@@ -349,10 +415,10 @@ export function JobDocumentRevisionsCard({
     const scope = fields.find((f) => f.field === "Scope");
     setPoDraft({
       quoteQty: qty?.quote ?? "",
-      quotePrice: price?.quote ?? "",
+      quotePrice: formatCompareMoneyDisplay(price?.quote, compareCurrency),
       quoteScope: scope?.quote ?? "",
       poQty: qty?.thisPo ?? "",
-      poPrice: price?.thisPo ?? "",
+      poPrice: formatCompareMoneyDisplay(price?.thisPo, compareCurrency),
       poScope: scope?.thisPo ?? "",
     });
     setShowEditPoModal(true);
@@ -440,6 +506,16 @@ export function JobDocumentRevisionsCard({
   const drawingReviewStatus = toReviewStatus(selectedDrawing?.status);
   const varianceFields = (comparison?.fields ?? []).filter((f) => f.variance);
   const anyVariance = varianceFields.length > 0 || !!comparison?.needsReview;
+
+  const compareCurrency = (() => {
+    const fromExtracted = asRecord(asRecord(comparison?.extractedData).totals).currency;
+    const fromEdited = asRecord(asRecord(comparison?.editedDocumentData).totals).currency;
+    const fromJob = asRecord(asRecord(comparison?.jobData).totals).currency;
+    const raw = [fromExtracted, fromEdited, fromJob].find(
+      (v) => typeof v === "string" && v.trim()
+    );
+    return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : null;
+  })();
 
   const poBanner = (() => {
     if (!comparison) return null;
@@ -626,17 +702,31 @@ export function JobDocumentRevisionsCard({
                           </thead>
                           <tbody>
                             {(comparison.fields ?? []).map((d) => (
-                              <tr key={d.field} className="border-t border-[#EEF1F4]">
+                              <tr key={d.field} className="border-t border-[#EEF1F4] align-top">
                                 <td className="py-1.5 pr-2 font-semibold text-slate-700">
                                   {d.field}
                                 </td>
-                                <td className="py-1.5 pr-2 text-slate-600">{d.quote ?? "—"}</td>
+                                <td className="py-1.5 pr-2 text-slate-600">
+                                  <ComparisonValue
+                                    value={displayCompareFieldValue(
+                                      d.field,
+                                      d.quote,
+                                      compareCurrency
+                                    )}
+                                  />
+                                </td>
                                 <td
                                   className={`py-1.5 font-medium ${
                                     d.variance ? "text-red-600" : "text-emerald-600"
                                   }`}
                                 >
-                                  {d.thisPo ?? "—"}
+                                  <ComparisonValue
+                                    value={displayCompareFieldValue(
+                                      d.field,
+                                      d.thisPo,
+                                      compareCurrency
+                                    )}
+                                  />
                                 </td>
                               </tr>
                             ))}
@@ -783,7 +873,13 @@ export function JobDocumentRevisionsCard({
           </p>
           <ModalField label="Quote quantity" value={poDraft.quoteQty} onChange={() => {}} disabled />
           <ModalField label="Quote price" value={poDraft.quotePrice} onChange={() => {}} disabled />
-          <ModalField label="Quote scope" value={poDraft.quoteScope} onChange={() => {}} disabled />
+          <ModalField
+            label="Quote scope"
+            value={poDraft.quoteScope}
+            onChange={() => {}}
+            disabled
+            multiline
+          />
           <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             This PO
           </p>
@@ -801,6 +897,7 @@ export function JobDocumentRevisionsCard({
             label="PO scope"
             value={poDraft.poScope}
             onChange={(v) => setPoDraft((d) => ({ ...d, poScope: v }))}
+            multiline
           />
           <button
             className="btn-primary w-full"
