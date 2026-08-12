@@ -169,6 +169,25 @@ function formatReviewDate(iso?: string | null): string | undefined {
   return d.toISOString().slice(0, 10);
 }
 
+function reviewModalTitle(target: DocTab, action: "approved" | "rejected"): string {
+  const doc = target === "po" ? "purchase order" : "drawing";
+  return action === "approved" ? `Approve ${doc}` : `Reject ${doc}`;
+}
+
+function reviewRemarkPlaceholder(
+  target: DocTab,
+  action: "approved" | "rejected"
+): string {
+  if (target === "po") {
+    return action === "approved"
+      ? "e.g. Quantity variance accepted — client confirmed in writing."
+      : "e.g. Price does not match the accepted quote. Request a revised PO.";
+  }
+  return action === "approved"
+    ? "e.g. Revision matches the approved design and site measurements."
+    : "e.g. Dimensions do not match the approved design. Request a corrected revision.";
+}
+
 function ReviewActions({
   status,
   reviewedBy,
@@ -911,18 +930,26 @@ export function JobDocumentRevisionsCard({
 
       <EditModal
         open={reviewModalTarget !== null}
-        title={reviewModalAction === "approved" ? "Approve" : "Reject"}
+        title={
+          reviewModalTarget
+            ? reviewModalTitle(reviewModalTarget, reviewModalAction)
+            : "Review"
+        }
         onClose={() => setReviewModalTarget(null)}
       >
         <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Add a review note. This is saved on the document version for the
+            audit trail.
+          </p>
           <ModalField
-            label="Remarks"
+            label="Review remarks"
             value={reviewRemarkDraft}
             onChange={setReviewRemarkDraft}
             placeholder={
-              reviewModalAction === "approved"
-                ? "Why this is being approved…"
-                : "Why this is being rejected…"
+              reviewModalTarget
+                ? reviewRemarkPlaceholder(reviewModalTarget, reviewModalAction)
+                : "Add a review note…"
             }
             multiline
           />

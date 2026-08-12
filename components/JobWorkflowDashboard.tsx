@@ -33,6 +33,7 @@ import {
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
+  updateJobPayment,
   uploadJobDocument,
 } from "@/lib/frp/api";
 import {
@@ -178,6 +179,8 @@ export function JobWorkflowDashboard({
     () => extras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
   );
   const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const assignableWorkers = getAssignableWorkers();
 
@@ -333,35 +336,27 @@ export function JobWorkflowDashboard({
     }
   };
 
-  const savePaymentExtras = (
-    nextExtras: JobWorkflowExtras,
-    auditDetail: string
-  ) => {
-    void onSavePatch(
-      {
-        printDetails: {
-          ...pd,
-          workflowExtras: nextExtras,
-        },
-      },
-      { audit: "payment_updated", auditDetail }
-    );
+  const savePayment = async (body: { paid?: boolean; estimatedDate?: string }) => {
+    if (!job.dbId) return;
+    setPaymentBusy(true);
+    setPaymentError(null);
+    try {
+      await updateJobPayment(job.dbId, body);
+      await onJobChanged?.();
+    } catch (e) {
+      setPaymentError(e instanceof Error ? e.message : "Could not update payment");
+    } finally {
+      setPaymentBusy(false);
+    }
   };
 
   const handlePaymentReceivedChange = (value: boolean) => {
-    savePaymentExtras(
-      { ...extras, paymentReceived: value },
-      `Payment received: ${value ? "Yes" : "No"}`
-    );
+    void savePayment({ paid: value });
   };
 
   const handlePaymentDueDateChange = (date: string) => {
-    savePaymentExtras(
-      { ...extras, paymentDueDate: date },
-      date
-        ? `Estimated payment due date: ${formatShortDate(date)}`
-        : "Estimated payment due date cleared"
-    );
+    if (!date) return;
+    void savePayment({ estimatedDate: date });
   };
 
   const jobCardNotesDirty = jobCardNotesDraft !== (extras.jobCardNotes ?? "");
@@ -544,6 +539,11 @@ export function JobWorkflowDashboard({
           </WidgetCard>
 
           <WidgetCard title="Payment Status" icon={CircleDollarSign}>
+            {paymentError ? (
+              <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {paymentError}
+              </p>
+            ) : null}
             <fieldset className="mt-2 space-y-2">
               <legend className="text-sm text-slate-700">Payment received</legend>
               <div className="flex flex-wrap gap-3">
@@ -552,7 +552,7 @@ export function JobWorkflowDashboard({
                     type="radio"
                     name={`payment-received-${job.id}`}
                     checked={extras.paymentReceived === true}
-                    disabled={isSaving}
+                    disabled={isSaving || paymentBusy || !job.dbId}
                     onChange={() => handlePaymentReceivedChange(true)}
                     className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                   />
@@ -563,7 +563,7 @@ export function JobWorkflowDashboard({
                     type="radio"
                     name={`payment-received-${job.id}`}
                     checked={extras.paymentReceived === false}
-                    disabled={isSaving}
+                    disabled={isSaving || paymentBusy || !job.dbId}
                     onChange={() => handlePaymentReceivedChange(false)}
                     className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                   />
@@ -576,7 +576,7 @@ export function JobWorkflowDashboard({
               <input
                 type="date"
                 value={extras.paymentDueDate ?? ""}
-                disabled={isSaving}
+                disabled={isSaving || paymentBusy || !job.dbId}
                 onChange={(e) => handlePaymentDueDateChange(e.target.value)}
                 className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
               />

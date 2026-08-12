@@ -26,6 +26,8 @@ import type {
   FrpJobDocumentDTO,
   FrpJobDocumentUpdateRequest,
   FrpJobDTO,
+  FrpJobPaymentDTO,
+  FrpJobPaymentUpdateRequest,
   FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
@@ -650,6 +652,20 @@ export async function saveSchedulingLogistics(
   return frpFetch<FrpJobDTO>(
     `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics`,
     { method: "PUT", body: JSON.stringify(schedulingLogistics) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/payment` — mark received (or not) and/or set estimated due date.
+ * Null fields are left unchanged. Prefers the FINAL payment when several exist.
+ */
+export async function updateJobPayment(
+  dbId: string | number,
+  body: FrpJobPaymentUpdateRequest
+): Promise<FrpJobPaymentDTO> {
+  return frpFetch<FrpJobPaymentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/payment`,
+    { method: "PUT", body: JSON.stringify(body) }
   );
 }
 
