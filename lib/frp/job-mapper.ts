@@ -254,6 +254,9 @@ export interface FrpJobStageDTO {
   assignedTeam?: string | null;
   percentComplete?: number | null;
   children?: FrpJobStageDTO[];
+  /** Documents uploaded against this stage — populated server-side on every
+   *  `GET /jobs/{id}/stages` and stage PUT/scan response. */
+  documents?: FrpJobDocumentDTO[];
 }
 
 export interface FrpJobStageUpdateRequest {
@@ -263,6 +266,93 @@ export interface FrpJobStageUpdateRequest {
   /** Toggle whether this stage requires a document. Editable per stage. */
   docRequired?: boolean;
   assignedTeam?: string;
+}
+
+/** Document category — mirrors backend `DocumentType` (milestone-derived). */
+export type FrpDocumentType = "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
+
+/** Review status on a job document — mirrors backend `Status`. */
+export type FrpDocumentStatus = "ACTIVE" | "ACCEPTED" | "REJECTED";
+
+/** OCR/LLM pipeline — mirrors backend `DocumentExtractionStatus`. */
+export type FrpDocumentExtractionStatus =
+  | "NOT_APPLICABLE"
+  | "PENDING"
+  | "READY"
+  | "FAILED"
+  | "SKIPPED";
+
+export type FrpDocumentSort = "RECENT" | "ALL";
+
+/** `JobDocumentDTO` — a document attached to a job / stage. */
+export interface FrpJobDocumentDTO {
+  id?: number;
+  jobId?: number;
+  jobStageId?: number;
+  documentName?: string;
+  documentType?: FrpDocumentType;
+  milestoneStageId?: number;
+  milestoneStageKey?: string;
+  milestoneStageName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  documentData?: Record<string, unknown> | null;
+  editedDocumentData?: Record<string, unknown> | null;
+  remarks?: string | null;
+  documentVersion?: number;
+  status?: FrpDocumentStatus;
+  extractionStatus?: FrpDocumentExtractionStatus;
+  uploadedBy?: number;
+  uploadedAt?: string;
+  modifiedBy?: number;
+  modifiedAt?: string;
+}
+
+/** One row in `PoComparisonDTO.fields` (Field / Quote / This PO). */
+export interface FrpPoComparisonFieldDTO {
+  field?: string;
+  quote?: string;
+  thisPo?: string;
+  variance?: boolean;
+}
+
+/** `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only. */
+export interface FrpPoComparisonDTO {
+  jobId?: number;
+  documentId?: number;
+  documentType?: FrpDocumentType;
+  documentName?: string;
+  status?: FrpDocumentStatus;
+  documentVersion?: number;
+  versionDate?: string;
+  latest?: boolean;
+  /** e.g. `v3 · 2026-08-05 (latest)` */
+  versionLabel?: string;
+  editable?: boolean;
+  conclusion?: string;
+  notes?: string | null;
+  needsReview?: boolean;
+  fields?: FrpPoComparisonFieldDTO[];
+  jobData?: Record<string, unknown> | null;
+  extractedData?: Record<string, unknown> | null;
+  documentData?: Record<string, unknown> | null;
+  editedDocumentData?: Record<string, unknown> | null;
+}
+
+/** `PUT /documents/{id}` — only non-null fields are applied. */
+export interface FrpJobDocumentUpdateRequest {
+  documentName?: string;
+  remarks?: string | null;
+  status?: FrpDocumentStatus;
+  documentData?: Record<string, unknown> | null;
+  editedDocumentData?: Record<string, unknown> | null;
+}
+
+/** `GET /documents/{id}/download` — short-lived signed SharePoint URL. */
+export interface FrpDocumentDownloadDTO {
+  id?: number;
+  downloadUrl?: string;
+  expiresAt?: string;
 }
 
 /**

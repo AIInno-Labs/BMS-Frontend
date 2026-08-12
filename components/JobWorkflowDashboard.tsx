@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -30,6 +30,12 @@ import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
+  downloadJobDocument,
+  listJobDocuments,
+  listJobStages,
+  uploadJobDocument,
+} from "@/lib/frp/api";
+import {
   DEFAULT_REQUIRED_INVENTORY,
   ensureWorkflowExtras,
   JOB_TYPE_OPTIONS,
@@ -41,7 +47,11 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
+import type {
+  FrpJobDocumentDTO,
+  FrpJobStageDTO,
+  JobUpdateAuditAction,
+} from "@/lib/frp/job-mapper";
 import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -75,69 +85,43 @@ interface JobWorkflowDashboardProps {
 
 type JobFile = JobFileRecord;
 
-function defaultDemoFiles(job: Job): JobFile[] {
-  const pd = ensurePrintDetails(job);
-  const files: JobFile[] = [
-    {
-      name: "Job specification.pdf",
-      category: "Specification",
-      time: "Attached",
-      uploadedAt: Date.now() - 2 * 86_400_000,
-    },
-    {
-      name: "Assembly drawing rev-A.pdf",
-      category: "Drawing",
-      time: "3d ago",
-      uploadedAt: Date.now() - 3 * 86_400_000,
-    },
-    {
-      name: "Client approval sign-off.pdf",
-      category: "Approval",
-      time: "1w ago",
-      uploadedAt: Date.now() - 7 * 86_400_000,
-    },
-  ];
-
-  if (pd.purchaseOrderNo) {
-    files.unshift({
-      name: `PO-${pd.purchaseOrderNo}.pdf`,
-      category: "Purchase Order",
-      time: "Attached",
-      uploadedAt: Date.now() - 4 * 86_400_000,
-    });
-  }
-
-  return files;
+function formatDocUploadedAt(iso?: string): { time: string; uploadedAt?: number } {
+  if (!iso) return { time: "Uploaded" };
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return { time: iso.slice(0, 10) };
+  return { time: formatShortDate(iso.slice(0, 10)), uploadedAt: ms };
 }
 
-function loadFiles(job: Job): JobFile[] {
-  const defaults = defaultDemoFiles(job);
-  const defaultNames = new Set(defaults.map((file) => file.name));
-  const raw = window.localStorage.getItem(`frp-files-${job.id}`);
-
-  if (!raw) return normalizeJobFiles(defaults);
-
-  try {
-    const parsed = JSON.parse(raw) as JobFile[];
-    if (!Array.isArray(parsed) || !parsed.length) return normalizeJobFiles(defaults);
-
-    const extras = parsed.filter((file) => !defaultNames.has(file.name));
-    return normalizeJobFiles([...defaults, ...extras]);
-  } catch {
-    return normalizeJobFiles(defaults);
+function documentTypeLabel(doc: FrpJobDocumentDTO): string {
+  if (doc.milestoneStageName?.trim()) return doc.milestoneStageName.trim();
+  switch (doc.documentType) {
+    case "DRAWING":
+      return "Drawing";
+    case "PRODUCTION":
+      return "Production";
+    case "QC":
+      return "QC";
+    default:
+      return "Other";
   }
 }
 
-function downloadDemoFile(fileName: string) {
-  const blob = new Blob([`Demo export placeholder for ${fileName}`], {
-    type: "application/pdf",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
+function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
+  const when = formatDocUploadedAt(doc.uploadedAt);
+  return {
+    name: doc.documentName?.trim() || "Untitled",
+    category: documentTypeLabel(doc),
+    time: when.time,
+    uploadedAt: when.uploadedAt,
+    documentId: doc.id,
+  };
+}
+
+/** Top-level milestones only (same set Status Control offers), excluding draft. */
+function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
+  return stages
+    .filter((m) => m.stageKey !== "draft" && m.id != null)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 export function JobWorkflowDashboard({
@@ -160,15 +144,19 @@ export function JobWorkflowDashboard({
   const [showFileModal, setShowFileModal] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
   const [notes, setNotes] = useState<string[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
-  const [fileUploadDraft, setFileUploadDraft] = useState({
-    fileName: "",
-    category: "Specification",
-  });
+  const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
+  const [fileUploadDraft, setFileUploadDraft] = useState<{
+    file: File | null;
+    milestoneId: number | "";
+  }>({ file: null, milestoneId: "" });
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileUploadError, setFileUploadError] = useState<string | null>(null);
   const [customerDraft, setCustomerDraft] = useState({
     clientName: job.clientName,
     clientContactName: job.clientContactName ?? "",
@@ -194,7 +182,6 @@ export function JobWorkflowDashboard({
   const assignableWorkers = getAssignableWorkers();
 
   useEffect(() => {
-    setFiles(loadFiles(job));
     const savedSort = window.localStorage.getItem(`frp-files-sort-${job.id}`);
     if (
       savedSort === "recents" ||
@@ -216,12 +203,44 @@ export function JobWorkflowDashboard({
   }, [job.id]);
 
   useEffect(() => {
-    window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
-  }, [job.id, notes]);
+    let cancelled = false;
+    async function loadProjectDocuments() {
+      if (!job.dbId) {
+        setFiles([]);
+        setMilestones([]);
+        return;
+      }
+      try {
+        const [docs, stages] = await Promise.all([
+          listJobDocuments(job.dbId, { sort: "ALL" }),
+          listJobStages(job.dbId),
+        ]);
+        if (cancelled) return;
+        const nextMilestones = asMilestones(stages);
+        setMilestones(nextMilestones);
+        setFiles(normalizeJobFiles(docs.map(docToFileRecord)));
+        setFileUploadDraft((prev) => {
+          if (prev.milestoneId !== "" && nextMilestones.some((m) => m.id === prev.milestoneId)) {
+            return prev;
+          }
+          return { ...prev, milestoneId: nextMilestones[0]?.id ?? "" };
+        });
+      } catch {
+        if (!cancelled) {
+          setFiles([]);
+          setMilestones([]);
+        }
+      }
+    }
+    void loadProjectDocuments();
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId, documentsRefreshKey]);
 
   useEffect(() => {
-    window.localStorage.setItem(`frp-files-${job.id}`, JSON.stringify(files));
-  }, [job.id, files]);
+    window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
+  }, [job.id, notes]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
@@ -271,6 +290,47 @@ export function JobWorkflowDashboard({
       [`${new Date().toLocaleTimeString()} ${noteDraft.trim()}`, ...prev].slice(0, 24)
     );
     setNoteDraft("");
+  };
+
+  const openFileUploadModal = () => {
+    setFileUploadError(null);
+    setFileUploadDraft({
+      file: null,
+      milestoneId: milestones[0]?.id ?? "",
+    });
+    setShowFileModal(true);
+  };
+
+  const handleDownloadFile = async (file: JobFileRecord) => {
+    if (file.documentId == null) return;
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
+  const handleUploadProjectDocument = async () => {
+    if (!job.dbId || !fileUploadDraft.file || fileUploadDraft.milestoneId === "") return;
+    setFileUploading(true);
+    setFileUploadError(null);
+    try {
+      await uploadJobDocument(job.dbId, {
+        jobStageId: fileUploadDraft.milestoneId,
+        file: fileUploadDraft.file,
+        documentName: fileUploadDraft.file.name,
+      });
+      setShowFileModal(false);
+      setFileUploadDraft({ file: null, milestoneId: milestones[0]?.id ?? "" });
+      setDocumentsRefreshKey((k) => k + 1);
+    } catch (e) {
+      setFileUploadError(e instanceof Error ? e.message : "Could not upload document");
+    } finally {
+      setFileUploading(false);
+    }
   };
 
   const savePaymentExtras = (
@@ -399,8 +459,8 @@ export function JobWorkflowDashboard({
         files={sortedFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
-        onUploadFile={() => setShowFileModal(true)}
-        onDownloadFile={downloadDemoFile}
+        onUploadFile={openFileUploadModal}
+        onDownloadFile={handleDownloadFile}
       />
 
       <div className="mt-4 space-y-4">
@@ -438,9 +498,18 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
         </WidgetCard>
 
-        <JobStatusCard job={job} onJobChanged={onJobChanged} className="lg:col-span-2" />
+        <JobStatusCard
+          job={job}
+          onJobChanged={onJobChanged}
+          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+          className="lg:col-span-2"
+        />
 
-        <JobDocumentRevisionsCard job={job} className="lg:col-span-2" />
+        <JobDocumentRevisionsCard
+          job={job}
+          refreshKey={documentsRefreshKey}
+          className="lg:col-span-2"
+        />
 
         {/* Its own 3-column row, nested inside the outer 2-col grid (hence
             lg:col-span-2 on the wrapper) — these three cards are short enough
@@ -839,56 +908,80 @@ export function JobWorkflowDashboard({
         </div>
       </EditModal>
 
-      <EditModal open={showFileModal} title="Upload File" onClose={() => setShowFileModal(false)}>
+      <EditModal
+        open={showFileModal}
+        title="Upload File"
+        onClose={() => {
+          if (fileUploading) return;
+          setShowFileModal(false);
+        }}
+      >
         <div className="space-y-3">
+          {!job.dbId ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              This job is not linked to the backend yet — documents cannot be uploaded.
+            </p>
+          ) : null}
           <label className="block text-sm font-medium text-slate-700">
             Select File
             <input
               type="file"
+              disabled={!job.dbId || fileUploading}
               onChange={(e) =>
                 setFileUploadDraft((prev) => ({
                   ...prev,
-                  fileName: e.target.files?.[0]?.name ?? "",
+                  file: e.target.files?.[0] ?? null,
                 }))
               }
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
+              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700 disabled:opacity-60"
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
-            Select Category
+            Milestone
             <select
-              value={fileUploadDraft.category}
-              onChange={(e) => setFileUploadDraft((prev) => ({ ...prev, category: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+              value={fileUploadDraft.milestoneId === "" ? "" : String(fileUploadDraft.milestoneId)}
+              disabled={!job.dbId || fileUploading || milestones.length === 0}
+              onChange={(e) =>
+                setFileUploadDraft((prev) => ({
+                  ...prev,
+                  milestoneId: e.target.value ? Number(e.target.value) : "",
+                }))
+              }
+              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm disabled:opacity-60"
             >
-              <option value="Specification">Specification</option>
-              <option value="Drawing">Drawing</option>
-              <option value="Purchase Order">Purchase Order</option>
-              <option value="QA Document">QA Document</option>
-              <option value="Delivery">Delivery</option>
-              <option value="Other">Other</option>
+              {milestones.length === 0 ? (
+                <option value="">No milestones available</option>
+              ) : (
+                milestones.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
+                  </option>
+                ))
+              )}
             </select>
           </label>
+          {fileUploadError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {fileUploadError}
+            </p>
+          ) : null}
           <button
-            className="btn-primary w-full"
-            onClick={() => {
-              if (!fileUploadDraft.fileName.trim()) return;
-              setFiles((prev) =>
-                normalizeJobFiles([
-                  {
-                    name: fileUploadDraft.fileName,
-                    category: fileUploadDraft.category,
-                    time: "just now",
-                    uploadedAt: Date.now(),
-                  },
-                  ...prev,
-                ])
-              );
-              setFileUploadDraft({ fileName: "", category: "Specification" });
-              setShowFileModal(false);
-            }}
+            className="btn-primary inline-flex w-full items-center justify-center gap-2"
+            disabled={
+              fileUploading ||
+              !job.dbId ||
+              !fileUploadDraft.file ||
+              fileUploadDraft.milestoneId === ""
+            }
+            onClick={() => void handleUploadProjectDocument()}
           >
-            Save File
+            {fileUploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+              </>
+            ) : (
+              "Upload document"
+            )}
           </button>
         </div>
       </EditModal>

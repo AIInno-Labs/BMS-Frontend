@@ -26,7 +26,7 @@ interface JobFilesDocumentStripProps {
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
   onUpload: () => void;
-  onDownload: (fileName: string) => void;
+  onDownload: (file: JobFileRecord) => void;
   /** Full-width “Project documents” row vs compact Files widget */
   variant?: "full" | "compact";
 }
@@ -89,6 +89,12 @@ function FileThumbnailTile({
   );
 }
 
+function fileKey(file: JobFileRecord): string {
+  return file.documentId != null
+    ? `doc-${file.documentId}`
+    : `${file.name}-${file.uploadedAt ?? file.time}`;
+}
+
 export function JobFilesDocumentStrip({
   jobId,
   files,
@@ -98,25 +104,23 @@ export function JobFilesDocumentStrip({
   onDownload,
   variant = "full",
 }: JobFilesDocumentStripProps) {
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const selectedFile = useMemo(() => {
     if (files.length === 0) return null;
-    return (
-      files.find((f) => f.name === selectedName) ?? files[0]
-    );
-  }, [files, selectedName]);
+    return files.find((f) => fileKey(f) === selectedKey) ?? files[0];
+  }, [files, selectedKey]);
 
   useEffect(() => {
     if (variant === "compact") return;
     if (files.length === 0) {
-      setSelectedName(null);
+      setSelectedKey(null);
       return;
     }
-    if (!selectedName || !files.some((f) => f.name === selectedName)) {
-      setSelectedName(files[0].name);
+    if (!selectedKey || !files.some((f) => fileKey(f) === selectedKey)) {
+      setSelectedKey(fileKey(files[0]));
     }
-  }, [files, selectedName, variant]);
+  }, [files, selectedKey, variant]);
 
   const sortControl = (
     <label className="inline-flex min-w-0 items-center">
@@ -140,15 +144,15 @@ export function JobFilesDocumentStrip({
     <div className="flex flex-wrap items-start gap-3 overflow-x-auto overscroll-contain pb-1">
       {files.map((file) => (
         <FileThumbnailTile
-          key={`${file.name}-${file.uploadedAt ?? file.time}`}
+          key={fileKey(file)}
           file={file}
-          selected={variant !== "compact" && selectedFile?.name === file.name}
+          selected={variant !== "compact" && selectedFile != null && fileKey(selectedFile) === fileKey(file)}
           onSelect={() => {
             if (variant === "compact") {
-              onDownload(file.name);
+              onDownload(file);
               return;
             }
-            setSelectedName(file.name);
+            setSelectedKey(fileKey(file));
           }}
         />
       ))}
@@ -175,7 +179,7 @@ export function JobFilesDocumentStrip({
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
-          onClick={() => onDownload(selectedFile.name)}
+          onClick={() => onDownload(selectedFile)}
         >
           <Download className="h-4 w-4 text-orange-600" aria-hidden />
           Download
