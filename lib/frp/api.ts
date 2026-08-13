@@ -32,6 +32,7 @@ import type {
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
   FrpJobSummaryDTO,
+  FrpManualPoRequest,
   FrpPoComparisonDTO,
 } from "@/lib/frp/job-mapper";
 import {
@@ -779,32 +780,17 @@ export async function uploadJobDocument(
 }
 
 /**
- * `POST /jobs/{id}/documents` with no `file` part — a PO entered by hand,
- * with no attachment. Requires the backend's file-optional create path
- * (`documentData` in place of a file); until that ships, this 400s the same
- * way a normal upload would if you dropped the file field.
+ * `POST /jobs/{jobId}/documents/po` — hand-keyed purchase order (JSON, no file).
+ * No OCR / LLM; the server writes `documentData` in the extractor's keys with
+ * `extractionStatus=SKIPPED` so compare treats it like an extracted PO.
  */
 export async function createManualPoDocument(
   dbId: string | number,
-  params: {
-    jobStageId: number;
-    documentData: Record<string, unknown>;
-    documentName?: string;
-    remarks?: string;
-  }
+  body: FrpManualPoRequest
 ): Promise<FrpJobDocumentDTO> {
-  const form = new FormData();
-  form.set("jobStageId", String(params.jobStageId));
-  form.set(
-    "documentData",
-    new Blob([JSON.stringify(params.documentData)], { type: "application/json" })
-  );
-  if (params.documentName) form.set("documentName", params.documentName);
-  if (params.remarks) form.set("remarks", params.remarks);
-
   return frpFetch<FrpJobDocumentDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
-    { method: "POST", body: form }
+    `/jobs/${encodeURIComponent(String(dbId))}/documents/po`,
+    { method: "POST", body: JSON.stringify(body) }
   );
 }
 

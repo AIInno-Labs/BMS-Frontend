@@ -47,6 +47,7 @@ import {
   type JobFileRecord,
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
+import { poDocumentDisplayName } from "@/lib/poLineItems";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
 import type {
   FrpJobDocumentDTO,
@@ -110,11 +111,12 @@ function documentTypeLabel(doc: FrpJobDocumentDTO): string {
 function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
   const when = formatDocUploadedAt(doc.uploadedAt);
   return {
-    name: doc.documentName?.trim() || "Untitled",
+    name: poDocumentDisplayName(doc, undefined, "Untitled"),
     category: documentTypeLabel(doc),
     time: when.time,
     uploadedAt: when.uploadedAt,
     documentId: doc.id,
+    documentType: doc.documentType,
   };
 }
 
@@ -146,6 +148,10 @@ export function JobWorkflowDashboard({
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+  const [versionsFocus, setVersionsFocus] = useState<{
+    documentId: number;
+    tab: "po" | "drawing";
+  } | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
@@ -304,7 +310,42 @@ export function JobWorkflowDashboard({
     setShowFileModal(true);
   };
 
+  const openDocumentVersions = (input: {
+    documentId?: number;
+    documentType?: FrpJobDocumentDTO["documentType"];
+  }) => {
+    if (input.documentId == null) return;
+    const tab =
+      input.documentType === "DRAWING"
+        ? "drawing"
+        : input.documentType === "PRODUCTION"
+          ? "po"
+          : null;
+    if (!tab) return;
+    setVersionsFocus({ documentId: input.documentId, tab });
+    window.requestAnimationFrame(() => {
+      document.getElementById("job-document-versions")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const handleOpenProjectFile = (file: JobFileRecord) => {
+    openDocumentVersions({
+      documentId: file.documentId,
+      documentType: file.documentType,
+    });
+  };
+
   const handleDownloadFile = async (file: JobFileRecord) => {
+    if (
+      (file.documentType === "PRODUCTION" || file.documentType === "DRAWING") &&
+      file.documentId != null
+    ) {
+      handleOpenProjectFile(file);
+      return;
+    }
     if (file.documentId == null) return;
     try {
       const res = await downloadJobDocument(file.documentId);
@@ -456,6 +497,7 @@ export function JobWorkflowDashboard({
         onFileSortChange={setFileSort}
         onUploadFile={openFileUploadModal}
         onDownloadFile={handleDownloadFile}
+        onOpenFile={handleOpenProjectFile}
       />
 
       <div className="mt-4 space-y-4">
@@ -497,12 +539,16 @@ export function JobWorkflowDashboard({
           job={job}
           onJobChanged={onJobChanged}
           onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+          onOpenDocument={(doc) =>
+            openDocumentVersions({ documentId: doc.id, documentType: doc.documentType })
+          }
           className="lg:col-span-2"
         />
 
         <JobDocumentRevisionsCard
           job={job}
           refreshKey={documentsRefreshKey}
+          focusDocument={versionsFocus}
           className="lg:col-span-2"
         />
 

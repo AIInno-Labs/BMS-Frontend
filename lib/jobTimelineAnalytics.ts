@@ -51,6 +51,11 @@ export interface TimelineSubStageView {
   completionPct: number;
   /** Active sub-stage only, e.g. `4 D` */
   durationLabel?: string;
+  notes?: string;
+  assignedTeam?: string;
+  startDate?: string;
+  endDate?: string;
+  statusLabel?: string;
 }
 
 export interface TimelineStageView {
@@ -149,6 +154,8 @@ export interface StageDetailInsight {
   status: string;
   dependency: string;
   notes: string;
+  /** The milestone's own note, before any child fallback. */
+  ownNotes?: string;
 }
 
 export interface SmartSummary {
@@ -287,12 +294,7 @@ export function buildJobTimelineAnalytics(
             : index === 4
               ? "Production sign-off"
               : `Prior stage: ${TIMELINE_STAGES[index - 1]?.title ?? "—"}`,
-      notes:
-        state === "active"
-          ? job.manualInstructions?.slice(0, 80) || "No blockers logged on shop floor."
-          : state === "complete"
-            ? "Gate cleared — logged in program history."
-            : "Awaiting upstream completion.",
+      notes: "",
     };
 
     return {

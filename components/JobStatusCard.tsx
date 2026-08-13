@@ -13,8 +13,14 @@ import {
   uploadJobDocument,
 } from "@/lib/frp/api";
 import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
-import type { FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
-import { emptyPoItemRow, lineItemsFromRows, totalPriceFromRows, type PoItemRow } from "@/lib/poLineItems";
+import type { FrpJobDocumentDTO, FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
+import {
+  emptyPoItemRow,
+  manualPoDocumentNameFromRows,
+  manualPoLineItemsFromRows,
+  poDocumentDisplayName,
+  type PoItemRow,
+} from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
 
 interface JobStatusCardProps {
@@ -25,6 +31,8 @@ interface JobStatusCardProps {
   onJobChanged?: () => void | Promise<void>;
   /** Called after a document is uploaded or deleted so Document Versions can refetch. */
   onDocumentsChanged?: () => void;
+  /** PO / drawing paperclip — parent scrolls to Document Versions. */
+  onOpenDocument?: (doc: FrpJobDocumentDTO) => void;
 }
 
 const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
@@ -37,6 +45,14 @@ const STATUS_LABEL: Record<NonNullable<FrpJobStageDTO["status"]>, string> = {
   SKIPPED: "Skipped",
   BLOCKED: "Blocked",
 };
+
+function versionsDocument(
+  docs: FrpJobDocumentDTO[]
+): FrpJobDocumentDTO | undefined {
+  return docs.find(
+    (d) => d.documentType === "PRODUCTION" || d.documentType === "DRAWING"
+  );
+}
 
 function statusPillClass(status: FrpJobStageDTO["status"]): string {
   switch (status) {
@@ -61,14 +77,17 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
  *
  * Document upload is asked for only when a stage carries `docRequired` — every
  * other stage ticks straight through. On save, each picked file is POSTed to
- * `/jobs/{id}/documents` before the stage PUT fires; the backend also refuses
- * to COMPLETE a doc-required stage with no document on record.
+ * `/jobs/{id}/documents` before the stage PUT fires; a production-stage
+ * "Enter manually" PO goes to `POST /jobs/{id}/documents/po` instead. The
+ * backend also refuses to COMPLETE a doc-required stage with no document on
+ * record.
  */
 export function JobStatusCard({
   job,
   className,
   onJobChanged,
   onDocumentsChanged,
+  onOpenDocument,
 }: JobStatusCardProps) {
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +118,7 @@ export function JobStatusCard({
     orderDate: "",
     buyerName: "",
     expectedDate: "",
+    currency: "",
   });
   const [poItems, setPoItems] = useState<PoItemRow[]>([emptyPoItemRow()]);
 
@@ -213,6 +233,7 @@ export function JobStatusCard({
       orderDate: "",
       buyerName: job.clientContactName ?? "",
       expectedDate: "",
+      currency: "",
     });
     setPoItems([emptyPoItemRow()]);
   };
@@ -239,31 +260,30 @@ export function JobStatusCard({
     const docRequired = !draftNotRequired;
     if (docRequired && !modalHadDocument) {
       if (manualPoActive) {
-        if (lineItemsFromRows(poItems).length === 0) return;
+        if (manualPoLineItemsFromRows(poItems).length === 0) return;
       } else if (draftFiles.length === 0) {
         return;
       }
     }
-    const notes = draftRemarks.trim() || undefined;
+    const notes = draftRemarks.trim();
     const stage = modalStage;
 
     if (manualPoActive) {
-      // No file — a PO entered by hand (best-effort, same as upload: a
-      // failed create doesn't block the stage-complete call below).
+      // No file — JSON POST /jobs/{id}/documents/po (best-effort, same as
+      // upload: a failed create doesn't block the stage-complete call below).
       if (job.dbId) {
         try {
           await createManualPoDocument(job.dbId, {
             jobStageId: stage.id as number,
-            documentName: poDetails.orderNo.trim() || undefined,
+            documentName: manualPoDocumentNameFromRows(poDetails.orderNo, poItems),
+            orderNo: poDetails.orderNo.trim() || undefined,
+            orderDate: poDetails.orderDate.trim() || undefined,
+            expectedDate: poDetails.expectedDate.trim() || undefined,
+            buyerName: poDetails.buyerName.trim() || undefined,
+            quoteNumber: job.quoteNumber?.trim() || undefined,
+            currency: poDetails.currency.trim() || undefined,
             remarks: notes,
-            documentData: {
-              orderNo: poDetails.orderNo.trim(),
-              orderDate: poDetails.orderDate.trim(),
-              buyerContact: poDetails.buyerName.trim(),
-              expectedDate: poDetails.expectedDate.trim(),
-              lineItems: lineItemsFromRows(poItems),
-              totals: { amountAfterTax: totalPriceFromRows(poItems) },
-            },
+            lineItems: manualPoLineItemsFromRows(poItems),
           });
           onDocumentsChanged?.();
         } catch (e) {
@@ -412,32 +432,64 @@ export function JobStatusCard({
                         <span className="min-w-0 flex-1 truncate">{item.stageName}</span>
 
                         {done ? (
-                          // A completed stage is re-openable to view/edit its
-                          // note (and document proof, when doc-required).
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              openStageModal(item);
-                            }}
-                            className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
-                            aria-label="View or edit note"
-                          >
+                          <span className="inline-flex shrink-0 items-center gap-0.5">
                             {item.docRequired && docs.length > 0 ? (
                               <>
-                                <Paperclip className="h-3 w-3" />
-                                <span className="max-w-28 truncate">
-                                  {docs.length > 1
-                                    ? `${docs.length} files`
-                                    : docs[0].documentName}
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    const target = versionsDocument(docs);
+                                    if (target && onOpenDocument) {
+                                      onOpenDocument(target);
+                                      return;
+                                    }
+                                    openStageModal(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
+                                  aria-label={
+                                    versionsDocument(docs) && onOpenDocument
+                                      ? "Open in Document Versions"
+                                      : "View or edit note"
+                                  }
+                                >
+                                  <Paperclip className="h-3 w-3" />
+                                  <span className="max-w-28 truncate">
+                                    {docs.length > 1
+                                      ? `${docs.length} files`
+                                      : poDocumentDisplayName(docs[0])}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    openStageModal(item);
+                                  }}
+                                  className="inline-flex items-center text-slate-400 hover:text-orange-600"
+                                  aria-label="View or edit note"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
                               </>
-                            ) : item.notes ? (
-                              <StickyNote className="h-3.5 w-3.5" />
                             ) : (
-                              <Pencil className="h-3.5 w-3.5" />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  openStageModal(item);
+                                }}
+                                className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
+                                aria-label="View or edit note"
+                              >
+                                {item.notes ? (
+                                  <StickyNote className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Pencil className="h-3.5 w-3.5" />
+                                )}
+                              </button>
                             )}
-                          </button>
+                          </span>
                         ) : item.docRequired ? (
                           // emailRequired is backend-only; no UI indicator.
                           <FileText
@@ -506,7 +558,22 @@ export function JobStatusCard({
                   >
                     <span className="flex min-w-0 items-center gap-1.5">
                       <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                      <span className="truncate">{doc.documentName}</span>
+                      {onOpenDocument &&
+                      (doc.documentType === "PRODUCTION" ||
+                        doc.documentType === "DRAWING") ? (
+                        <button
+                          type="button"
+                          className="truncate text-left hover:text-orange-700"
+                          onClick={() => {
+                            setModalStage(null);
+                            onOpenDocument(doc);
+                          }}
+                        >
+                          {poDocumentDisplayName(doc)}
+                        </button>
+                      ) : (
+                        <span className="truncate">{poDocumentDisplayName(doc)}</span>
+                      )}
                     </span>
                     <button
                       type="button"
@@ -623,7 +690,7 @@ export function JobStatusCard({
             label="Remarks (saved to stage note)"
             value={draftRemarks}
             onChange={setDraftRemarks}
-            placeholder="Any context for this stage…"
+            placeholder="e.g. Awaiting client sign-off on mould dimensions."
             multiline
           />
 
@@ -636,7 +703,7 @@ export function JobStatusCard({
               (!draftNotRequired &&
                 !modalHadDocument &&
                 (manualPoActive
-                  ? lineItemsFromRows(poItems).length === 0
+                  ? manualPoLineItemsFromRows(poItems).length === 0
                   : draftFiles.length === 0))
             }
           >

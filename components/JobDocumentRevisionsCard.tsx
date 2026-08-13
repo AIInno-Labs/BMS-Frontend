@@ -20,12 +20,15 @@ import type {
   FrpDocumentStatus,
   FrpJobDocumentDTO,
   FrpPoComparisonDTO,
+  FrpPoComparisonFieldDTO,
 } from "@/lib/frp/job-mapper";
 import {
   emptyPoItemRow,
+  isManualPoDocument,
   lineItemsFromRows,
-  parseMoneyLike,
-  parseQtyLike,
+  manualPoDocumentNameFromRows,
+  manualPoLineItemsFromRows,
+  poDocumentDisplayName,
   totalPriceFromRows,
   type PoItemRow,
 } from "@/lib/poLineItems";
@@ -48,9 +51,39 @@ function fromReviewStatus(status: ReviewStatus): FrpDocumentStatus {
 
 function versionOptionLabel(doc: FrpJobDocumentDTO, latestId: number | null): string {
   const ver = doc.documentVersion != null ? `v${doc.documentVersion}` : "v?";
-  const name = doc.documentName?.trim() || "Untitled";
+  const name = poDocumentDisplayName(doc, undefined, "Untitled");
   const latest = doc.id != null && doc.id === latestId ? " (latest)" : "";
   return `${ver} · ${name}${latest}`;
+}
+
+function PoPaperclipLabel({
+  doc,
+  extraData,
+  onDownload,
+}: {
+  doc: FrpJobDocumentDTO;
+  extraData?: Record<string, unknown> | null;
+  onDownload: (id: number | undefined) => void;
+}) {
+  const label = poDocumentDisplayName(doc, extraData);
+  if (!doc.mimeType) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+        {label}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onDownload(doc.id)}
+      className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
+    >
+      <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+      {label}
+    </button>
+  );
 }
 
 function sortByVersionDesc(docs: FrpJobDocumentDTO[]): FrpJobDocumentDTO[] {
@@ -68,20 +101,38 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** Reads a numeric/string totals field straight from the backend — no math,
- *  just stringified for display (matches how "Total Price" already reads
- *  `amountAfterTax`). */
-function totalsFieldText(totals: unknown, key: string): string | null {
-  const value = asRecord(totals)[key];
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.trim()) return value.trim();
-  return null;
-}
-
-/** Reads a string field off the PO extract JSON for the "PO Details" panel. */
 function poDetailValue(data: Record<string, unknown> | null | undefined, key: string): string {
   const value = data?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : "—";
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "—";
+}
+
+const ORDER_EXTRA_KEYS: { field: string; key: string }[] = [
+  { field: "Order Date", key: "orderDate" },
+  { field: "Buyer Name", key: "buyerContact" },
+  { field: "Quote Number", key: "quoteNumber" },
+  { field: "Supplier", key: "supplierName" },
+];
+
+/** Order-level keys that compare `fields` does not already emit. */
+function extraOrderCompareRows(
+  comparison: FrpPoComparisonDTO
+): { field: string; quote: string; thisPo: string }[] {
+  const existing = new Set(
+    (comparison.fields ?? [])
+      .filter((f) => f.group === "Order")
+      .map((f) => f.field)
+  );
+  const job = asRecord(comparison.jobData);
+  const po = asRecord(comparison.extractedData);
+  return ORDER_EXTRA_KEYS.filter((row) => !existing.has(row.field))
+    .map((row) => ({
+      field: row.field,
+      quote: poDetailValue(job, row.key),
+      thisPo: poDetailValue(po, row.key),
+    }))
+    .filter((row) => row.quote !== "—" || row.thisPo !== "—");
 }
 
 function asMapList(value: unknown): Record<string, unknown>[] {
@@ -108,9 +159,95 @@ function lineItemNumber(item: Record<string, unknown>, keys: string[]): number |
   return undefined;
 }
 
-function formatQuantityDisplay(qty: number): string {
-  const rounded = Number.isInteger(qty) ? qty : Math.round(qty * 100) / 100;
-  return `${rounded} ${rounded === 1 ? "unit" : "units"}`;
+function groupCompareFields(
+  fields: FrpPoComparisonFieldDTO[]
+): { group: string; matchedBy?: string; rows: FrpPoComparisonFieldDTO[] }[] {
+  const groups: { group: string; matchedBy?: string; rows: FrpPoComparisonFieldDTO[] }[] = [];
+  for (const row of fields) {
+    const name = row.group?.trim() || "Details";
+    const last = groups[groups.length - 1];
+    if (last && last.group === name) {
+      last.rows.push(row);
+    } else {
+      groups.push({ group: name, matchedBy: row.matchedBy, rows: [row] });
+    }
+  }
+  return groups;
+}
+
+function matchedByHint(matchedBy?: string): string | null {
+  switch (matchedBy) {
+    case "SOURCE_CODE":
+      return "matched by item code";
+    case "DESCRIPTION":
+      return "matched by description";
+    case "POSITION":
+      return "not matched by item code — paired by list order";
+    case "UNMATCHED":
+      return "no matching item code";
+    default:
+      return null;
+  }
+}
+
+function compareFieldKey(row: FrpPoComparisonFieldDTO, index: number): string {
+  return [
+    row.group ?? "row",
+    row.field ?? "field",
+    row.quoteLineIndex ?? "q",
+    row.poLineIndex ?? "p",
+    index,
+  ].join(":");
+}
+
+const ITEM_CODE_KEYS = [
+  "sourceCode",
+  "item_code",
+  "itemCode",
+  "code",
+  "sku",
+  "product_code",
+  "id",
+];
+
+function lineItemCode(item: Record<string, unknown> | undefined): string {
+  if (!item) return "—";
+  return lineItemText(item, ITEM_CODE_KEYS) ?? "—";
+}
+
+/** Item code from jobData / extractedData using the compare row indexes. */
+function itemCodeCompareRow(
+  comparison: FrpPoComparisonDTO,
+  sample: FrpPoComparisonFieldDTO
+): FrpPoComparisonFieldDTO {
+  const quoteLines = asMapList(asRecord(comparison.jobData).lineItems);
+  const poLines = asMapList(asRecord(comparison.extractedData).lineItems);
+  const quote =
+    sample.quoteLineIndex != null ? lineItemCode(quoteLines[sample.quoteLineIndex]) : "—";
+  const thisPo =
+    sample.poLineIndex != null ? lineItemCode(poLines[sample.poLineIndex]) : "—";
+  const bothMissing = quote === "—" && thisPo === "—";
+  return {
+    group: sample.group,
+    field: "Item Code",
+    quote,
+    thisPo,
+    variance: !bothMissing && quote !== thisPo,
+    matchedBy: sample.matchedBy,
+    quoteLineIndex: sample.quoteLineIndex,
+    poLineIndex: sample.poLineIndex,
+  };
+}
+
+function rowsWithItemCode(
+  comparison: FrpPoComparisonDTO,
+  section: { group: string; rows: FrpPoComparisonFieldDTO[] }
+): FrpPoComparisonFieldDTO[] {
+  if (!section.group.startsWith("Item") || section.rows.length === 0) {
+    return section.rows;
+  }
+  if (section.rows.some((r) => r.field === "Item Code")) return section.rows;
+  return [itemCodeCompareRow(comparison, section.rows[0]), ...section.rows];
 }
 
 /**
@@ -127,6 +264,7 @@ function buildEditedPoFull(
     orderDate: string;
     buyerName: string;
     expectedDate: string;
+    currency: string;
     items: PoItemRow[];
   }
 ): Record<string, unknown> {
@@ -139,6 +277,8 @@ function buildEditedPoFull(
 
   const totals = { ...asRecord(next.totals) };
   totals.amountAfterTax = totalPriceFromRows(details.items);
+  const currency = details.currency.trim().toUpperCase();
+  if (currency) totals.currency = currency;
   next.totals = totals;
   return next;
 }
@@ -153,60 +293,6 @@ function ComparisonValue({
 }) {
   const text = (value ?? "—").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   return <span className={`whitespace-pre-line ${className ?? ""}`}>{text}</span>;
-}
-
-/**
- * Normalize compare Price strings for display as `{CODE} {amount}` when the
- * currency is known (from extract totals, or inferred from symbols like A$).
- * If currency is unknown, keep the API value as-is — never invent AUD.
- */
-function inferCurrencyFromMoneyText(raw: string): string | null {
-  const t = raw.trim();
-  if (/^A\$/i.test(t) || /\bAUD\b/i.test(t)) return "AUD";
-  if (/^US\$/i.test(t) || /\bUSD\b/i.test(t)) return "USD";
-  if (/^NZ\$/i.test(t) || /\bNZD\b/i.test(t)) return "NZD";
-  if (/^CA\$/i.test(t) || /\bCAD\b/i.test(t)) return "CAD";
-  if (/^£/.test(t) || /\bGBP\b/i.test(t)) return "GBP";
-  if (/^€/.test(t) || /\bEUR\b/i.test(t)) return "EUR";
-  // India
-  if (/^₹/.test(t) || /^Rs\.?\s?/i.test(t) || /\bINR\b/i.test(t)) return "INR";
-  // Saudi Arabia / Gulf
-  if (
-    /^﷼/.test(t) ||
-    /^SR\.?\s?/i.test(t) ||
-    /\bSAR\b/i.test(t) ||
-    /\briyal\b/i.test(t)
-  ) {
-    return "SAR";
-  }
-  if (/^د\.إ/i.test(t) || /\bAED\b/i.test(t) || /\bdirham\b/i.test(t)) return "AED";
-  if (/^\$/.test(t)) return null; // bare $ — ambiguous
-  return null;
-}
-
-function formatCompareMoneyDisplay(
-  raw?: string | null,
-  currencyCode?: string | null
-): string {
-  if (raw == null) return "—";
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed === "—") return "—";
-  const amount = parseMoneyLike(trimmed);
-  if (!Number.isFinite(amount) || !/[0-9]/.test(trimmed)) return trimmed;
-  const code =
-    (currencyCode?.trim() || inferCurrencyFromMoneyText(trimmed) || "").toUpperCase() ||
-    null;
-  if (!code) return trimmed; // don't invent a currency
-  return `${code} ${Math.round(amount)}`;
-}
-
-function displayCompareFieldValue(
-  field: string | undefined,
-  raw?: string | null,
-  currencyCode?: string | null
-): string {
-  if (field === "Price") return formatCompareMoneyDisplay(raw, currencyCode);
-  return raw ?? "—";
 }
 
 function formatReviewDate(iso?: string | null): string | undefined {
@@ -296,12 +382,15 @@ interface JobDocumentRevisionsCardProps {
   className?: string;
   /** Bumped by Status Control after upload/delete so this card refetches. */
   refreshKey?: number;
+  /** Select this PO or drawing after a click elsewhere on the job page. */
+  focusDocument?: { documentId: number; tab: DocTab } | null;
 }
 
 export function JobDocumentRevisionsCard({
   job,
   className,
   refreshKey = 0,
+  focusDocument = null,
 }: JobDocumentRevisionsCardProps) {
   const { user: me } = useAuth();
   const [docType, setDocType] = useState<DocTab>("po");
@@ -334,8 +423,9 @@ export function JobDocumentRevisionsCard({
     orderDate: "",
     buyerName: "",
     expectedDate: "",
+    currency: "",
   });
-  const [addPoItems, setAddPoItems] = useState([{ quantity: "", price: "", description: "" }]);
+  const [addPoItems, setAddPoItems] = useState([emptyPoItemRow()]);
 
   // Full PO-details form — order metadata plus quantity/price/scope. Filled
   // in by hand when OCR/LLM extraction fails, or edited afterwards either
@@ -350,10 +440,9 @@ export function JobDocumentRevisionsCard({
     orderDate: "",
     buyerName: "",
     expectedDate: "",
+    currency: "",
   });
-  const [poDetailsItems, setPoDetailsItems] = useState([
-    { quantity: "", price: "", description: "" },
-  ]);
+  const [poDetailsItems, setPoDetailsItems] = useState([emptyPoItemRow()]);
 
   const [reviewModalTarget, setReviewModalTarget] = useState<DocTab | null>(null);
   const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">(
@@ -441,6 +530,18 @@ export function JobDocumentRevisionsCard({
     void loadDocuments();
   }, [loadDocuments, refreshKey]);
 
+  useEffect(() => {
+    if (!focusDocument) return;
+    setDocType(focusDocument.tab);
+    if (focusDocument.tab === "po") {
+      if (poDocs.some((d) => d.id === focusDocument.documentId)) {
+        setSelectedPoId(focusDocument.documentId);
+      }
+    } else if (drawingDocs.some((d) => d.id === focusDocument.documentId)) {
+      setSelectedDrawingId(focusDocument.documentId);
+    }
+  }, [focusDocument, poDocs, drawingDocs]);
+
   // Poll while OCR/LLM is still running in the background after a fast upload.
   useEffect(() => {
     if (!dbId || docType !== "po" || selectedPoId == null) return;
@@ -518,22 +619,36 @@ export function JobDocumentRevisionsCard({
     const fields = comparison?.fields ?? [];
     const qty = fields.find((f) => f.field === "Quantity");
     const price = fields.find((f) => f.field === "Price");
-    const scope = fields.find((f) => f.field === "Scope");
+    const scope = fields.find((f) => f.field === "Description" || f.field === "Scope");
     setPoDetailsDraft({
       quoteQty: qty?.quote ?? "",
-      quotePrice: formatCompareMoneyDisplay(price?.quote, compareCurrency),
+      quotePrice: price?.quote ?? "",
       quoteScope: scope?.quote ?? "",
       orderNo: typeof source.orderNo === "string" ? source.orderNo : "",
       orderDate: typeof source.orderDate === "string" ? source.orderDate : "",
       buyerName: typeof source.buyerContact === "string" ? source.buyerContact : "",
       expectedDate: typeof source.expectedDate === "string" ? source.expectedDate : "",
+      currency:
+        typeof asRecord(asRecord(source).totals).currency === "string"
+          ? String(asRecord(asRecord(source).totals).currency).trim().toUpperCase()
+          : "",
     });
     const rows = asMapList(source.lineItems).map((item) => ({
+      sourceCode:
+        lineItemText(item, [
+          "sourceCode",
+          "item_code",
+          "itemCode",
+          "code",
+          "sku",
+          "product_code",
+          "id",
+        ]) ?? "",
       quantity: lineItemNumber(item, ["quantity", "qty"])?.toString() ?? "",
       price: lineItemNumber(item, ["lineTotal", "unitPrice"])?.toString() ?? "",
       description: lineItemText(item, ["description", "heading", "title", "name"]) ?? "",
     }));
-    setPoDetailsItems(rows.length > 0 ? rows : [{ quantity: "", price: "", description: "" }]);
+    setPoDetailsItems(rows.length > 0 ? rows : [emptyPoItemRow()]);
     setShowPoDetailsModal(true);
   };
 
@@ -555,8 +670,12 @@ export function JobDocumentRevisionsCard({
           orderDate: poDetailsDraft.orderDate,
           buyerName: poDetailsDraft.buyerName,
           expectedDate: poDetailsDraft.expectedDate,
+          currency: poDetailsDraft.currency,
           items: poDetailsItems,
         }),
+        ...(isManualPoDocument(selectedPo)
+          ? { documentName: manualPoDocumentNameFromRows(poDetailsDraft.orderNo, poDetailsItems) }
+          : {}),
         status: "ACTIVE",
       });
       setShowPoDetailsModal(false);
@@ -585,8 +704,9 @@ export function JobDocumentRevisionsCard({
       orderDate: "",
       buyerName: job.clientContactName ?? "",
       expectedDate: "",
+      currency: "",
     });
-    setAddPoItems([{ quantity: "", price: "", description: "" }]);
+    setAddPoItems([emptyPoItemRow()]);
     setAddPoError(null);
     setShowAddPoModal(true);
   };
@@ -627,23 +747,22 @@ export function JobDocumentRevisionsCard({
           remarks: addPoRemarks.trim() || undefined,
         });
       } else {
-        const lineItems = lineItemsFromRows(addPoItems);
+        const lineItems = manualPoLineItemsFromRows(addPoItems);
         if (lineItems.length === 0) {
           setAddPoError("Add at least one line item.");
           return;
         }
         await createManualPoDocument(dbId, {
           jobStageId,
-          documentName: addPoDetails.orderNo.trim() || undefined,
+          documentName: manualPoDocumentNameFromRows(addPoDetails.orderNo, addPoItems),
+          orderNo: addPoDetails.orderNo.trim() || undefined,
+          orderDate: addPoDetails.orderDate.trim() || undefined,
+          expectedDate: addPoDetails.expectedDate.trim() || undefined,
+          buyerName: addPoDetails.buyerName.trim() || undefined,
+          quoteNumber: job.quoteNumber?.trim() || undefined,
+          currency: addPoDetails.currency.trim() || undefined,
           remarks: addPoRemarks.trim() || undefined,
-          documentData: {
-            orderNo: addPoDetails.orderNo.trim(),
-            orderDate: addPoDetails.orderDate.trim(),
-            buyerContact: addPoDetails.buyerName.trim(),
-            expectedDate: addPoDetails.expectedDate.trim(),
-            lineItems,
-            totals: { amountAfterTax: totalPriceFromRows(addPoItems) },
-          },
+          lineItems,
         });
       }
       setShowAddPoModal(false);
@@ -707,25 +826,18 @@ export function JobDocumentRevisionsCard({
   const varianceFields = (comparison?.fields ?? []).filter((f) => f.variance);
   const anyVariance = varianceFields.length > 0 || !!comparison?.needsReview;
 
-  const compareCurrency = (() => {
-    const fromExtracted = asRecord(asRecord(comparison?.extractedData).totals).currency;
-    const fromEdited = asRecord(asRecord(comparison?.editedDocumentData).totals).currency;
-    const fromJob = asRecord(asRecord(comparison?.jobData).totals).currency;
-    const raw = [fromExtracted, fromEdited, fromJob].find(
-      (v) => typeof v === "string" && v.trim()
-    );
-    return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : null;
-  })();
-
-  // Raw per-item breakdown — the Field/Quote/This PO table above folds every
-  // item into 3 summary rows (summed quantity, summed price, bulleted
-  // descriptions); this shows each item on its own so a multi-item PO isn't
-  // just one blended row. Not compared against the quote item-by-item.
-  const poLineItems = asMapList(comparison?.extractedData?.lineItems);
+  const compareGroups = groupCompareFields(comparison?.fields ?? []);
+  const extraOrderRows = comparison ? extraOrderCompareRows(comparison) : [];
+  const compareSections =
+    extraOrderRows.length > 0 && !compareGroups.some((s) => s.group === "Order")
+      ? [{ group: "Order", matchedBy: undefined as string | undefined, rows: [] }, ...compareGroups]
+      : compareGroups;
 
   const poBanner = (() => {
     if (!comparison) return null;
-    const changedLabels = varianceFields.map((f) => f.field).filter(Boolean).join(", ");
+    const changedLabels = [...new Set(varianceFields.map((f) => f.field).filter(Boolean))].join(
+      ", "
+    );
     if (!anyVariance) {
       return {
         className: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -781,7 +893,12 @@ export function JobDocumentRevisionsCard({
 
   return (
     <>
-      <WidgetCard title="Document Versions" icon={FileStack} className={className}>
+      <WidgetCard
+        id="job-document-versions"
+        title="Document Versions"
+        icon={FileStack}
+        className={`scroll-mt-6${className ? ` ${className}` : ""}`}
+      >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
             <button
@@ -887,14 +1004,7 @@ export function JobDocumentRevisionsCard({
                         update when ready.
                       </p>
                       <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-                        <button
-                          type="button"
-                          onClick={() => openDownload(selectedPo.id)}
-                          className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
-                        >
-                          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
-                          {selectedPo.documentName || "Document"}
-                        </button>
+                        <PoPaperclipLabel doc={selectedPo} onDownload={openDownload} />
                       </div>
                     </div>
                   ) : compareLoading ? (
@@ -911,30 +1021,6 @@ export function JobDocumentRevisionsCard({
                         </p>
                       ) : null}
 
-                      <div className="rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-3 py-2">
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                          PO Details
-                        </p>
-                        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
-                          <div>
-                            <dt className="text-[10px] uppercase tracking-wide text-slate-400">Order No</dt>
-                            <dd className="text-slate-700">{poDetailValue(comparison.extractedData, "orderNo")}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-[10px] uppercase tracking-wide text-slate-400">Order Date</dt>
-                            <dd className="text-slate-700">{poDetailValue(comparison.extractedData, "orderDate")}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-[10px] uppercase tracking-wide text-slate-400">Buyer Name</dt>
-                            <dd className="text-slate-700">{poDetailValue(comparison.extractedData, "buyerContact")}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-[10px] uppercase tracking-wide text-slate-400">Expected Date</dt>
-                            <dd className="text-slate-700">{poDetailValue(comparison.extractedData, "expectedDate")}</dd>
-                          </div>
-                        </dl>
-                      </div>
-
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
@@ -945,178 +1031,88 @@ export function JobDocumentRevisionsCard({
                             </tr>
                           </thead>
                           <tbody>
-                            {poLineItems.length > 0 ? (
-                              <>
-                                {poLineItems.map((item, index) => {
-                                  const description =
-                                    lineItemText(item, ["description", "heading", "title", "name"]) ??
-                                    `Item ${index + 1}`;
-                                  const quantity = lineItemNumber(item, ["quantity", "qty"]);
-                                  const itemPrice = lineItemNumber(item, ["lineTotal", "unitPrice"]);
-                                  return (
-                                    <Fragment key={index}>
-                                      <tr className="border-t-2 border-[#E5E7EB]">
-                                        <td
-                                          colSpan={3}
-                                          className="bg-[#FAFBFC] py-1 pr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-                                        >
-                                          Item {index + 1}
-                                        </td>
-                                      </tr>
-                                      <tr className="border-t border-[#EEF1F4] align-top">
-                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">Quantity</td>
-                                        <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue value="—" />
-                                        </td>
-                                        <td className="py-1.5 font-medium text-emerald-600">
-                                          <ComparisonValue
-                                            value={quantity != null ? formatQuantityDisplay(quantity) : "—"}
-                                          />
-                                        </td>
-                                      </tr>
-                                      <tr className="border-t border-[#EEF1F4] align-top">
-                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">Price</td>
-                                        <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue value="—" />
-                                        </td>
-                                        <td className="py-1.5 font-medium text-emerald-600">
-                                          <ComparisonValue
-                                            value={formatCompareMoneyDisplay(
-                                              itemPrice != null ? String(itemPrice) : null,
-                                              compareCurrency
-                                            )}
-                                          />
-                                        </td>
-                                      </tr>
-                                      <tr className="border-t border-[#EEF1F4] align-top">
-                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">Description</td>
-                                        <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue value="—" />
-                                        </td>
-                                        <td className="py-1.5 font-medium text-emerald-600">
-                                          <ComparisonValue value={description} />
-                                        </td>
-                                      </tr>
-                                    </Fragment>
-                                  );
-                                })}
-                                {(() => {
-                                  const priceField = (comparison.fields ?? []).find(
-                                    (f) => f.field === "Price"
-                                  );
-                                  if (!priceField) return null;
-                                  return (
-                                    <>
-                                      <tr className="border-t-2 border-[#E5E7EB]">
-                                        <td
-                                          colSpan={3}
-                                          className="bg-[#FAFBFC] py-1 pr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-                                        >
-                                          Totals
-                                        </td>
-                                      </tr>
-                                      <tr className="border-t border-[#EEF1F4] align-top">
+                            {compareSections.length === 0 && extraOrderRows.length === 0 ? (
+                              <tr>
+                                <td colSpan={3} className="py-2 text-sm text-slate-500">
+                                  No comparison fields returned for this PO.
+                                </td>
+                              </tr>
+                            ) : (
+                              compareSections.map((section) => {
+                                const hint = section.group.startsWith("Item")
+                                  ? matchedByHint(section.matchedBy)
+                                  : null;
+                                const extraRows = section.group === "Order" ? extraOrderRows : [];
+                                const rows = comparison
+                                  ? rowsWithItemCode(comparison, section)
+                                  : section.rows;
+                                return (
+                                  <Fragment key={section.group}>
+                                    <tr className="border-t-2 border-[#E5E7EB]">
+                                      <td
+                                        colSpan={3}
+                                        className="bg-[#FAFBFC] py-1 pr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                                      >
+                                        {section.group}
+                                        {hint ? (
+                                          <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
+                                            {hint}
+                                          </span>
+                                        ) : null}
+                                      </td>
+                                    </tr>
+                                    {rows.map((d, index) => (
+                                      <tr
+                                        key={compareFieldKey(d, index)}
+                                        className="border-t border-[#EEF1F4] align-top"
+                                      >
                                         <td className="py-1.5 pr-2 font-semibold text-slate-700">
-                                          Amount Before Tax
+                                          {d.field === "Scope" ? "Description" : d.field}
                                         </td>
                                         <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue
-                                            value={formatCompareMoneyDisplay(
-                                              totalsFieldText(
-                                                asRecord(comparison.jobData).totals,
-                                                "amountBeforeTax"
-                                              ),
-                                              compareCurrency
-                                            )}
-                                          />
-                                        </td>
-                                        <td className="py-1.5 font-medium text-slate-700">
-                                          <ComparisonValue
-                                            value={formatCompareMoneyDisplay(
-                                              totalsFieldText(
-                                                asRecord(comparison.extractedData).totals,
-                                                "amountBeforeTax"
-                                              ),
-                                              compareCurrency
-                                            )}
-                                          />
-                                        </td>
-                                      </tr>
-                                      <tr className="border-t border-[#EEF1F4] align-top">
-                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">
-                                          Total Amount
-                                        </td>
-                                        <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue
-                                            value={displayCompareFieldValue(
-                                              "Price",
-                                              priceField.quote,
-                                              compareCurrency
-                                            )}
-                                          />
+                                          <ComparisonValue value={d.quote ?? "—"} />
                                         </td>
                                         <td
                                           className={`py-1.5 font-medium ${
-                                            priceField.variance ? "text-red-600" : "text-emerald-600"
+                                            d.variance ? "text-red-600" : "text-emerald-600"
                                           }`}
                                         >
-                                          <ComparisonValue
-                                            value={displayCompareFieldValue(
-                                              "Price",
-                                              priceField.thisPo,
-                                              compareCurrency
-                                            )}
-                                          />
+                                          <ComparisonValue value={d.thisPo ?? "—"} />
                                         </td>
                                       </tr>
-                                    </>
-                                  );
-                                })()}
-                              </>
-                            ) : (
-                              (comparison.fields ?? []).map((d) => (
-                                <tr key={d.field} className="border-t border-[#EEF1F4] align-top">
-                                  <td className="py-1.5 pr-2 font-semibold text-slate-700">
-                                    {d.field === "Scope" ? "Description" : d.field}
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-slate-600">
-                                    <ComparisonValue
-                                      value={displayCompareFieldValue(
-                                        d.field,
-                                        d.quote,
-                                        compareCurrency
-                                      )}
-                                    />
-                                  </td>
-                                  <td
-                                    className={`py-1.5 font-medium ${
-                                      d.variance ? "text-red-600" : "text-emerald-600"
-                                    }`}
-                                  >
-                                    <ComparisonValue
-                                      value={displayCompareFieldValue(
-                                        d.field,
-                                        d.thisPo,
-                                        compareCurrency
-                                      )}
-                                    />
-                                  </td>
-                                </tr>
-                              ))
+                                    ))}
+                                    {extraRows.map((row) => (
+                                      <tr
+                                        key={`extra:${row.field}`}
+                                        className="border-t border-[#EEF1F4] align-top"
+                                      >
+                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">
+                                          {row.field}
+                                        </td>
+                                        <td className="py-1.5 pr-2 text-slate-600">
+                                          <ComparisonValue value={row.quote} />
+                                        </td>
+                                        <td className="py-1.5 font-medium text-slate-700">
+                                          <ComparisonValue value={row.thisPo} />
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </Fragment>
+                                );
+                              })
                             )}
                           </tbody>
                         </table>
                       </div>
 
                       <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-                        <button
-                          type="button"
-                          onClick={() => openDownload(selectedPo.id)}
-                          className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
-                        >
-                          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
-                          {comparison.documentName || selectedPo.documentName || "Document"}
-                        </button>
+                        <PoPaperclipLabel
+                          doc={selectedPo}
+                          extraData={
+                            comparison.extractedData ?? comparison.editedDocumentData
+                          }
+                          onDownload={openDownload}
+                        />
                       </div>
 
                       {anyVariance ? (
@@ -1151,14 +1147,7 @@ export function JobDocumentRevisionsCard({
                         </button>
                       ) : null}
                       <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-                        <button
-                          type="button"
-                          onClick={() => openDownload(selectedPo.id)}
-                          className="inline-flex items-center gap-1.5 text-left hover:text-orange-700"
-                        >
-                          <Paperclip className="h-3.5 w-3.5 text-slate-400" />
-                          {selectedPo.documentName || "Document"}
-                        </button>
+                        <PoPaperclipLabel doc={selectedPo} onDownload={openDownload} />
                       </div>
                     </div>
                   )}
@@ -1282,6 +1271,7 @@ export function JobDocumentRevisionsCard({
               orderDate: poDetailsDraft.orderDate,
               buyerName: poDetailsDraft.buyerName,
               expectedDate: poDetailsDraft.expectedDate,
+              currency: poDetailsDraft.currency,
             }}
             onDetailsChange={(next) => setPoDetailsDraft((d) => ({ ...d, ...next }))}
             orderNoEditable={false}
@@ -1360,7 +1350,7 @@ export function JobDocumentRevisionsCard({
                 label="Remarks"
                 value={addPoRemarks}
                 onChange={setAddPoRemarks}
-                placeholder="Any context for this PO…"
+                placeholder="e.g. Revised PO after quantity change."
                 multiline
               />
             </>

@@ -42,7 +42,7 @@ const STAGE_ICONS: Record<
 };
 
 type DetailKey =
-  | { type: "stage"; stageId: TimelineStageId }
+  | { type: "stage"; stageId: TimelineStageId; subStageId?: string }
   | { type: "health" };
 
 function formatDueLine(job: Job): string {
@@ -133,8 +133,58 @@ function subStagesFromReal(
       state,
       completionPct: op.percentComplete ?? (state === "complete" ? 100 : 0),
       durationLabel,
+      notes: op.notes?.trim() || "",
+      assignedTeam: op.assignedTeam?.trim() || "",
+      startDate: formatStageInstant(op.startedAt),
+      endDate: formatStageInstant(op.completedAt),
+      statusLabel: statusLabelOf(op.status),
     };
   });
+}
+
+function formatStageInstant(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function statusLabelOf(status?: FrpJobStageDTO["status"]): string {
+  switch (status) {
+    case "COMPLETE":
+      return "Complete";
+    case "IN_PROGRESS":
+      return "In progress";
+    case "BLOCKED":
+      return "Blocked";
+    case "SKIPPED":
+      return "Skipped";
+    default:
+      return "Pending";
+  }
+}
+
+/** Selected stage's notes: current substage, else any child, else the parent. */
+function notesFromRealStage(milestone: FrpJobStageDTO): string {
+  const parent = milestone.notes?.trim() || "";
+  const children = [...(milestone.children ?? [])].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+  );
+  const pick = (op: FrpJobStageDTO | undefined) => op?.notes?.trim() || "";
+  const isFinished = (op: FrpJobStageDTO) =>
+    op.status === "COMPLETE" || op.status === "SKIPPED";
+  const active =
+    children.find((op) => op.status === "IN_PROGRESS" || op.status === "BLOCKED") ??
+    children.find((op) => !isFinished(op));
+  if (pick(active)) return pick(active);
+  for (let i = children.length - 1; i >= 0; i--) {
+    if (pick(children[i])) return pick(children[i]);
+  }
+  return parent;
 }
 
 function DetailPanel({
@@ -172,12 +222,28 @@ function DetailPanel({
   );
 }
 
-function MinorTimelineNode({ sub }: { sub: TimelineSubStageView }) {
+function MinorTimelineNode({
+  sub,
+  selected,
+  onSelect,
+}: {
+  sub: TimelineSubStageView;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   const isActive = sub.state === "active";
   const isComplete = sub.state === "complete";
 
   return (
-    <div className="relative z-10 flex min-w-0 flex-1 flex-col items-center">
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`relative z-10 flex min-w-0 flex-1 cursor-pointer flex-col items-center rounded-md px-1 py-1 transition-colors hover:bg-white/70 ${
+        selected ? "bg-white ring-1 ring-orange-300" : ""
+      }`}
+      aria-pressed={selected}
+      aria-label={`${sub.title} — view details`}
+    >
       <div className="relative flex h-5 w-5 items-center justify-center" title={sub.title}>
         {isActive ? (
           <span className="relative flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-red-400 ring-offset-2 ring-offset-white">
@@ -191,7 +257,7 @@ function MinorTimelineNode({ sub }: { sub: TimelineSubStageView }) {
       </div>
       <p
         className={`mt-2 text-center text-[11px] leading-tight ${
-          isActive ? "font-semibold text-slate-800" : "font-medium text-slate-600"
+          selected || isActive ? "font-semibold text-slate-800" : "font-medium text-slate-600"
         }`}
       >
         {sub.shortLabel}
@@ -199,11 +265,19 @@ function MinorTimelineNode({ sub }: { sub: TimelineSubStageView }) {
           <span className="font-normal text-slate-500"> ({sub.durationLabel})</span>
         ) : null}
       </p>
-    </div>
+    </button>
   );
 }
 
-function SubStageTimeline({ subStages }: { subStages: TimelineSubStageView[] }) {
+function SubStageTimeline({
+  subStages,
+  selectedSubId,
+  onSelectSub,
+}: {
+  subStages: TimelineSubStageView[];
+  selectedSubId?: string;
+  onSelectSub?: (subId: string) => void;
+}) {
   const activeIndex = subStages.findIndex((sub) => sub.state === "active");
   const lineFillPct =
     activeIndex >= 0
@@ -229,7 +303,12 @@ function SubStageTimeline({ subStages }: { subStages: TimelineSubStageView[] }) 
         />
         <div className="relative flex justify-between gap-2">
           {subStages.map((sub) => (
-            <MinorTimelineNode key={sub.id} sub={sub} />
+            <MinorTimelineNode
+              key={sub.id}
+              sub={sub}
+              selected={selectedSubId === sub.id}
+              onSelect={onSelectSub ? () => onSelectSub(sub.id) : undefined}
+            />
           ))}
         </div>
       </div>
@@ -240,9 +319,13 @@ function SubStageTimeline({ subStages }: { subStages: TimelineSubStageView[] }) 
 function StageDetailContent({
   stage,
   detail,
+  selectedSubId,
+  onSelectSub,
 }: {
   stage: JobTimelineAnalyticsData["stages"][number];
   detail: StageDetailInsight;
+  selectedSubId?: string;
+  onSelectSub?: (subId: string) => void;
 }) {
   return (
     <>
@@ -273,7 +356,13 @@ function StageDetailContent({
       </div>
       <div className="sm:col-span-2">
         <dt className="text-[10px] font-semibold uppercase text-slate-500">Notes</dt>
-        <dd className="mt-0.5 text-slate-700">{detail.notes}</dd>
+        <dd className="mt-0.5 whitespace-pre-wrap text-slate-700">
+          {detail.notes?.trim() ? (
+            detail.notes
+          ) : (
+            <span className="text-slate-400">No notes.</span>
+          )}
+        </dd>
       </div>
     </dl>
     {stage.subStages && stage.subStages.length > 0 && (
@@ -281,7 +370,11 @@ function StageDetailContent({
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           Sub-stages
         </p>
-        <SubStageTimeline subStages={stage.subStages} />
+        <SubStageTimeline
+          subStages={stage.subStages}
+          selectedSubId={selectedSubId}
+          onSelectSub={onSelectSub}
+        />
       </div>
     )}
     </>
@@ -291,13 +384,39 @@ function StageDetailContent({
 function renderDetailContent(
   key: DetailKey,
   data: JobTimelineAnalyticsData,
-  progressDisplay: number
+  progressDisplay: number,
+  onSelectSub?: (stageId: TimelineStageId, subId: string) => void
 ) {
   if (key.type === "stage") {
     const stage = data.stages.find((s) => s.id === key.stageId)!;
+    const sub = key.subStageId
+      ? stage.subStages?.find((s) => s.id === key.subStageId)
+      : undefined;
+    const parentDetail = data.stageDetails[key.stageId];
+    const detail: StageDetailInsight = sub
+      ? {
+          ...parentDetail,
+          status: sub.statusLabel || parentDetail.status,
+          startDate: sub.startDate || "—",
+          endDate: sub.endDate || "—",
+          assignedTeam: sub.assignedTeam || parentDetail.assignedTeam,
+          notes: sub.notes?.trim() || parentDetail.ownNotes || "",
+        }
+      : parentDetail;
     return {
-      title: `${stage.title} — stage details`,
-      body: <StageDetailContent stage={stage} detail={data.stageDetails[key.stageId]} />,
+      title: sub
+        ? `${stage.title} / ${sub.title} — stage details`
+        : `${stage.title} — stage details`,
+      body: (
+        <StageDetailContent
+          stage={{ ...stage, completionPct: sub?.completionPct ?? stage.completionPct }}
+          detail={detail}
+          selectedSubId={key.subStageId}
+          onSelectSub={
+            onSelectSub ? (subId) => onSelectSub(key.stageId, subId) : undefined
+          }
+        />
+      ),
     };
   }
   if (key.type === "health") {
@@ -408,7 +527,19 @@ export function JobTimelineAnalytics({
       if (s.state === "complete" || s.state === "active") activeIndex = i;
     });
 
-    return { ...baseData, stages, overallProgress, activeIndex };
+    const stageDetails = { ...baseData.stageDetails };
+    for (const s of stages) {
+      const real = byKey.get(s.id);
+      if (!real) continue;
+      stageDetails[s.id] = {
+        ...stageDetails[s.id],
+        notes: notesFromRealStage(real),
+        ownNotes: real.notes?.trim() || "",
+        assignedTeam: real.assignedTeam?.trim() || stageDetails[s.id].assignedTeam,
+      };
+    }
+
+    return { ...baseData, stages, stageDetails, overallProgress, activeIndex };
   }, [baseData, realStages]);
 
   const [selected, setSelected] = useState<DetailKey | null>(null);
@@ -430,12 +561,17 @@ export function JobTimelineAnalytics({
 
   const toggle = (key: DetailKey) => {
     setSelected((prev) => {
-      if (!prev) return key;
-      if (prev.type !== key.type) return key;
-      if (key.type === "stage" && prev.type === "stage") {
-        return prev.stageId === key.stageId ? null : key;
+      if (key.type === "health") {
+        return prev?.type === "health" ? null : key;
       }
-      return null;
+      if (prev?.type !== "stage") return key;
+      if (prev.stageId !== key.stageId) return key;
+      if (key.subStageId) {
+        return prev.subStageId === key.subStageId
+          ? { type: "stage", stageId: key.stageId }
+          : key;
+      }
+      return prev.subStageId ? { type: "stage", stageId: key.stageId } : null;
     });
   };
 
@@ -443,7 +579,9 @@ export function JobTimelineAnalytics({
     selected?.type === "stage" && selected.stageId === id;
 
   const detailContent = selected
-    ? renderDetailContent(selected, data, progressDisplay)
+    ? renderDetailContent(selected, data, progressDisplay, (stageId, subId) =>
+        toggle({ type: "stage", stageId, subStageId: subId })
+      )
     : null;
 
   return (
@@ -606,7 +744,17 @@ export function JobTimelineAnalytics({
                   <ChevronDown className="h-4 w-4 text-slate-400" />
                 </div>
               )}
-              <SubStageTimeline subStages={focusedStage.subStages} />
+              <SubStageTimeline
+                subStages={focusedStage.subStages}
+                selectedSubId={
+                  selected?.type === "stage" && selected.stageId === focusedStage.id
+                    ? selected.subStageId
+                    : undefined
+                }
+                onSelectSub={(subId) =>
+                  toggle({ type: "stage", stageId: focusedStage.id, subStageId: subId })
+                }
+              />
             </div>
           )}
         </div>

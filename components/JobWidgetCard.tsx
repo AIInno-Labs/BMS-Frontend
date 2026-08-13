@@ -16,6 +16,7 @@ export function WidgetCard({
   onEdit,
   headerAction,
   className,
+  id,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -24,9 +25,13 @@ export function WidgetCard({
   headerAction?: React.ReactNode;
   /** Extra classes on the <article>, e.g. "lg:col-span-3" for a full-width card. */
   className?: string;
+  id?: string;
 }) {
   return (
-    <article className={`group app-card-interactive p-4 sm:p-4${className ? ` ${className}` : ""}`}>
+    <article
+      id={id}
+      className={`group app-card-interactive p-4 sm:p-4${className ? ` ${className}` : ""}`}
+    >
       <div className="mb-3 flex items-center justify-between gap-2">
         <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#111827]">
           <Icon className="h-4 w-4 shrink-0 text-[#F97316]" />
