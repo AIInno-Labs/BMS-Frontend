@@ -505,6 +505,7 @@ export function JobCard({ jobId }: JobCardProps) {
       const fresh = await loadJobDetail(jobId);
       setJob(fresh);
       if (!isEditing) setDraft(fresh);
+      setAuditRefreshKey((k) => k + 1);
     } catch {
       /* keep current data; Status Control already reflects the stage change */
     }

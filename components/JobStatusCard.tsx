@@ -4,9 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote, X } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
-import { listJobStages, updateJobStage } from "@/lib/frp/api";
+import { PoManualEntryFields, type PoDetailsFormValue } from "@/components/PoManualEntryFields";
+import {
+  createManualPoDocument,
+  deleteJobDocument,
+  listJobStages,
+  updateJobStage,
+  uploadJobDocument,
+} from "@/lib/frp/api";
 import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
 import type { FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
+import { emptyPoItemRow, lineItemsFromRows, totalPriceFromRows, type PoItemRow } from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
 
 interface JobStatusCardProps {
@@ -15,6 +23,8 @@ interface JobStatusCardProps {
   /** Called after a stage change persists — lets the parent refetch the job so
    *  the main page (status badge, timeline, %) reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
+  /** Called after a document is uploaded or deleted so Document Versions can refetch. */
+  onDocumentsChanged?: () => void;
 }
 
 const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
@@ -42,18 +52,6 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
 }
 
 /**
- * What was attached (or waived) when completing a stage that requires a
- * document. Purely local for now — there is no attachment endpoint on the
- * server yet, so the file name / remarks are not persisted; only the stage's
- * COMPLETE status is (via `PUT /jobs/{id}/stages/{stageId}`). Keyed by stage id.
- */
-interface ProofRecord {
-  fileNames?: string[];
-  remarks?: string;
-  notRequired: boolean;
-}
-
-/**
  * Status Control — the live stage tree for a job, straight from
  * `GET /jobs/{id}/stages`. The dropdown picks a milestone; its operations
  * render as checkboxes whose ticked state is the real backend status. Ticking
@@ -62,27 +60,47 @@ interface ProofRecord {
  * transaction).
  *
  * Document upload is asked for only when a stage carries `docRequired` — every
- * other stage ticks straight through. The upload itself is captured locally
- * until an attachment endpoint exists.
+ * other stage ticks straight through. On save, each picked file is POSTed to
+ * `/jobs/{id}/documents` before the stage PUT fires; the backend also refuses
+ * to COMPLETE a doc-required stage with no document on record.
  */
-export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardProps) {
+export function JobStatusCard({
+  job,
+  className,
+  onJobChanged,
+  onDocumentsChanged,
+}: JobStatusCardProps) {
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
 
-  // Local-only proof of the doc-required stages that have been completed,
-  // keyed by stage id — see ProofRecord.
-  const [proofs, setProofs] = useState<Record<number, ProofRecord>>({});
-
   // The note modal, opened on every stage tick. It always offers the document
   // option; the stage's own `docRequired` decides whether a document is
   // mandatory. When not required, a "No attachment required" toggle is offered.
   const [modalStage, setModalStage] = useState<FrpJobStageDTO | null>(null);
-  const [draftFileNames, setDraftFileNames] = useState<string[]>([]);
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [draftRemarks, setDraftRemarks] = useState("");
   const [draftNotRequired, setDraftNotRequired] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  // True when the stage already has a document on record (`stage.documents`,
+  // from the server) — re-saving remarks shouldn't be blocked on picking a
+  // new file when one was already uploaded on a prior save.
+  const [modalHadDocument, setModalHadDocument] = useState(false);
+
+  // Production stages only: upload a real PO file (default, unchanged), or
+  // enter its details by hand with no attachment — same form as Document
+  // Versions' Add PO modal.
+  const [poMode, setPoMode] = useState<"upload" | "manual">("upload");
+  const [poDetails, setPoDetails] = useState<PoDetailsFormValue>({
+    orderNo: "",
+    orderDate: "",
+    buyerName: "",
+    expectedDate: "",
+  });
+  const [poItems, setPoItems] = useState<PoItemRow[]>([emptyPoItemRow()]);
 
   const load = useCallback(async () => {
     if (!job.dbId) {
@@ -179,26 +197,29 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
   );
 
   const openStageModal = (stage: FrpJobStageDTO) => {
-    const existing = stage.id != null ? proofs[stage.id] : undefined;
     setModalStage(stage);
-    setDraftFileNames(existing?.fileNames ?? []);
-    // Prefill remarks from the local proof if any, else the stage's saved note.
-    setDraftRemarks(existing?.remarks ?? stage.notes ?? "");
+    // Files themselves aren't re-picked on open — already-uploaded documents
+    // are shown read-only from `stage.documents` (see the modal body below).
+    setDraftFiles([]);
+    setDraftRemarks(stage.notes ?? "");
     // "No attachment required" is the inverse of the stage's docRequired flag.
     setDraftNotRequired(!(stage.docRequired ?? false));
+    setModalHadDocument((stage.documents?.length ?? 0) > 0);
+    // Order No / Buyer Name are fixed job-level facts — same prefill as
+    // Document Versions' Add PO modal.
+    setPoMode("upload");
+    setPoDetails({
+      orderNo: job.orderNumber ?? "",
+      orderDate: "",
+      buyerName: job.clientContactName ?? "",
+      expectedDate: "",
+    });
+    setPoItems([emptyPoItemRow()]);
   };
 
   const onToggle = (stage: FrpJobStageDTO) => {
     if (savingId != null) return;
     if (stage.status === "COMPLETE") {
-      // Unticking clears any local proof and reverts the stage.
-      if (stage.id != null) {
-        setProofs((prev) => {
-          const nextProofs = { ...prev };
-          delete nextProofs[stage.id as number];
-          return nextProofs;
-        });
-      }
       void persist(stage, { status: "PENDING" });
       return;
     }
@@ -207,23 +228,74 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
     openStageModal(stage);
   };
 
+  const isProductionStage = selectedKey === "production";
+  const manualPoActive = isProductionStage && poMode === "manual";
+
   const saveStageModal = async () => {
     if (!modalStage || modalStage.id == null) return;
     // A document is required unless "No attachment required" is ticked; when
-    // required, a file must be chosen to complete.
+    // required, something must be provided — a file (or manual line items on
+    // a production stage) — unless one was already recorded on a prior save.
     const docRequired = !draftNotRequired;
-    if (docRequired && draftFileNames.length === 0) return;
+    if (docRequired && !modalHadDocument) {
+      if (manualPoActive) {
+        if (lineItemsFromRows(poItems).length === 0) return;
+      } else if (draftFiles.length === 0) {
+        return;
+      }
+    }
     const notes = draftRemarks.trim() || undefined;
     const stage = modalStage;
-    // Remember what was attached / waived (local only - no attachment endpoint).
-    setProofs((prev) => ({
-      ...prev,
-      [stage.id as number]: {
-        fileNames: draftFileNames.length ? draftFileNames : undefined,
-        remarks: notes,
-        notRequired: draftNotRequired,
-      },
-    }));
+
+    if (manualPoActive) {
+      // No file — a PO entered by hand (best-effort, same as upload: a
+      // failed create doesn't block the stage-complete call below).
+      if (job.dbId) {
+        try {
+          await createManualPoDocument(job.dbId, {
+            jobStageId: stage.id as number,
+            documentName: poDetails.orderNo.trim() || undefined,
+            remarks: notes,
+            documentData: {
+              orderNo: poDetails.orderNo.trim(),
+              orderDate: poDetails.orderDate.trim(),
+              buyerContact: poDetails.buyerName.trim(),
+              expectedDate: poDetails.expectedDate.trim(),
+              lineItems: lineItemsFromRows(poItems),
+              totals: { amountAfterTax: totalPriceFromRows(poItems) },
+            },
+          });
+          onDocumentsChanged?.();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not add PO");
+        }
+      }
+    } else if (job.dbId && draftFiles.length > 0) {
+      // Upload every picked file first (best-effort: a failed upload doesn't
+      // block the stage-complete call below — if the stage genuinely requires
+      // a document and none made it through, the backend rejects the COMPLETE
+      // status and the real error surfaces from `persist`).
+      setUploading(true);
+      const results = await Promise.allSettled(
+        draftFiles.map((file) =>
+          uploadJobDocument(job.dbId as string | number, {
+            jobStageId: stage.id as number,
+            file,
+            remarks: notes,
+          })
+        )
+      );
+      setUploading(false);
+      const uploaded = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - uploaded;
+      if (failed > 0) {
+        setError(
+          `${failed} of ${draftFiles.length} document upload${draftFiles.length > 1 ? "s" : ""} failed.`
+        );
+      }
+      if (uploaded > 0) onDocumentsChanged?.();
+    }
+
     // "No attachment required" persists the docRequired flag; note is saved and
     // the stage completes. Keep the modal open (spinner) until it returns.
     const ok = await persist(stage, {
@@ -232,6 +304,29 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
       docRequired,
     });
     if (ok) setModalStage(null);
+  };
+
+  /** Deletes an already-uploaded document. Purely a document action — it
+   *  doesn't touch the stage's own COMPLETE status either way. */
+  const handleDeleteDocument = async (docId: number, docName?: string) => {
+    if (!window.confirm(`Delete ${docName ?? "this document"}?`)) return;
+    setDeletingDocId(docId);
+    try {
+      await deleteJobDocument(docId);
+      // Update the open modal immediately; `load()` keeps the checklist
+      // badge (outside the modal) in sync with the same server truth.
+      setModalStage((prev) =>
+        prev
+          ? { ...prev, documents: (prev.documents ?? []).filter((d) => d.id !== docId) }
+          : prev
+      );
+      onDocumentsChanged?.();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete document");
+    } finally {
+      setDeletingDocId(null);
+    }
   };
 
   return (
@@ -297,7 +392,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                   {items.map((item) => {
                     const done = item.status === "COMPLETE";
                     const saving = savingId === item.id;
-                    const proof = item.id != null ? proofs[item.id] : undefined;
+                    const docs = item.documents ?? [];
                     return (
                       <div
                         key={item.id ?? item.stageKey}
@@ -328,19 +423,15 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
                             className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
                             aria-label="View or edit note"
                           >
-                            {item.docRequired && proof ? (
-                              proof.notRequired ? (
-                                "N/A"
-                              ) : (
-                                <>
-                                  <Paperclip className="h-3 w-3" />
-                                  <span className="max-w-[7rem] truncate">
-                                    {proof.fileNames && proof.fileNames.length > 1
-                                      ? `${proof.fileNames.length} files`
-                                      : proof.fileNames?.[0]}
-                                  </span>
-                                </>
-                              )
+                            {item.docRequired && docs.length > 0 ? (
+                              <>
+                                <Paperclip className="h-3 w-3" />
+                                <span className="max-w-28 truncate">
+                                  {docs.length > 1
+                                    ? `${docs.length} files`
+                                    : docs[0].documentName}
+                                </span>
+                              </>
                             ) : item.notes ? (
                               <StickyNote className="h-3.5 w-3.5" />
                             ) : (
@@ -385,7 +476,7 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
         title={`Add note — ${modalStage?.stageName ?? ""}`}
         onClose={() => setModalStage(null)}
       >
-        <div className="space-y-3">
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           {/* Document is offered on every stage. "No attachment required"
               persists the stage's docRequired flag (its inverse); when a
               document IS required, a file must be attached to complete. */}
@@ -395,49 +486,129 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
               checked={draftNotRequired}
               onChange={(e) => {
                 setDraftNotRequired(e.target.checked);
-                if (e.target.checked) setDraftFileNames([]);
+                if (e.target.checked) setDraftFiles([]);
               }}
               className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
             />
             No attachment required
           </label>
 
-          {!draftNotRequired && (
+          {(modalStage?.documents?.length ?? 0) > 0 && (
+            <div>
+              <span className="block text-sm font-medium text-slate-700">
+                Already uploaded
+              </span>
+              <div className="mt-1 space-y-1.5">
+                {modalStage!.documents!.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-sm text-slate-700"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <FileText className="h-4 w-4 shrink-0" aria-hidden />
+                      <span className="truncate">{doc.documentName}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteDocument(doc.id as number, doc.documentName)}
+                      disabled={deletingDocId === doc.id}
+                      className="shrink-0 rounded-md p-0.5 text-slate-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50"
+                      aria-label={`Delete ${doc.documentName}`}
+                    >
+                      {deletingDocId === doc.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <X className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!draftNotRequired && isProductionStage && (
+            <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setPoMode("upload")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  poMode === "upload"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Upload file
+              </button>
+              <button
+                type="button"
+                onClick={() => setPoMode("manual")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  poMode === "manual"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Enter manually
+              </button>
+            </div>
+          )}
+
+          {!draftNotRequired && manualPoActive && (
+            <PoManualEntryFields
+              details={poDetails}
+              onDetailsChange={setPoDetails}
+              orderNoEditable
+              items={poItems}
+              onItemsChange={setPoItems}
+            />
+          )}
+
+          {!draftNotRequired && !manualPoActive && (
             <label className="block text-sm font-medium text-slate-700">
               Upload document
               <input
                 type="file"
                 multiple
                 onChange={(e) => {
-                  const picked = Array.from(e.target.files ?? []).map((f) => f.name);
+                  const picked = Array.from(e.target.files ?? []);
                   if (!picked.length) return;
-                  setDraftFileNames((prev) => [
+                  setDraftFiles((prev) => [
                     ...prev,
-                    ...picked.filter((name) => !prev.includes(name)),
+                    ...picked.filter((f) => !prev.some((p) => p.name === f.name)),
                   ]);
                   // Allow re-picking the same file name after removal.
                   e.target.value = "";
                 }}
                 className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
               />
-              {draftFileNames.length > 0 && (
+              {selectedKey === "production" ? (
+                <p className="mt-1.5 text-xs font-normal text-slate-500">
+                  Uploaded POs appear under Document Versions for quote comparison.
+                </p>
+              ) : selectedKey === "design" ? (
+                <p className="mt-1.5 text-xs font-normal text-slate-500">
+                  Uploaded drawings appear under Document Versions.
+                </p>
+              ) : null}
+              {draftFiles.length > 0 && (
                 <div className="mt-2 space-y-1.5">
-                  {draftFileNames.map((name, index) => (
+                  {draftFiles.map((file, index) => (
                     <div
-                      key={`${name}-${index}`}
+                      key={`${file.name}-${index}`}
                       className="flex items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-2"
                     >
                       <span className="flex min-w-0 items-center gap-1.5 text-sm font-normal text-orange-800">
                         <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                        <span className="truncate">{name}</span>
+                        <span className="truncate">{file.name}</span>
                       </span>
                       <button
                         type="button"
                         onClick={() =>
-                          setDraftFileNames((prev) => prev.filter((_, i) => i !== index))
+                          setDraftFiles((prev) => prev.filter((_, i) => i !== index))
                         }
                         className="shrink-0 rounded-md p-0.5 text-orange-600 hover:bg-orange-100"
-                        aria-label={`Remove ${name}`}
+                        aria-label={`Remove ${file.name}`}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -460,11 +631,20 @@ export function JobStatusCard({ job, className, onJobChanged }: JobStatusCardPro
             className="btn-primary inline-flex w-full items-center justify-center gap-2"
             onClick={() => void saveStageModal()}
             disabled={
+              uploading ||
               (modalStage != null && savingId === modalStage.id) ||
-              (!draftNotRequired && draftFileNames.length === 0)
+              (!draftNotRequired &&
+                !modalHadDocument &&
+                (manualPoActive
+                  ? lineItemsFromRows(poItems).length === 0
+                  : draftFiles.length === 0))
             }
           >
-            {modalStage != null && savingId === modalStage.id ? (
+            {uploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+              </>
+            ) : modalStage != null && savingId === modalStage.id ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" /> Saving…
               </>
