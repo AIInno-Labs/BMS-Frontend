@@ -4,9 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote, X } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
-import { deleteJobDocument, listJobStages, updateJobStage, uploadJobDocument } from "@/lib/frp/api";
+import { PoManualEntryFields, type PoDetailsFormValue } from "@/components/PoManualEntryFields";
+import {
+  createManualPoDocument,
+  deleteJobDocument,
+  listJobStages,
+  updateJobStage,
+  uploadJobDocument,
+} from "@/lib/frp/api";
 import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
 import type { FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
+import { emptyPoItemRow, lineItemsFromRows, totalPriceFromRows, type PoItemRow } from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
 
 interface JobStatusCardProps {
@@ -81,6 +89,18 @@ export function JobStatusCard({
   // from the server) — re-saving remarks shouldn't be blocked on picking a
   // new file when one was already uploaded on a prior save.
   const [modalHadDocument, setModalHadDocument] = useState(false);
+
+  // Production stages only: upload a real PO file (default, unchanged), or
+  // enter its details by hand with no attachment — same form as Document
+  // Versions' Add PO modal.
+  const [poMode, setPoMode] = useState<"upload" | "manual">("upload");
+  const [poDetails, setPoDetails] = useState<PoDetailsFormValue>({
+    orderNo: "",
+    orderDate: "",
+    buyerName: "",
+    expectedDate: "",
+  });
+  const [poItems, setPoItems] = useState<PoItemRow[]>([emptyPoItemRow()]);
 
   const load = useCallback(async () => {
     if (!job.dbId) {
@@ -185,6 +205,16 @@ export function JobStatusCard({
     // "No attachment required" is the inverse of the stage's docRequired flag.
     setDraftNotRequired(!(stage.docRequired ?? false));
     setModalHadDocument((stage.documents?.length ?? 0) > 0);
+    // Order No / Buyer Name are fixed job-level facts — same prefill as
+    // Document Versions' Add PO modal.
+    setPoMode("upload");
+    setPoDetails({
+      orderNo: job.orderNumber ?? "",
+      orderDate: "",
+      buyerName: job.clientContactName ?? "",
+      expectedDate: "",
+    });
+    setPoItems([emptyPoItemRow()]);
   };
 
   const onToggle = (stage: FrpJobStageDTO) => {
@@ -198,21 +228,53 @@ export function JobStatusCard({
     openStageModal(stage);
   };
 
+  const isProductionStage = selectedKey === "production";
+  const manualPoActive = isProductionStage && poMode === "manual";
+
   const saveStageModal = async () => {
     if (!modalStage || modalStage.id == null) return;
     // A document is required unless "No attachment required" is ticked; when
-    // required, a file must be chosen unless one was already uploaded on a
-    // prior completion of this stage.
+    // required, something must be provided — a file (or manual line items on
+    // a production stage) — unless one was already recorded on a prior save.
     const docRequired = !draftNotRequired;
-    if (docRequired && draftFiles.length === 0 && !modalHadDocument) return;
+    if (docRequired && !modalHadDocument) {
+      if (manualPoActive) {
+        if (lineItemsFromRows(poItems).length === 0) return;
+      } else if (draftFiles.length === 0) {
+        return;
+      }
+    }
     const notes = draftRemarks.trim() || undefined;
     const stage = modalStage;
 
-    // Upload every picked file first (best-effort: a failed upload doesn't
-    // block the stage-complete call below — if the stage genuinely requires
-    // a document and none made it through, the backend rejects the COMPLETE
-    // status and the real error surfaces from `persist`).
-    if (job.dbId && draftFiles.length > 0) {
+    if (manualPoActive) {
+      // No file — a PO entered by hand (best-effort, same as upload: a
+      // failed create doesn't block the stage-complete call below).
+      if (job.dbId) {
+        try {
+          await createManualPoDocument(job.dbId, {
+            jobStageId: stage.id as number,
+            documentName: poDetails.orderNo.trim() || undefined,
+            remarks: notes,
+            documentData: {
+              orderNo: poDetails.orderNo.trim(),
+              orderDate: poDetails.orderDate.trim(),
+              buyerContact: poDetails.buyerName.trim(),
+              expectedDate: poDetails.expectedDate.trim(),
+              lineItems: lineItemsFromRows(poItems),
+              totals: { amountAfterTax: totalPriceFromRows(poItems) },
+            },
+          });
+          onDocumentsChanged?.();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not add PO");
+        }
+      }
+    } else if (job.dbId && draftFiles.length > 0) {
+      // Upload every picked file first (best-effort: a failed upload doesn't
+      // block the stage-complete call below — if the stage genuinely requires
+      // a document and none made it through, the backend rejects the COMPLETE
+      // status and the real error surfaces from `persist`).
       setUploading(true);
       const results = await Promise.allSettled(
         draftFiles.map((file) =>
@@ -414,7 +476,7 @@ export function JobStatusCard({
         title={`Add note — ${modalStage?.stageName ?? ""}`}
         onClose={() => setModalStage(null)}
       >
-        <div className="space-y-3">
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           {/* Document is offered on every stage. "No attachment required"
               persists the stage's docRequired flag (its inverse); when a
               document IS required, a file must be attached to complete. */}
@@ -465,7 +527,44 @@ export function JobStatusCard({
             </div>
           )}
 
-          {!draftNotRequired && (
+          {!draftNotRequired && isProductionStage && (
+            <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setPoMode("upload")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  poMode === "upload"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Upload file
+              </button>
+              <button
+                type="button"
+                onClick={() => setPoMode("manual")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  poMode === "manual"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Enter manually
+              </button>
+            </div>
+          )}
+
+          {!draftNotRequired && manualPoActive && (
+            <PoManualEntryFields
+              details={poDetails}
+              onDetailsChange={setPoDetails}
+              orderNoEditable
+              items={poItems}
+              onItemsChange={setPoItems}
+            />
+          )}
+
+          {!draftNotRequired && !manualPoActive && (
             <label className="block text-sm font-medium text-slate-700">
               Upload document
               <input
@@ -534,7 +633,11 @@ export function JobStatusCard({
             disabled={
               uploading ||
               (modalStage != null && savingId === modalStage.id) ||
-              (!draftNotRequired && draftFiles.length === 0 && !modalHadDocument)
+              (!draftNotRequired &&
+                !modalHadDocument &&
+                (manualPoActive
+                  ? lineItemsFromRows(poItems).length === 0
+                  : draftFiles.length === 0))
             }
           >
             {uploading ? (

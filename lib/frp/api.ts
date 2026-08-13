@@ -779,6 +779,36 @@ export async function uploadJobDocument(
 }
 
 /**
+ * `POST /jobs/{id}/documents` with no `file` part — a PO entered by hand,
+ * with no attachment. Requires the backend's file-optional create path
+ * (`documentData` in place of a file); until that ships, this 400s the same
+ * way a normal upload would if you dropped the file field.
+ */
+export async function createManualPoDocument(
+  dbId: string | number,
+  params: {
+    jobStageId: number;
+    documentData: Record<string, unknown>;
+    documentName?: string;
+    remarks?: string;
+  }
+): Promise<FrpJobDocumentDTO> {
+  const form = new FormData();
+  form.set("jobStageId", String(params.jobStageId));
+  form.set(
+    "documentData",
+    new Blob([JSON.stringify(params.documentData)], { type: "application/json" })
+  );
+  if (params.documentName) form.set("documentName", params.documentName);
+  if (params.remarks) form.set("remarks", params.remarks);
+
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
+    { method: "POST", body: form }
+  );
+}
+
+/**
  * `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only.
  * Compares extracted / edited PO data against the job quote.
  */
