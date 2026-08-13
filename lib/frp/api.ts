@@ -26,6 +26,8 @@ import type {
   FrpJobDocumentDTO,
   FrpJobDocumentUpdateRequest,
   FrpJobDTO,
+  FrpJobPaymentDTO,
+  FrpJobPaymentUpdateRequest,
   FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
@@ -654,6 +656,20 @@ export async function saveSchedulingLogistics(
 }
 
 /**
+ * `PUT /jobs/{id}/payment` — mark received (or not) and/or set estimated due date.
+ * Null fields are left unchanged. Prefers the FINAL payment when several exist.
+ */
+export async function updateJobPayment(
+  dbId: string | number,
+  body: FrpJobPaymentUpdateRequest
+): Promise<FrpJobPaymentDTO> {
+  return frpFetch<FrpJobPaymentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/payment`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/**
  * `GET /jobs/{id}/job-card` — fetches the card and records a
  * `JOB_CARD_DOWNLOADED` audit row against the caller. Call this when the user
  * downloads/prints the card so the pull is tracked; the returned DTO is the
@@ -753,6 +769,36 @@ export async function uploadJobDocument(
   const form = new FormData();
   form.set("jobStageId", String(params.jobStageId));
   form.set("file", params.file);
+  if (params.documentName) form.set("documentName", params.documentName);
+  if (params.remarks) form.set("remarks", params.remarks);
+
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
+    { method: "POST", body: form }
+  );
+}
+
+/**
+ * `POST /jobs/{id}/documents` with no `file` part — a PO entered by hand,
+ * with no attachment. Requires the backend's file-optional create path
+ * (`documentData` in place of a file); until that ships, this 400s the same
+ * way a normal upload would if you dropped the file field.
+ */
+export async function createManualPoDocument(
+  dbId: string | number,
+  params: {
+    jobStageId: number;
+    documentData: Record<string, unknown>;
+    documentName?: string;
+    remarks?: string;
+  }
+): Promise<FrpJobDocumentDTO> {
+  const form = new FormData();
+  form.set("jobStageId", String(params.jobStageId));
+  form.set(
+    "documentData",
+    new Blob([JSON.stringify(params.documentData)], { type: "application/json" })
+  );
   if (params.documentName) form.set("documentName", params.documentName);
   if (params.remarks) form.set("remarks", params.remarks);
 

@@ -87,7 +87,8 @@ export interface FrpJobDTO {
   lastModifiedDate?: string;
   /** `READ_ONLY`, detail view only (`GET /jobs/{id}`) — resolved `customerId` row. */
   customer?: FrpCustomerDTO | null;
-  /** `READ_ONLY`, detail view only — every contact on file for `customer`. */
+  /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
+  payments?: FrpJobPaymentDTO[];
 }
 
 /** `CustomerDTO` — nested on `JobDTO` in the detail view. */
@@ -196,7 +197,9 @@ export interface FrpJobCardPayload {
   documentsRequired?: boolean;
   sampleRequired?: boolean;
   coiRequired?: boolean;
+  /** @deprecated Payment lives on `job_payment`; kept to read older cards. */
   paymentReceived?: boolean | null;
+  /** @deprecated Payment lives on `job_payment`; kept to read older cards. */
   paymentDueDate?: string;
   /** Not on the backend `Job` entity — carried in the card so it round-trips. */
   dateRaised?: string;
@@ -339,6 +342,34 @@ export interface FrpPoComparisonDTO {
   editedDocumentData?: Record<string, unknown> | null;
 }
 
+export type FrpPaymentKind = "DEPOSIT" | "PROGRESS" | "FINAL";
+export type FrpPaymentStatus = "DUE" | "RECEIVED" | "OVERDUE" | "WRITTEN_OFF";
+
+/** `JobPaymentDTO` — nested on `GET /jobs/{id}` and returned by payment PUT. */
+export interface FrpJobPaymentDTO {
+  id?: number;
+  jobId?: number;
+  quoteNumber?: string;
+  amount?: number;
+  currency?: string;
+  kind?: FrpPaymentKind;
+  status?: FrpPaymentStatus;
+  dueDate?: string;
+  receivedAt?: string;
+  reference?: string;
+  recordedBy?: number;
+}
+
+/**
+ * `PUT /jobs/{id}/payment` — null fields are left unchanged.
+ * `paid: true` → RECEIVED, `paid: false` → DUE.
+ * `estimatedDate` maps to `job_payment.due_date` (`yyyy-MM-dd`).
+ */
+export interface FrpJobPaymentUpdateRequest {
+  paid?: boolean;
+  estimatedDate?: string;
+}
+
 /** `PUT /documents/{id}` — only non-null fields are applied. */
 export interface FrpJobDocumentUpdateRequest {
   documentName?: string;
@@ -402,6 +433,22 @@ function userIdToBackend(id?: string | null): number | null {
   if (!id) return null;
   const n = Number(id);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Prefer FINAL; otherwise the first row — same rule as backend `pickJobPayment`. */
+function pickJobPayment(
+  payments?: FrpJobPaymentDTO[] | null
+): FrpJobPaymentDTO | undefined {
+  if (!payments?.length) return undefined;
+  return payments.find((p) => p.kind === "FINAL") ?? payments[0];
+}
+
+function paymentReceivedFromStatus(
+  status?: FrpPaymentStatus
+): boolean | null {
+  if (status === "RECEIVED") return true;
+  if (status == null) return null;
+  return false;
 }
 
 /* ------------------------------------------------------------- DTO → UI */
@@ -493,6 +540,7 @@ export function schedulingLogisticsToBackend(
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
   const spec = card?.productSpec;
+  const payment = pickJobPayment(dto.payments);
   // The job card carries its own snapshot of contact details for print, but a
   // freshly created job has an empty card - fall back to the customer's first
   // contact (and then the company itself) so the job screen isn't blank until
@@ -554,8 +602,11 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       programHistory: card?.programHistory ?? [],
       additionalNotes: card?.additionalNotes,
       jobCardNotes: card?.notes || dto.notes || undefined,
-      paymentReceived: card?.paymentReceived ?? null,
-      paymentDueDate: card?.paymentDueDate,
+      paymentReceived:
+        payment != null
+          ? paymentReceivedFromStatus(payment.status)
+          : card?.paymentReceived ?? null,
+      paymentDueDate: payment?.dueDate ?? card?.paymentDueDate,
     },
   };
 
@@ -714,8 +765,6 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     documentsRequired: extras?.documentsRequired,
     sampleRequired: extras?.sampleRequired,
     coiRequired: extras?.coiRequired,
-    paymentReceived: extras?.paymentReceived ?? null,
-    paymentDueDate: extras?.paymentDueDate,
     dateRaised: job.date || undefined,
     quoteValidUntil: job.quoteValidUntil,
     manufacturingRequired: job.manufacturingRequired,
