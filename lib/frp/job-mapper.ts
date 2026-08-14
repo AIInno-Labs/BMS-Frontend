@@ -43,6 +43,8 @@ export interface FrpJobSummaryDTO {
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
   createdDate?: string;
 }
 
@@ -66,6 +68,8 @@ export interface FrpJobDTO {
   priority?: string;
   /** `WRITE_ONLY`, create only. Resolved through `JobStatusLabel`. */
   stageStatusLabel?: string;
+  /** `READ_ONLY` — furthest milestone that's complete or active, e.g. `"design"`. */
+  currentStageKey?: string | null;
   resinCode?: string | null;
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
@@ -520,6 +524,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
     percentComplete: dto.percentComplete ?? null,
+    currentStageKey: dto.currentStageKey ?? null,
   };
 }
 
@@ -680,6 +685,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     createdAt: dto.createdDate,
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
+    currentStageKey: dto.currentStageKey ?? null,
   };
 }
 

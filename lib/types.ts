@@ -150,6 +150,8 @@ export interface Job {
   origin?: "QUOTE" | "FACTORY";
   /** Stage-tree completion, served on the list projection only. */
   percentComplete?: number | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
 }
 
 export type ShipmentMethod =

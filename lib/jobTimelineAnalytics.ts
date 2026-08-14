@@ -43,6 +43,20 @@ export const TIMELINE_STAGES: Array<{
   { id: "completed", title: "Completed", shortLabel: "Done" },
 ];
 
+/**
+ * `job.currentStageKey` → the real milestone name (e.g. "design" → "Drawing").
+ * Backend-authoritative (`JobStageServiceImpl.recomputeJobStatus`): the
+ * furthest milestone that's complete or active, so it stays accurate even
+ * while the coarse `stageStatus`/group bucket hasn't advanced yet. `null` for
+ * jobs the backend hasn't populated it on — callers should fall back to the
+ * coarse status group in that case.
+ */
+export function timelineStageInfo(
+  stageKey?: string | null
+): { title: string; shortLabel: string } | null {
+  return TIMELINE_STAGES.find((s) => s.id === stageKey) ?? null;
+}
+
 export interface TimelineSubStageView {
   id: string;
   title: string;
