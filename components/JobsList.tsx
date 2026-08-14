@@ -42,6 +42,8 @@ import {
   type JobStageGroup,
   parseStageGroupParam,
 } from "@/lib/jobStageGroups";
+import { resolveStatusGroup } from "@/lib/jobStatus";
+import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
 import type { Job, JobStatus, ResinType } from "@/lib/types";
 
 interface JobsListProps {
@@ -55,14 +57,38 @@ function getJobRowClass(job: Job, striped: "white" | "slate"): string {
   return striped === "white" ? "bg-white" : "bg-[#FAFBFC]";
 }
 
+const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
+  "not-started": "status-pill status-pill--not-started",
+  manufacturing: "status-pill status-pill--manufacturing",
+  delivered: "status-pill status-pill--delivered",
+};
+
 function getStageBadgeClass(status: Job["status"]): string {
-  if (status === "Complete") {
-    return "status-pill status-pill--delivered";
-  }
-  if (status === "In Fabrication") {
-    return "status-pill status-pill--manufacturing";
-  }
-  return "status-pill status-pill--not-started";
+  return STAGE_GROUP_CLASS[resolveStatusGroup(status)];
+}
+
+const STAGE_GROUP_LABEL_FULL: Record<JobStageGroup, string> = {
+  "not-started": "Not Started",
+  manufacturing: "Manufacturing",
+  delivered: "Delivered",
+};
+
+const STAGE_GROUP_LABEL_SHORT: Record<JobStageGroup, string> = {
+  "not-started": "New",
+  manufacturing: "Mfg",
+  delivered: "Del",
+};
+
+// currentStageKey (backend-computed: furthest milestone that's complete or
+// active) names the real stage, e.g. "Drawing" — more precise than the
+// coarse status group, which only advances once the *next* stage has
+// started. Falls back to the group label for jobs the backend hasn't
+// populated it on.
+function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
+  const real = timelineStageInfo(job.currentStageKey);
+  if (real) return variant === "full" ? real.title : real.shortLabel;
+  const group = resolveStatusGroup(job.status);
+  return variant === "full" ? STAGE_GROUP_LABEL_FULL[group] : STAGE_GROUP_LABEL_SHORT[group];
 }
 
 export function JobsList({ jobs }: JobsListProps) {
@@ -505,11 +531,7 @@ function JobsTable({
                       <span
                         className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
                       >
-                        {job.status === "In Fabrication"
-                          ? "MANUFACTURING"
-                          : job.status === "Complete"
-                            ? "DELIVERED"
-                            : "NOT STARTED"}
+                        {getStageBadgeLabel(job, "full")}
                       </span>
                     </td>
                   )}
@@ -554,11 +576,7 @@ function JobsCards({
               <span
                 className={`shrink-0 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
               >
-                {job.status === "In Fabrication"
-                  ? "MFG"
-                  : job.status === "Complete"
-                    ? "DEL"
-                    : "NEW"}
+                {getStageBadgeLabel(job, "short")}
               </span>
             )}
           </div>

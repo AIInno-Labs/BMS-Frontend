@@ -16,6 +16,7 @@ import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
 import type { FrpJobDocumentDTO, FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
 import {
   emptyPoItemRow,
+  firstPoItemRowsError,
   manualPoDocumentNameFromRows,
   manualPoLineItemsFromRows,
   poDocumentDisplayName,
@@ -262,6 +263,13 @@ export function JobStatusCard({
       if (manualPoActive) {
         if (manualPoLineItemsFromRows(poItems).length === 0) return;
       } else if (draftFiles.length === 0) {
+        return;
+      }
+    }
+    if (manualPoActive) {
+      const itemsError = firstPoItemRowsError(poItems);
+      if (itemsError) {
+        setError(itemsError);
         return;
       }
     }

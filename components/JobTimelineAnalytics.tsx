@@ -18,6 +18,7 @@ import {
 import { useAnimatedNumber } from "@/components/analytics/useAnimatedNumber";
 import {
   buildJobTimelineAnalytics,
+  timelineStageInfo,
   type JobTimelineAnalyticsData,
   type StageDetailInsight,
   type TimelineStageId,
@@ -26,6 +27,8 @@ import {
 } from "@/lib/jobTimelineAnalytics";
 import { listJobStages } from "@/lib/frp/api";
 import type { FrpJobStageDTO } from "@/lib/frp/job-mapper";
+import { resolveStatusGroup } from "@/lib/jobStatus";
+import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job } from "@/lib/types";
 
 const STAGE_ICONS: Record<
@@ -58,16 +61,32 @@ function formatDueLine(job: Job): string {
   })}`;
 }
 
-function jobStageLabel(status: Job["status"]): string {
-  if (status === "Complete") return "Delivered";
-  if (status === "In Fabrication") return "Manufacturing";
-  return "Not Started";
+const STAGE_GROUP_LABEL: Record<JobStageGroup, string> = {
+  "not-started": "Not Started",
+  manufacturing: "Manufacturing",
+  delivered: "Delivered",
+};
+
+const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
+  "not-started": "status-pill status-pill--not-started",
+  manufacturing: "status-pill status-pill--manufacturing",
+  delivered: "status-pill status-pill--delivered",
+};
+
+// `currentStageKey` (backend-computed: furthest milestone that's complete or
+// active) names the real stage the job is sitting at, e.g. "Drawing" — more
+// precise than the coarse status group, which only flips once the *next*
+// stage has started. Falls back to the group label for jobs the backend
+// hasn't populated it on.
+function jobStageLabel(job: Job): string {
+  return (
+    timelineStageInfo(job.currentStageKey)?.title ??
+    STAGE_GROUP_LABEL[resolveStatusGroup(job.status)]
+  );
 }
 
 function jobStageClass(status: Job["status"]): string {
-  if (status === "Complete") return "status-pill status-pill--delivered";
-  if (status === "In Fabrication") return "status-pill status-pill--manufacturing";
-  return "status-pill status-pill--not-started";
+  return STAGE_GROUP_CLASS[resolveStatusGroup(status)];
 }
 
 interface JobTimelineAnalyticsProps {
@@ -605,7 +624,7 @@ export function JobTimelineAnalytics({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className={jobStageClass(job.status)}>{jobStageLabel(job.status)}</span>
+          <span className={jobStageClass(job.status)}>{jobStageLabel(job)}</span>
           <button
             type="button"
             onClick={() => toggle({ type: "health" })}

@@ -24,6 +24,7 @@ import type {
 } from "@/lib/frp/job-mapper";
 import {
   emptyPoItemRow,
+  firstPoItemRowsError,
   isManualPoDocument,
   lineItemsFromRows,
   manualPoDocumentNameFromRows,
@@ -183,8 +184,6 @@ function matchedByHint(matchedBy?: string): string | null {
       return "matched by description";
     case "POSITION":
       return "not matched by item code — paired by list order";
-    case "UNMATCHED":
-      return "no matching item code";
     default:
       return null;
   }
@@ -402,6 +401,7 @@ export function JobDocumentRevisionsCard({
   const [userNamesById, setUserNamesById] = useState<Record<number, string>>({});
 
   const [comparison, setComparison] = useState<FrpPoComparisonDTO | null>(null);
+  const [showAllPoItems, setShowAllPoItems] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareUnavailable, setCompareUnavailable] = useState(false);
@@ -542,6 +542,10 @@ export function JobDocumentRevisionsCard({
     }
   }, [focusDocument, poDocs, drawingDocs]);
 
+  useEffect(() => {
+    setShowAllPoItems(false);
+  }, [selectedPoId]);
+
   // Poll while OCR/LLM is still running in the background after a fast upload.
   useEffect(() => {
     if (!dbId || docType !== "po" || selectedPoId == null) return;
@@ -608,8 +612,10 @@ export function JobDocumentRevisionsCard({
    *  a prior manual save) — the one entry point for editing a PO's own
    *  details, whether extraction succeeded (a couple of corrections) or
    *  failed outright (everything entered by hand). Quote-side reference
-   *  values only show once a comparison already exists. Order No and Buyer
-   *  Name are read-only here — identity facts, not something to correct. */
+   *  values only show once a comparison already exists. Order No is
+   *  editable here since extraction can fail to read it. Buyer Name is a
+   *  fixed job-level fact (not typed per PO), so it's prefilled from the
+   *  job's client contact and read-only. */
   const openPoDetailsModal = () => {
     const source =
       comparison?.extractedData ??
@@ -626,7 +632,7 @@ export function JobDocumentRevisionsCard({
       quoteScope: scope?.quote ?? "",
       orderNo: typeof source.orderNo === "string" ? source.orderNo : "",
       orderDate: typeof source.orderDate === "string" ? source.orderDate : "",
-      buyerName: typeof source.buyerContact === "string" ? source.buyerContact : "",
+      buyerName: job.clientContactName ?? "",
       expectedDate: typeof source.expectedDate === "string" ? source.expectedDate : "",
       currency:
         typeof asRecord(asRecord(source).totals).currency === "string"
@@ -654,6 +660,11 @@ export function JobDocumentRevisionsCard({
 
   const savePoDetailsModal = async () => {
     if (!selectedPo?.id) return;
+    const itemsError = firstPoItemRowsError(poDetailsItems);
+    if (itemsError) {
+      setError(itemsError);
+      return;
+    }
     setActionBusy(true);
     setError(null);
     try {
@@ -747,6 +758,11 @@ export function JobDocumentRevisionsCard({
           remarks: addPoRemarks.trim() || undefined,
         });
       } else {
+        const itemsError = firstPoItemRowsError(addPoItems);
+        if (itemsError) {
+          setAddPoError(itemsError);
+          return;
+        }
         const lineItems = manualPoLineItemsFromRows(addPoItems);
         if (lineItems.length === 0) {
           setAddPoError("Add at least one line item.");
@@ -832,6 +848,19 @@ export function JobDocumentRevisionsCard({
     extraOrderRows.length > 0 && !compareGroups.some((s) => s.group === "Order")
       ? [{ group: "Order", matchedBy: undefined as string | undefined, rows: [] }, ...compareGroups]
       : compareGroups;
+
+  const PO_ITEM_PREVIEW_COUNT = 2;
+  const totalItemSections = compareSections.filter((s) => s.group.startsWith("Item")).length;
+  const hasMorePoItems = totalItemSections > PO_ITEM_PREVIEW_COUNT;
+  let visibleItemSections = 0;
+  const visibleCompareSections = compareSections.filter((s) => {
+    if (!s.group.startsWith("Item")) return true;
+    visibleItemSections += 1;
+    return showAllPoItems || visibleItemSections <= PO_ITEM_PREVIEW_COUNT;
+  });
+  const lastVisibleItemGroup = [...visibleCompareSections]
+    .reverse()
+    .find((s) => s.group.startsWith("Item"))?.group;
 
   const poBanner = (() => {
     if (!comparison) return null;
@@ -1038,7 +1067,7 @@ export function JobDocumentRevisionsCard({
                                 </td>
                               </tr>
                             ) : (
-                              compareSections.map((section) => {
+                              visibleCompareSections.map((section) => {
                                 const hint = section.group.startsWith("Item")
                                   ? matchedByHint(section.matchedBy)
                                   : null;
@@ -1097,6 +1126,23 @@ export function JobDocumentRevisionsCard({
                                         </td>
                                       </tr>
                                     ))}
+                                    {hasMorePoItems && section.group === lastVisibleItemGroup ? (
+                                      <tr className="border-t border-[#EEF1F4]">
+                                        <td colSpan={3} className="py-2">
+                                          <div className="flex justify-center sm:justify-end">
+                                            <button
+                                              type="button"
+                                              onClick={() => setShowAllPoItems((v) => !v)}
+                                              className="text-xs font-medium text-orange-700 hover:text-orange-800"
+                                            >
+                                              {showAllPoItems
+                                                ? "Show less"
+                                                : `Load more (${totalItemSections - PO_ITEM_PREVIEW_COUNT} more)`}
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ) : null}
                                   </Fragment>
                                 );
                               })
@@ -1274,7 +1320,6 @@ export function JobDocumentRevisionsCard({
               currency: poDetailsDraft.currency,
             }}
             onDetailsChange={(next) => setPoDetailsDraft((d) => ({ ...d, ...next }))}
-            orderNoEditable={false}
             items={poDetailsItems}
             onItemsChange={setPoDetailsItems}
           />
