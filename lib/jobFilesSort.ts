@@ -5,6 +5,8 @@ export type JobFileRecord = {
   uploadedAt?: number;
   /** Backend document id when the row came from `GET /jobs/{id}/documents`. */
   documentId?: number;
+  /** Backend `documentType` — PRODUCTION / DRAWING open in Document Versions. */
+  documentType?: "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
 };
 
 export type JobFileSortMode = "recents" | "newest" | "name" | "category";

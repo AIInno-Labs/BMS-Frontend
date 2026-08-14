@@ -313,10 +313,16 @@ export interface FrpJobDocumentDTO {
 
 /** One row in `PoComparisonDTO.fields` (Field / Quote / This PO). */
 export interface FrpPoComparisonFieldDTO {
+  /** `Order`, `Item 1`…, or `Totals`. */
+  group?: string;
   field?: string;
   quote?: string;
   thisPo?: string;
   variance?: boolean;
+  /** `SOURCE_CODE` | `DESCRIPTION` | `POSITION` | `UNMATCHED` — line items only. */
+  matchedBy?: string;
+  quoteLineIndex?: number | null;
+  poLineIndex?: number | null;
 }
 
 /** `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only. */
@@ -377,6 +383,37 @@ export interface FrpJobDocumentUpdateRequest {
   status?: FrpDocumentStatus;
   documentData?: Record<string, unknown> | null;
   editedDocumentData?: Record<string, unknown> | null;
+}
+
+/** One line on `POST /jobs/{jobId}/documents/po`. */
+export interface FrpManualPoLineItemRequest {
+  sourceCode?: string;
+  description?: string;
+  quantity?: number;
+  /** Per-unit price. Server stores it as `unitPrice`. */
+  price?: number;
+  /** Left off so the server derives `quantity × price`. */
+  lineTotal?: number;
+}
+
+/**
+ * `POST /jobs/{jobId}/documents/po` — hand-keyed PO, no file / OCR / LLM.
+ * Stage must resolve to a production milestone.
+ */
+export interface FrpManualPoRequest {
+  jobStageId: number;
+  documentName?: string;
+  orderNo?: string;
+  /** `yyyy-MM-dd` */
+  orderDate?: string;
+  /** `yyyy-MM-dd` */
+  expectedDate?: string;
+  buyerName?: string;
+  supplierName?: string;
+  quoteNumber?: string;
+  currency?: string;
+  remarks?: string;
+  lineItems?: FrpManualPoLineItemRequest[];
 }
 
 /** `GET /documents/{id}/download` — short-lived signed SharePoint URL. */

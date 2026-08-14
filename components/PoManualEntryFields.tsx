@@ -9,7 +9,24 @@ export interface PoDetailsFormValue {
   orderDate: string;
   buyerName: string;
   expectedDate: string;
+  /** ISO 4217 code. Empty until the operator picks one — never invent AUD. */
+  currency: string;
 }
+
+const CURRENCY_OPTIONS = [
+  "AUD",
+  "USD",
+  "NZD",
+  "GBP",
+  "EUR",
+  "INR",
+  "SAR",
+  "AED",
+  "CAD",
+] as const;
+
+const fieldClass =
+  "mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
 /**
  * Order metadata + repeatable line items for a manually-entered PO (no file
@@ -37,6 +54,7 @@ export function PoManualEntryFields({
         label="Order No"
         value={details.orderNo}
         onChange={(v) => onDetailsChange({ ...details, orderNo: v })}
+        placeholder="e.g. PO-248074"
         disabled={!orderNoEditable}
       />
       <ModalField
@@ -52,6 +70,21 @@ export function PoManualEntryFields({
         value={details.expectedDate}
         onChange={(v) => onDetailsChange({ ...details, expectedDate: v })}
       />
+      <label className="block text-sm font-medium text-slate-700">
+        Currency
+        <select
+          value={details.currency}
+          onChange={(e) => onDetailsChange({ ...details, currency: e.target.value })}
+          className={fieldClass}
+        >
+          <option value="">Choose currency</option>
+          {CURRENCY_OPTIONS.map((code) => (
+            <option key={code} value={code}>
+              {code}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="flex items-center justify-between pt-1">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -86,11 +119,20 @@ export function PoManualEntryFields({
             ) : null}
           </div>
           <ModalField
+            label="Item code"
+            value={item.sourceCode}
+            onChange={(v) =>
+              onItemsChange(items.map((it, i) => (i === index ? { ...it, sourceCode: v } : it)))
+            }
+            placeholder="e.g. ABC-001"
+          />
+          <ModalField
             label="PO quantity"
             value={item.quantity}
             onChange={(v) =>
               onItemsChange(items.map((it, i) => (i === index ? { ...it, quantity: v } : it)))
             }
+            placeholder="e.g. 12"
           />
           <ModalField
             label="PO price"
@@ -98,6 +140,7 @@ export function PoManualEntryFields({
             onChange={(v) =>
               onItemsChange(items.map((it, i) => (i === index ? { ...it, price: v } : it)))
             }
+            placeholder="Unit price, e.g. 1250"
           />
           <ModalField
             label="PO description"
@@ -105,6 +148,7 @@ export function PoManualEntryFields({
             onChange={(v) =>
               onItemsChange(items.map((it, i) => (i === index ? { ...it, description: v } : it)))
             }
+            placeholder="e.g. FRP grating as per drawing C59807"
             multiline
           />
         </div>

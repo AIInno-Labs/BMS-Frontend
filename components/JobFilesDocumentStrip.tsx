@@ -20,6 +20,10 @@ import {
   getFileThumbnailStyle,
 } from "@/lib/jobFileThumbnail";
 
+function isVersionsDocument(file: JobFileRecord): boolean {
+  return file.documentType === "PRODUCTION" || file.documentType === "DRAWING";
+}
+
 interface JobFilesDocumentStripProps {
   jobId: string;
   files: JobFileRecord[];
@@ -27,6 +31,8 @@ interface JobFilesDocumentStripProps {
   onFileSortChange: (mode: JobFileSortMode) => void;
   onUpload: () => void;
   onDownload: (file: JobFileRecord) => void;
+  /** PO / drawing clicks — parent scrolls to Document Versions. */
+  onOpenFile?: (file: JobFileRecord) => void;
   /** Full-width “Project documents” row vs compact Files widget */
   variant?: "full" | "compact";
 }
@@ -67,7 +73,11 @@ function FileThumbnailTile({
           : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
       }`}
       aria-pressed={selected}
-      aria-label={`${file.name}, ${file.category}. Click to open.`}
+      aria-label={
+        isVersionsDocument(file)
+          ? `Open ${file.name} in Document Versions`
+          : `${file.name}, ${file.category}. Click to open.`
+      }
     >
       <div
         className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
@@ -102,6 +112,7 @@ export function JobFilesDocumentStrip({
   onFileSortChange,
   onUpload,
   onDownload,
+  onOpenFile,
   variant = "full",
 }: JobFilesDocumentStripProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -148,6 +159,11 @@ export function JobFilesDocumentStrip({
           file={file}
           selected={variant !== "compact" && selectedFile != null && fileKey(selectedFile) === fileKey(file)}
           onSelect={() => {
+            if (isVersionsDocument(file) && onOpenFile) {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onOpenFile(file);
+              return;
+            }
             if (variant === "compact") {
               onDownload(file);
               return;
@@ -176,14 +192,24 @@ export function JobFilesDocumentStrip({
       </p>
       <p className="mt-1 text-xs text-slate-500">Job {jobId}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
-          onClick={() => onDownload(selectedFile)}
-        >
-          <Download className="h-4 w-4 text-orange-600" aria-hidden />
-          Download
-        </button>
+        {isVersionsDocument(selectedFile) && onOpenFile ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+            onClick={() => onOpenFile(selectedFile)}
+          >
+            View version →
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+            onClick={() => onDownload(selectedFile)}
+          >
+            <Download className="h-4 w-4 text-orange-600" aria-hidden />
+            Download
+          </button>
+        )}
         <button
           type="button"
           className="text-sm font-semibold text-orange-700 hover:text-orange-800"

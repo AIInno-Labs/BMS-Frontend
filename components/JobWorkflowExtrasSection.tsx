@@ -43,6 +43,7 @@ interface JobWorkflowExtrasSectionProps {
   onFileSortChange: (mode: JobFileSortMode) => void;
   onUploadFile: () => void;
   onDownloadFile: (file: JobFileRecord) => void;
+  onOpenFile?: (file: JobFileRecord) => void;
 }
 
 function addDaysIso(days: number): string {
@@ -61,6 +62,7 @@ export function JobWorkflowExtrasSection({
   onFileSortChange,
   onUploadFile,
   onDownloadFile,
+  onOpenFile,
 }: JobWorkflowExtrasSectionProps) {
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const workers = getAssignableWorkers();
@@ -299,6 +301,7 @@ export function JobWorkflowExtrasSection({
           onFileSortChange={onFileSortChange}
           onUpload={onUploadFile}
           onDownload={onDownloadFile}
+          onOpenFile={onOpenFile}
         />
       </section>
 
