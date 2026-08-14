@@ -1,4 +1,4 @@
-# Vercel production deploy — only after merge (push) to milestone* / del-*.
+# Vercel production deploy — only after merge (push) to milestone*.
 #
 # Production site: https://bms-frontend-phi.vercel.app/
 # API:             https://frp-684387770054.asia-south1.run.app/api/v1
@@ -13,7 +13,6 @@ on:
   push:
     branches:
       - "milestone*"
-      - "del-*"
   workflow_dispatch:
 
 env:
@@ -28,7 +27,7 @@ concurrency:
 jobs:
   production:
     name: Production
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (startsWith(github.ref_name, 'milestone') || startsWith(github.ref_name, 'del-')))
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'milestone'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
