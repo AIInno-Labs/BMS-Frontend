@@ -47,7 +47,7 @@ import {
   type JobFileRecord,
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
-import { poDocumentDisplayName } from "@/lib/poLineItems";
+import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
 import type {
   FrpJobDocumentDTO,
@@ -117,6 +117,7 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
     uploadedAt: when.uploadedAt,
     documentId: doc.id,
     documentType: doc.documentType,
+    isManualEntry: isManualPoDocument(doc),
   };
 }
 
@@ -357,6 +358,21 @@ export function JobWorkflowDashboard({
     }
   };
 
+  /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
+   *  the file itself (unlike `handleDownloadFile`, which redirects those
+   *  document types to Document Versions instead). */
+  const handleDownloadVersionFile = async (file: JobFileRecord) => {
+    if (file.documentId == null) return;
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
   const handleUploadProjectDocument = async () => {
     if (!job.dbId || !fileUploadDraft.file || fileUploadDraft.milestoneId === "") return;
     setFileUploading(true);
@@ -498,6 +514,7 @@ export function JobWorkflowDashboard({
         onUploadFile={openFileUploadModal}
         onDownloadFile={handleDownloadFile}
         onOpenFile={handleOpenProjectFile}
+        onDownloadVersionFile={handleDownloadVersionFile}
       />
 
       <div className="mt-4 space-y-4">

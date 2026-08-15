@@ -7,6 +7,8 @@ export type JobFileRecord = {
   documentId?: number;
   /** Backend `documentType` — PRODUCTION / DRAWING open in Document Versions. */
   documentType?: "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
+  /** PO entered by hand with no file attached (see `isManualPoDocument`). */
+  isManualEntry?: boolean;
 };
 
 export type JobFileSortMode = "recents" | "newest" | "name" | "category";
