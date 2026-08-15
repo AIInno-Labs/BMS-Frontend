@@ -566,6 +566,7 @@ export function JobWorkflowDashboard({
           job={job}
           refreshKey={documentsRefreshKey}
           focusDocument={versionsFocus}
+          onJobChanged={onJobChanged}
           className="lg:col-span-2"
         />
 
