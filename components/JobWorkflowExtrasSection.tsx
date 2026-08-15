@@ -44,6 +44,8 @@ interface JobWorkflowExtrasSectionProps {
   onUploadFile: () => void;
   onDownloadFile: (file: JobFileRecord) => void;
   onOpenFile?: (file: JobFileRecord) => void;
+  /** Detail-panel "Download" for versioned PO/drawing docs. */
+  onDownloadVersionFile?: (file: JobFileRecord) => void;
 }
 
 function addDaysIso(days: number): string {
@@ -63,6 +65,7 @@ export function JobWorkflowExtrasSection({
   onUploadFile,
   onDownloadFile,
   onOpenFile,
+  onDownloadVersionFile,
 }: JobWorkflowExtrasSectionProps) {
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const workers = getAssignableWorkers();
@@ -302,6 +305,7 @@ export function JobWorkflowExtrasSection({
           onUpload={onUploadFile}
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
+          onDownloadVersionFile={onDownloadVersionFile}
         />
       </section>
 

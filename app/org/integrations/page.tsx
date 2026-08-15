@@ -33,9 +33,10 @@ function isGeneratedParam(name: string) {
   return GENERATED_PARAMS.has(name);
 }
 
-function groupOf(name: string): "SharePoint" | "Quotient" | "Other" {
+function groupOf(name: string): "SharePoint" | "Quotient" | "LLM" | "Other" {
   if (name.startsWith("SHAREPOINT_")) return "SharePoint";
   if (name.startsWith("QUOTIENT_")) return "Quotient";
+  if (name.startsWith("LLM_")) return "LLM";
   return "Other";
 }
 
@@ -103,6 +104,7 @@ export default function OrgIntegrationsPage() {
     const map: Record<string, ApplicationParameterDTO[]> = {
       SharePoint: [],
       Quotient: [],
+      LLM: [],
       Other: [],
     };
     for (const p of params) {
@@ -111,7 +113,10 @@ export default function OrgIntegrationsPage() {
     return map;
   }, [params]);
 
-  async function onSaveGroup(e: FormEvent, group: "SharePoint" | "Quotient" | "Other") {
+  async function onSaveGroup(
+    e: FormEvent,
+    group: "SharePoint" | "Quotient" | "LLM" | "Other"
+  ) {
     e.preventDefault();
     setSaving(true);
     setError(null);
@@ -224,7 +229,7 @@ export default function OrgIntegrationsPage() {
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Loading…</p>
         ) : (
-          (["SharePoint", "Quotient", "Other"] as const).map((group) => {
+          (["SharePoint", "Quotient", "LLM", "Other"] as const).map((group) => {
             const rows = grouped[group];
             if (rows.length === 0) return null;
             return (

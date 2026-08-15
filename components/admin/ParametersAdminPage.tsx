@@ -26,9 +26,10 @@ function isSecretParam(name: string) {
   return SECRET_SUFFIXES.some((s) => name.endsWith(s));
 }
 
-function groupOf(name: string): "SharePoint" | "Quotient" | "Other" {
+function groupOf(name: string): "SharePoint" | "Quotient" | "LLM" | "Other" {
   if (name.startsWith("SHAREPOINT_")) return "SharePoint";
   if (name.startsWith("QUOTIENT_")) return "Quotient";
+  if (name.startsWith("LLM_")) return "LLM";
   return "Other";
 }
 
@@ -124,6 +125,7 @@ export function ParametersAdminPage() {
     const map: Record<string, ApplicationParameterDTO[]> = {
       SharePoint: [],
       Quotient: [],
+      LLM: [],
       Other: [],
     };
     for (const p of params) {
@@ -367,7 +369,7 @@ export function ParametersAdminPage() {
         ) : scope === "org" && orgId === "" ? (
           <p className="mt-4 text-sm text-slate-500">Select an organization.</p>
         ) : (
-          (["SharePoint", "Quotient", "Other"] as const).map((group) => (
+          (["SharePoint", "Quotient", "LLM", "Other"] as const).map((group) => (
             <div key={group} className="app-card mt-4 !p-0">
               <div className="border-b border-slate-100 px-4 py-3 text-base font-semibold text-[#111827]">
                 {group}

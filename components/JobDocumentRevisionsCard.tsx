@@ -1,7 +1,16 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { FileStack, FileText, Loader2, Paperclip, Pencil, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  FileStack,
+  FileText,
+  Loader2,
+  Paperclip,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
 import { PoManualEntryFields } from "@/components/PoManualEntryFields";
@@ -1133,11 +1142,19 @@ export function JobDocumentRevisionsCard({
                                             <button
                                               type="button"
                                               onClick={() => setShowAllPoItems((v) => !v)}
-                                              className="text-xs font-medium text-orange-700 hover:text-orange-800"
+                                              className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 transition-colors hover:border-orange-300 hover:bg-orange-100 hover:text-orange-800"
                                             >
-                                              {showAllPoItems
-                                                ? "Show less"
-                                                : `Load more (${totalItemSections - PO_ITEM_PREVIEW_COUNT} more)`}
+                                              {showAllPoItems ? (
+                                                <>
+                                                  <ChevronUp className="h-3.5 w-3.5" />
+                                                  Show less
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <ChevronDown className="h-3.5 w-3.5" />
+                                                  {`Load more (${totalItemSections - PO_ITEM_PREVIEW_COUNT} more)`}
+                                                </>
+                                              )}
                                             </button>
                                           </div>
                                         </td>
