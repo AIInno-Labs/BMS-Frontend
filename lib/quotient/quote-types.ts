@@ -61,6 +61,8 @@ export interface QuotientQuote {
   deposit_percent: number | null;
   deposit_amount_includes_tax: number | null;
   deposit_amount_excludes_tax: number | null;
+  tax_amount: number | null;
+  net_amount: number | null;
   item_headings: string | null;
   /** Legacy mirror */
   customer_name: string;
