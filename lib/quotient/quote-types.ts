@@ -107,6 +107,8 @@ export interface QuoteListItem {
   job_id: string | null;
   total_includes_tax: number | null;
   currency: string;
+  /** Backend `createdAt` (LocalDate) — day the quote row was logged. */
+  created_at: string | null;
   updated_at: string;
   question_count: number;
 }

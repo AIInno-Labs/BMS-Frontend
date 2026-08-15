@@ -482,7 +482,8 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             </span>
             <span
               className={`rounded-md px-2 py-1 text-xs font-semibold ${
-                quote.factory_job_status === "Complete"
+                quote.factory_job_status === "Complete" ||
+                quote.factory_job_status === "COMPLETED"
                   ? "bg-emerald-100 text-emerald-800"
                   : quote.factory_job_status
                     ? "bg-amber-100 text-amber-900"

@@ -6,10 +6,11 @@ import { MessageCircle, RefreshCw } from "lucide-react";
 import {
   factoryStatusLabel,
   isFactoryComplete,
+  isSystemLogged,
   journeyOutcomeLabel,
 } from "@/lib/quotes/labels";
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
-import { formatCreatedDate } from "@/lib/mockData";
+import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { listQuotes } from "@/lib/frp/api";
 
 function JourneyBadge({ item }: { item: QuoteListItem }) {
@@ -43,8 +44,8 @@ function SystemLoggedBadge({ logged }: { logged: boolean }) {
       }`}
       title={
         logged
-          ? "Job exists in Jobs tab (JOB-Q-…)"
-          : "Not in Jobs yet — waiting for quote_accepted"
+          ? "Factory job exists (factoryStatus is set)"
+          : "No factory job yet — factoryStatus is null"
       }
     >
       {logged ? "Yes" : "No"}
@@ -69,7 +70,7 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
       </p>
       <p className="mt-1 text-sm text-slate-600">{q.quote_for_company_name}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <SystemLoggedBadge logged={Boolean(q.factory_job_status)} />
+        <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
         <FactoryBadge item={q} />
         {q.quote_status && (
           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -78,7 +79,8 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
         )}
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        Updated {formatCreatedDate(q.updated_at)}
+        Created {formatShortDate(q.created_at)}
+        {q.updated_at ? ` · Updated ${formatCreatedDate(q.updated_at)}` : ""}
         {q.last_event_name ? ` · ${q.last_event_name.replace(/_/g, " ")}` : ""}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -110,12 +112,15 @@ function FactoryBadge({ item }: { item: QuoteListItem }) {
     return <span className="text-xs text-slate-500">—</span>;
   }
   const status = item.factory_job_status ?? "—";
-  const done = status === "Complete" || status === "Cancelled";
+  const done =
+    status === "Complete" ||
+    status === "COMPLETED" ||
+    status === "Cancelled";
   return (
     <span
       className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${
         done
-          ? status === "Complete"
+          ? status === "Complete" || status === "COMPLETED"
             ? "bg-emerald-100 text-emerald-800"
             : "bg-slate-200 text-slate-700"
           : "bg-amber-100 text-amber-900"
@@ -177,6 +182,11 @@ export function QuotesPage() {
             r.lastEventName ??
             r.last_event_name ??
             null) as string | null,
+          created_at:
+            (r.createdAt as string | null) ??
+            (r.created_at as string | null) ??
+            (r.createdDate as string | null) ??
+            null,
           updated_at: String(
             r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
           ),
@@ -272,7 +282,7 @@ export function QuotesPage() {
 
         <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <tr>
                   <th className="px-4 py-3">Quote Number</th>
@@ -283,6 +293,7 @@ export function QuotesPage() {
                   <th className="px-4 py-3">System Logged</th>
                   <th className="px-4 py-3">Factory Status</th>
                   <th className="px-4 py-3">Last Event</th>
+                  <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Updated</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -291,7 +302,7 @@ export function QuotesPage() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="px-4 py-8 text-center text-slate-500"
                     >
                       Loading quotes…
@@ -300,7 +311,7 @@ export function QuotesPage() {
                 ) : filtered.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="px-4 py-8 text-center text-slate-500"
                     >
                       No quotes found. Webhooks populate this list
@@ -329,7 +340,7 @@ export function QuotesPage() {
                         <JourneyBadge item={q} />
                       </td>
                       <td className="px-4 py-3">
-                        <SystemLoggedBadge logged={Boolean(q.factory_job_status)} />
+                        <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
                       </td>
                       <td className="px-4 py-3">
                         <FactoryBadge item={q} />
@@ -343,6 +354,9 @@ export function QuotesPage() {
                               )
                               .join(" ")
                           : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatShortDate(q.created_at)}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {formatCreatedDate(q.updated_at)}
