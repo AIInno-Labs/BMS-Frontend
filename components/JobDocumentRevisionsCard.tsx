@@ -384,6 +384,8 @@ interface JobDocumentRevisionsCardProps {
   refreshKey?: number;
   /** Select this PO or drawing after a click elsewhere on the job page. */
   focusDocument?: { documentId: number; tab: DocTab } | null;
+  /** Re-pull job detail (timeline, factory status) after a review save. */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 export function JobDocumentRevisionsCard({
@@ -391,6 +393,7 @@ export function JobDocumentRevisionsCard({
   className,
   refreshKey = 0,
   focusDocument = null,
+  onJobChanged,
 }: JobDocumentRevisionsCardProps) {
   const { user: me } = useAuth();
   const [docType, setDocType] = useState<DocTab>("po");
@@ -794,7 +797,10 @@ export function JobDocumentRevisionsCard({
         remarks: reviewRemarkDraft.trim(),
       });
       setReviewModalTarget(null);
-      await loadDocuments();
+      await Promise.all([
+        loadDocuments(),
+        onJobChanged?.(),
+      ]);
       if (reviewModalTarget === "po" && dbId) {
         const refreshed = await compareJobDocument(dbId, docId);
         setComparison(refreshed);
