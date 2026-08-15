@@ -13,9 +13,28 @@ export function journeyOutcomeLabel(outcome: JourneyOutcome): string {
   }
 }
 
+/** Backend `FactoryStatus` enum names → display labels. */
+const FACTORY_STATUS_LABELS: Record<string, string> = {
+  DRAFT: "Draft",
+  DRAWING: "Drawing",
+  APPROVAL: "Approval",
+  PRODUCTION: "Production",
+  QC: "QC",
+  DISPATCH: "Dispatch",
+  COMPLETED: "Completed",
+  Complete: "Complete",
+  Cancelled: "Cancelled",
+};
+
 export function factoryStatusLabel(status: string | null | undefined): string {
   if (!status) return "No factory job";
-  return status;
+  return FACTORY_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
+}
+
+export function isSystemLogged(
+  factoryStatus: string | null | undefined
+): boolean {
+  return factoryStatus != null && String(factoryStatus).trim() !== "";
 }
 
 /**
@@ -52,6 +71,7 @@ export function isFactoryComplete(
   return (
     journeyOutcome === "completed" ||
     factoryJobStatus === "Complete" ||
+    factoryJobStatus === "COMPLETED" ||
     factoryJobStatus === "Cancelled"
   );
 }

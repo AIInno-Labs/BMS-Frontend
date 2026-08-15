@@ -61,6 +61,8 @@ export interface QuotientQuote {
   deposit_percent: number | null;
   deposit_amount_includes_tax: number | null;
   deposit_amount_excludes_tax: number | null;
+  tax_amount: number | null;
+  net_amount: number | null;
   item_headings: string | null;
   /** Legacy mirror */
   customer_name: string;
@@ -105,6 +107,8 @@ export interface QuoteListItem {
   job_id: string | null;
   total_includes_tax: number | null;
   currency: string;
+  /** Backend `createdAt` (LocalDate) — day the quote row was logged. */
+  created_at: string | null;
   updated_at: string;
   question_count: number;
 }
