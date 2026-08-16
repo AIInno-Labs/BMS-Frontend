@@ -200,6 +200,10 @@ body {
   @apply border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm;
 }
 
+.status-pill--cancelled {
+  @apply border-slate-300 bg-slate-100 text-slate-700 shadow-sm;
+}
+
 .worker-ui table td,
 .worker-ui table th {
   font-size: 1.125rem;
