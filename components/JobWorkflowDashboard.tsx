@@ -127,14 +127,51 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
   };
 }
 
-const EMPTY_INVENTORY_LINE: JobInventoryLine = {
-  category: "",
-  profileType: "",
-  size: "",
-  materialGrade: "",
-  quantity: null,
-  description: "",
-};
+type InventoryDraftLine = JobInventoryLine & { localKey: string };
+
+function newInventoryKey(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptyInventoryLine(): InventoryDraftLine {
+  return {
+    category: "",
+    profileType: "",
+    size: "",
+    materialGrade: "",
+    quantity: null,
+    description: "",
+    localKey: newInventoryKey(),
+  };
+}
+
+function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
+  return lines.map((line) => ({
+    ...line,
+    localKey: line.id != null ? `saved-${line.id}` : newInventoryKey(),
+  }));
+}
+
+function inventoryField(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function inventoryLinesEqual(a: JobInventoryLine, b: JobInventoryLine): boolean {
+  return (
+    inventoryField(a.category) === inventoryField(b.category) &&
+    inventoryField(a.profileType) === inventoryField(b.profileType) &&
+    inventoryField(a.size) === inventoryField(b.size) &&
+    inventoryField(a.materialGrade) === inventoryField(b.materialGrade) &&
+    inventoryField(a.description) === inventoryField(b.description) &&
+    (a.quantity ?? 0) === (b.quantity ?? 0)
+  );
+}
+
+function isInventoryLineIncomplete(item: JobInventoryLine): boolean {
+  return !item.category?.trim() || !item.profileType?.trim();
+}
 
 const INVENTORY_TABLE_HEADERS = [
   "Category",
@@ -170,8 +207,15 @@ function parseInventoryQuantity(raw: string): number | null {
   return Math.max(0, Math.trunc(n));
 }
 
-const inventoryInputClass =
-  "w-full rounded border border-[#E5E7EB] bg-white px-2 py-1.5 text-sm text-[#111827] outline-none focus:border-orange-300 disabled:bg-slate-50";
+function patchInventoryLine(
+  lines: InventoryDraftLine[],
+  localKey: string,
+  patch: Partial<JobInventoryLine>
+): InventoryDraftLine[] {
+  return lines.map((row) =>
+    row.localKey === localKey ? { ...row, ...patch } : row
+  );
+}
 
 /** Top-level milestones only (same set Status Control offers), excluding draft. */
 function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
@@ -234,8 +278,8 @@ export function JobWorkflowDashboard({
     jobType: extras.jobType ?? JOB_TYPE_OPTIONS[0],
     projectedStartDate: extras.projectedStartDate ?? "",
   });
-  const [inventoryDraft, setInventoryDraft] = useState<JobInventoryLine[]>(
-    () => job.inventory ?? []
+  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftLine[]>(
+    () => toInventoryDraft(job.inventory ?? [])
   );
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
@@ -330,9 +374,11 @@ export function JobWorkflowDashboard({
       jobType: nextExtras.jobType ?? JOB_TYPE_OPTIONS[0],
       projectedStartDate: nextExtras.projectedStartDate ?? "",
     });
-    setInventoryDraft(job.inventory ?? []);
+    if (!showInventoryModal) {
+      setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+    }
     setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
-  }, [job]);
+  }, [job, showInventoryModal]);
 
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
@@ -466,6 +512,86 @@ export function JobWorkflowDashboard({
   const handlePaymentDueDateChange = (date: string) => {
     if (!date) return;
     void savePayment({ estimatedDate: date });
+  };
+
+  const openInventoryEditor = () => {
+    const current = toInventoryDraft(job.inventory ?? []);
+    setInventoryDraft(current.length === 0 ? [emptyInventoryLine()] : current);
+    setInventoryError(null);
+    setShowInventoryModal(true);
+  };
+
+  const closeInventoryEditor = () => {
+    if (inventoryBusy) return;
+    setShowInventoryModal(false);
+    setInventoryError(null);
+    setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+  };
+
+  const addInventoryLine = () => {
+    setInventoryDraft((prev) => [...prev, emptyInventoryLine()]);
+  };
+
+  const removeInventoryLine = (localKey: string) => {
+    setInventoryDraft((prev) => prev.filter((row) => row.localKey !== localKey));
+    setInventoryError(null);
+  };
+
+  const saveInventory = async () => {
+    if (!job.dbId) return;
+    const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
+    if (filled.some(isInventoryLineIncomplete)) {
+      setInventoryError(
+        "Each inventory line needs a category and a profile type."
+      );
+      return;
+    }
+
+    const original = job.inventory ?? [];
+    const originalById = new Map(
+      original
+        .filter((line) => line.id != null)
+        .map((line) => [line.id as number, line])
+    );
+    const keptIds = new Set(
+      filled.filter((line) => line.id != null).map((line) => line.id as number)
+    );
+    const toDelete = [...originalById.keys()].filter((id) => !keptIds.has(id));
+    const toUpdate = filled.filter((line) => {
+      if (line.id == null) return false;
+      const previous = originalById.get(line.id);
+      return !previous || !inventoryLinesEqual(line, previous);
+    });
+    const toCreate = filled.filter((line) => line.id == null);
+
+    setInventoryBusy(true);
+    setInventoryError(null);
+    try {
+      await Promise.all([
+        ...toDelete.map((id) => deleteJobInventoryLine(job.dbId!, id)),
+        ...toUpdate.map((line) =>
+          updateJobInventoryLine(job.dbId!, line.id!, uiInventoryLineToDto(line))
+        ),
+      ]);
+      if (toCreate.length > 0) {
+        await saveJobInventory(
+          job.dbId,
+          toCreate.map((line) => {
+            const dto = uiInventoryLineToDto(line);
+            delete dto.id;
+            return dto;
+          })
+        );
+      }
+      await onJobChanged?.();
+      setShowInventoryModal(false);
+    } catch (e) {
+      setInventoryError(
+        e instanceof Error ? e.message : "Could not save inventory"
+      );
+    } finally {
+      setInventoryBusy(false);
+    }
   };
 
   const jobCardNotesDirty = jobCardNotesDraft !== (extras.jobCardNotes ?? "");
@@ -689,7 +815,7 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Inventory"
           icon={Package}
-          onEdit={() => setShowInventoryModal(true)}
+          onEdit={openInventoryEditor}
           className="lg:col-span-2"
         >
           {(job.inventory ?? []).length === 0 ? (
@@ -976,17 +1102,15 @@ export function JobWorkflowDashboard({
 
       <EditModal
         open={showInventoryModal}
-        title="Inventory"
-        onClose={() => setShowInventoryModal(false)}
-        panelClassName="max-w-5xl"
+        title="Add Inventory"
+        onClose={closeInventoryEditor}
         headerAction={
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
+            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
             aria-label="Add inventory item"
-            onClick={() =>
-              setInventoryDraft((prev) => [...prev, { ...EMPTY_INVENTORY_LINE }])
-            }
+            disabled={inventoryBusy}
+            onClick={addInventoryLine}
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             Add
@@ -999,242 +1123,103 @@ export function JobWorkflowDashboard({
               {inventoryError}
             </p>
           ) : null}
-          <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-              <thead className="bg-slate-50">
-                <tr className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {INVENTORY_TABLE_HEADERS.map((header) => (
-                    <th key={header} className="px-2 py-2 font-semibold">
-                      {header}
-                      {header === "Category" || header === "Profile" ? (
-                        <span className="text-orange-600"> *</span>
-                      ) : null}
-                    </th>
-                  ))}
-                  <th className="w-10 px-2 py-2">
-                    <span className="sr-only">Remove</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {inventoryDraft.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-3 py-6 text-center text-sm text-slate-400"
+          <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+            {inventoryDraft.map((item, index) => (
+              <div key={item.localKey} className="space-y-3">
+                {item.id != null || inventoryDraft.length > 1 ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-[#111827]">
+                      {inventoryDraft.length > 1 ? `Line ${index + 1}` : "Item"}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="Remove inventory line"
+                      disabled={inventoryBusy}
+                      className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                      onClick={() => removeInventoryLine(item.localKey)}
                     >
-                      No inventory lines yet. Add a row to start.
-                    </td>
-                  </tr>
-                ) : (
-                  inventoryDraft.map((item, index) => (
-                    <tr
-                      key={item.id ?? `new-${index}`}
-                      className="border-t border-[#E5E7EB]"
-                    >
-                      <td className="px-1.5 py-1.5">
-                        <input
-                          className={inventoryInputClass}
-                          value={item.category ?? ""}
-                          disabled={inventoryBusy}
-                          placeholder="Fixings"
-                          onChange={(e) =>
-                            setInventoryDraft((prev) =>
-                              prev.map((row, i) =>
-                                i === index
-                                  ? { ...row, category: e.target.value }
-                                  : row
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-1.5 py-1.5">
-                        <input
-                          className={inventoryInputClass}
-                          value={item.profileType ?? ""}
-                          disabled={inventoryBusy}
-                          placeholder="Clip"
-                          onChange={(e) =>
-                            setInventoryDraft((prev) =>
-                              prev.map((row, i) =>
-                                i === index
-                                  ? { ...row, profileType: e.target.value }
-                                  : row
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="w-24 px-1.5 py-1.5">
-                        <input
-                          className={inventoryInputClass}
-                          value={item.size ?? ""}
-                          disabled={inventoryBusy}
-                          placeholder="M8"
-                          onChange={(e) =>
-                            setInventoryDraft((prev) =>
-                              prev.map((row, i) =>
-                                i === index
-                                  ? { ...row, size: e.target.value }
-                                  : row
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="w-24 px-1.5 py-1.5">
-                        <input
-                          className={inventoryInputClass}
-                          value={item.materialGrade ?? ""}
-                          disabled={inventoryBusy}
-                          placeholder="316"
-                          onChange={(e) =>
-                            setInventoryDraft((prev) =>
-                              prev.map((row, i) =>
-                                i === index
-                                  ? { ...row, materialGrade: e.target.value }
-                                  : row
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="w-20 px-1.5 py-1.5">
-                        <input
-                          className={inventoryInputClass}
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={item.quantity != null ? String(item.quantity) : ""}
-                          disabled={inventoryBusy}
-                          onChange={(e) =>
-                            setInventoryDraft((prev) =>
-                              prev.map((row, i) =>
-                                i === index
-                                  ? {
-                                      ...row,
-                                      quantity: parseInventoryQuantity(
-                                        e.target.value
-                                      ),
-                                    }
-                                  : row
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-1.5 py-1.5">
-                        <input
-                          className={inventoryInputClass}
-                          value={item.description ?? ""}
-                          disabled={inventoryBusy}
-                          placeholder="Optional notes"
-                          onChange={(e) =>
-                            setInventoryDraft((prev) =>
-                              prev.map((row, i) =>
-                                i === index
-                                  ? { ...row, description: e.target.value }
-                                  : row
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-1.5 py-1.5">
-                        <button
-                          type="button"
-                          aria-label="Remove inventory line"
-                          disabled={inventoryBusy}
-                          className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-                          onClick={async () => {
-                            if (item.id != null && job.dbId) {
-                              setInventoryBusy(true);
-                              setInventoryError(null);
-                              try {
-                                await deleteJobInventoryLine(job.dbId, item.id);
-                                await onJobChanged?.();
-                              } catch (e) {
-                                setInventoryError(
-                                  e instanceof Error
-                                    ? e.message
-                                    : "Could not remove inventory line"
-                                );
-                                return;
-                              } finally {
-                                setInventoryBusy(false);
-                              }
-                            }
-                            setInventoryDraft((prev) =>
-                              prev.filter((_, i) => i !== index)
-                            );
-                          }}
-                        >
-                          <X className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                ) : null}
+                <ModalField
+                  label="Category"
+                  value={item.category ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. Fixings"
+                  onChange={(category) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { category })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Profile type"
+                  value={item.profileType ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. Clip"
+                  onChange={(profileType) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { profileType })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Size"
+                  value={item.size ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. M8"
+                  onChange={(size) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { size })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Material grade"
+                  value={item.materialGrade ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. 316"
+                  onChange={(materialGrade) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { materialGrade })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Quantity"
+                  value={item.quantity != null ? String(item.quantity) : ""}
+                  disabled={inventoryBusy}
+                  type="number"
+                  onChange={(qty) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, {
+                        quantity: parseInventoryQuantity(qty),
+                      })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Description"
+                  value={item.description ?? ""}
+                  disabled={inventoryBusy}
+                  multiline
+                  placeholder="Optional notes"
+                  onChange={(description) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { description })
+                    )
+                  }
+                />
+              </div>
+            ))}
           </div>
-          <p className="text-xs text-slate-500">
-            Category and profile are required for each new line.
-          </p>
           <button
             className="btn-primary w-full"
             disabled={inventoryBusy || !job.dbId}
-            onClick={async () => {
-              if (!job.dbId) return;
-              const lines = inventoryDraft.filter(
-                (item) => !isBlankInventoryLine(item)
-              );
-              const incomplete = lines.find(
-                (item) => !item.category?.trim() || !item.profileType?.trim()
-              );
-              if (incomplete) {
-                setInventoryError(
-                  "Each inventory line needs a category and a profile type."
-                );
-                return;
-              }
-              setInventoryBusy(true);
-              setInventoryError(null);
-              try {
-                const existing = lines.filter((item) => item.id != null);
-                const created = lines.filter((item) => item.id == null);
-                await Promise.all(
-                  existing.map((item) =>
-                    updateJobInventoryLine(
-                      job.dbId!,
-                      item.id!,
-                      uiInventoryLineToDto(item)
-                    )
-                  )
-                );
-                if (created.length > 0) {
-                  await saveJobInventory(
-                    job.dbId,
-                    created.map((item) => {
-                      const dto = uiInventoryLineToDto(item);
-                      delete dto.id;
-                      return dto;
-                    })
-                  );
-                }
-                await onJobChanged?.();
-                setShowInventoryModal(false);
-              } catch (e) {
-                setInventoryError(
-                  e instanceof Error ? e.message : "Could not save inventory"
-                );
-              } finally {
-                setInventoryBusy(false);
-              }
-            }}
+            onClick={() => void saveInventory()}
           >
-            {inventoryBusy ? "Saving…" : "Save inventory"}
+            {inventoryBusy ? "Saving…" : "Save"}
           </button>
         </div>
       </EditModal>
