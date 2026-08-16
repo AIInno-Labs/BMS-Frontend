@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import {
   listOrgParameters,
@@ -25,6 +26,18 @@ const GENERATED_PARAMS = new Set([
   "QUOTIENT_WEBHOOK_URL",
 ]);
 
+/** Derived by the backend from SHAREPOINT_SITE_URL — never typed or saved here. */
+const SHAREPOINT_DRIVE_ID = "SHAREPOINT_DRIVE_ID";
+const SHAREPOINT_SITE_URL = "SHAREPOINT_SITE_URL";
+
+/** Credentials and toggles must hit the DB before the site URL (drive resolve). */
+const SHAREPOINT_SAVE_BEFORE_SITE = [
+  "SHAREPOINT_ENABLED",
+  "SHAREPOINT_TENANT_ID",
+  "SHAREPOINT_CLIENT_ID",
+  "SHAREPOINT_CLIENT_SECRET",
+];
+
 function isSecretParam(name: string) {
   return SECRET_SUFFIXES.some((s) => name.endsWith(s));
 }
@@ -33,10 +46,36 @@ function isGeneratedParam(name: string) {
   return GENERATED_PARAMS.has(name);
 }
 
+function isReadOnlyParam(name: string) {
+  return isGeneratedParam(name) || name === SHAREPOINT_DRIVE_ID;
+}
+
 function groupOf(name: string): "SharePoint" | "Quotient" | "Other" {
   if (name.startsWith("SHAREPOINT_")) return "SharePoint";
   if (name.startsWith("QUOTIENT_")) return "Quotient";
   return "Other";
+}
+
+function sharePointSaveOrder(rows: ApplicationParameterDTO[]) {
+  const byName = new Map(rows.map((row) => [row.paramName, row]));
+  const ordered: ApplicationParameterDTO[] = [];
+  for (const name of SHAREPOINT_SAVE_BEFORE_SITE) {
+    const row = byName.get(name);
+    if (row) ordered.push(row);
+  }
+  for (const row of rows) {
+    if (
+      row.paramName === SHAREPOINT_DRIVE_ID ||
+      row.paramName === SHAREPOINT_SITE_URL ||
+      SHAREPOINT_SAVE_BEFORE_SITE.includes(row.paramName)
+    ) {
+      continue;
+    }
+    ordered.push(row);
+  }
+  const site = byName.get(SHAREPOINT_SITE_URL);
+  if (site) ordered.push(site);
+  return ordered;
 }
 
 export default function OrgIntegrationsPage() {
@@ -48,6 +87,9 @@ export default function OrgIntegrationsPage() {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>(
+    {}
+  );
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -75,7 +117,7 @@ export default function OrgIntegrationsPage() {
       setParams(list);
       const next: Record<string, string> = {};
       for (const p of list) {
-        next[p.paramName] = isSecretParam(p.paramName) ? "" : (p.paramValue ?? "");
+        next[p.paramName] = p.paramValue ?? "";
       }
       setValues(next);
     } catch (err) {
@@ -117,14 +159,26 @@ export default function OrgIntegrationsPage() {
     setError(null);
     setMessage(null);
     try {
-      const rows = grouped[group];
+      const rows =
+        group === "SharePoint"
+          ? sharePointSaveOrder(grouped[group])
+          : grouped[group];
       for (const row of rows) {
+        if (row.paramName === SHAREPOINT_DRIVE_ID) continue;
         const nextVal = values[row.paramName] ?? "";
         if (isSecretParam(row.paramName) && nextVal === "") {
           continue;
         }
         const current = row.paramValue ?? "";
-        if (nextVal === current && !isSecretParam(row.paramName)) {
+        // SharePoint credentials must be in the DB before site URL even when
+        // only the URL changed; skip unchanged fields for other groups.
+        const skipUnchanged =
+          group !== "SharePoint" || row.paramName === SHAREPOINT_SITE_URL;
+        if (
+          skipUnchanged &&
+          nextVal === current &&
+          !isSecretParam(row.paramName)
+        ) {
           continue;
         }
         await upsertOrgParameter({
@@ -239,20 +293,23 @@ export default function OrgIntegrationsPage() {
                     (row.paramType ?? "").toLowerCase() === "boolean";
                   const secret = isSecretParam(row.paramName);
                   const generated = isGeneratedParam(row.paramName);
+                  const readOnly = isReadOnlyParam(row.paramName);
                   return (
                     <div key={row.paramName}>
                       <label className={labelClass} htmlFor={row.paramName}>
                         {row.paramName}
                         {row.inherited ? " (using platform default)" : ""}
-                        {secret ? " — leave blank to keep" : ""}
                         {generated ? " — generated, read-only" : ""}
+                        {row.paramName === SHAREPOINT_DRIVE_ID
+                          ? " — derived from site URL, read-only"
+                          : ""}
                       </label>
                       {row.description ? (
                         <p className="mt-0.5 text-xs text-slate-500">
                           {row.description}
                         </p>
                       ) : null}
-                      {generated ? (
+                      {readOnly ? (
                         <div className="mt-1.5 flex gap-2">
                           <input
                             id={row.paramName}
@@ -260,7 +317,11 @@ export default function OrgIntegrationsPage() {
                             className={`${inputClass} !mt-0 min-w-0 flex-1 bg-slate-50 font-mono text-xs text-slate-600`}
                             value={values[row.paramName] ?? ""}
                             onFocus={(e) => e.currentTarget.select()}
-                            placeholder="Generate a token to fill this"
+                            placeholder={
+                              row.paramName === SHAREPOINT_DRIVE_ID
+                                ? "Filled automatically when you save the site URL"
+                                : "Generate a token to fill this"
+                            }
                           />
                           <button
                             type="button"
@@ -301,10 +362,49 @@ export default function OrgIntegrationsPage() {
                           <option value="true">true</option>
                           <option value="false">false</option>
                         </select>
+                      ) : secret ? (
+                        <div className="relative mt-1.5">
+                          <input
+                            id={row.paramName}
+                            type={
+                              revealedSecrets[row.paramName] ? "text" : "password"
+                            }
+                            className={`${inputClass} !mt-0 pr-11`}
+                            value={values[row.paramName] ?? ""}
+                            onChange={(e) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [row.paramName]: e.target.value,
+                              }))
+                            }
+                            autoComplete="off"
+                          />
+                          <button
+                            type="button"
+                            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-500 hover:text-slate-800"
+                            onClick={() =>
+                              setRevealedSecrets((prev) => ({
+                                ...prev,
+                                [row.paramName]: !prev[row.paramName],
+                              }))
+                            }
+                            aria-label={
+                              revealedSecrets[row.paramName]
+                                ? `Hide ${row.paramName}`
+                                : `Show ${row.paramName}`
+                            }
+                          >
+                            {revealedSecrets[row.paramName] ? (
+                              <EyeOff className="h-4 w-4" aria-hidden />
+                            ) : (
+                              <Eye className="h-4 w-4" aria-hidden />
+                            )}
+                          </button>
+                        </div>
                       ) : (
                         <input
                           id={row.paramName}
-                          type={secret ? "password" : "text"}
+                          type="text"
                           className={inputClass}
                           value={values[row.paramName] ?? ""}
                           onChange={(e) =>
@@ -314,9 +414,6 @@ export default function OrgIntegrationsPage() {
                             }))
                           }
                           autoComplete="off"
-                          placeholder={
-                            secret && row.paramValue ? "••••••••" : undefined
-                          }
                         />
                       )}
                     </div>
