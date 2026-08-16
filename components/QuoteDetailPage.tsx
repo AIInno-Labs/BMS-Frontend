@@ -231,15 +231,15 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
     tax_amount: num(payment.taxAmount),
     net_amount: num(payment.netAmount),
     item_headings:
-      str(payload.item_headings) ??
-      str(acceptedEvent?.item_headings) ??
-      str(raw.itemHeadings ?? raw.item_headings) ??
       (measurementItems.length
         ? measurementItems
             .map((item) => str(item.heading))
             .filter(Boolean)
-            .join("\n")
-        : null),
+            .join("\n") || null
+        : null) ??
+      str(payload.item_headings) ??
+      str(acceptedEvent?.item_headings) ??
+      str(raw.itemHeadings ?? raw.item_headings),
     customer_name: String(
       quoteFor.company_name ?? quoteFor.company ?? payload.for ?? raw.company ?? ""
     ),
