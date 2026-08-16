@@ -1,4 +1,5 @@
 import type { FrpManualPoLineItemRequest } from "@/lib/frp/job-mapper";
+import { PoItemRowSchema } from "@/lib/schemas/po";
 
 /**
  * Row shape + JSON-building helpers for a manually-entered PO's line items.
@@ -16,6 +17,23 @@ export interface PoItemRow {
 
 export function emptyPoItemRow(): PoItemRow {
   return { sourceCode: "", quantity: "", price: "", description: "" };
+}
+
+/** First "PO quantity"/"PO price" validation failure across all rows, or
+ *  null if every row's quantity/price is blank or a plain decimal number.
+ *  Call before submitting — `parseQtyLike`/`parseMoneyLike` silently strip
+ *  bad characters instead of rejecting them, so this is what actually stops
+ *  a typo like "12kg" or "1,250" from being saved as 0. */
+export function firstPoItemRowsError(items: PoItemRow[]): string | null {
+  for (const item of items) {
+    const result = PoItemRowSchema.safeParse(item);
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      const label = issue.path[0] === "price" ? "PO price" : "PO quantity";
+      return `${label}: ${issue.message}`;
+    }
+  }
+  return null;
 }
 
 export function parseMoneyLike(raw: string): number {

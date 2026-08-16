@@ -42,11 +42,6 @@ export interface JobMaterialRow {
   availability: string;
 }
 
-export interface RequiredInventoryItem {
-  label: string;
-  qty: string;
-}
-
 /** Extended job-card fields (serialized in pack_dimensions JSON). */
 export interface JobWorkflowExtras {
   documentsRequired?: boolean;
@@ -68,7 +63,6 @@ export interface JobWorkflowExtras {
   additionalNotes?: string;
   resinMatQty?: string;
   fiberRollQty?: string;
-  requiredInventory?: RequiredInventoryItem[];
   jobCardNotes?: string;
   /** `true` = Yes, `false` = No, `null` = not set */
   paymentReceived?: boolean | null;
@@ -138,6 +132,8 @@ export interface Job {
   orderNumber?: string | null;
   /** The quote's line items (Quotient `selected_items`), verbatim. */
   measurement?: Array<Record<string, unknown>> | null;
+  /** ISO 4217 code from the originating quote's payload, if any. */
+  currency?: string | null;
   manualInstructions: string;
   /** How and when the job ships — one row per job, saved on the job. */
   schedulingLogistics?: JobSchedulingLogistics | null;
@@ -150,6 +146,23 @@ export interface Job {
   origin?: "QUOTE" | "FACTORY";
   /** Stage-tree completion, served on the list projection only. */
   percentComplete?: number | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
+  /** Material lines for the job (backend `inventory` table). Inline on `GET
+   *  /jobs/{id}`; mutated via `/jobs/{id}/inventory`. */
+  inventory?: JobInventoryLine[];
+}
+
+/** One row of the job's material/inventory table (`InventoryDTO`). */
+export interface JobInventoryLine {
+  id?: number;
+  category?: string | null;
+  profileType?: string | null;
+  size?: string | null;
+  materialGrade?: string | null;
+  /** Integer; backend `InventoryDTO.quantity` is never negative. */
+  quantity?: number | null;
+  description?: string | null;
 }
 
 export type ShipmentMethod =

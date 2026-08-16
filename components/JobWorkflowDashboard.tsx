@@ -17,6 +17,7 @@ import {
   Settings,
   StickyNote,
   User,
+  X,
 } from "lucide-react";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -30,31 +31,36 @@ import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
+  deleteJobInventoryLine,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
+  saveJobInventory,
+  updateJobInventoryLine,
   updateJobPayment,
   uploadJobDocument,
 } from "@/lib/frp/api";
-import {
-  DEFAULT_REQUIRED_INVENTORY,
-  ensureWorkflowExtras,
-  JOB_TYPE_OPTIONS,
-} from "@/lib/jobWorkflowExtras";
+import { ensureWorkflowExtras, JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import {
   normalizeJobFiles,
   sortJobFiles,
   type JobFileRecord,
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
-import { poDocumentDisplayName } from "@/lib/poLineItems";
+import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type {
-  FrpJobDocumentDTO,
-  FrpJobStageDTO,
-  JobUpdateAuditAction,
+import {
+  uiInventoryLineToDto,
+  type FrpJobDocumentDTO,
+  type FrpJobStageDTO,
+  type JobUpdateAuditAction,
 } from "@/lib/frp/job-mapper";
-import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
+import type {
+  Job,
+  JobInventoryLine,
+  JobPriority,
+  JobWorkflowExtras,
+} from "@/lib/types";
 import {
   getAssignableWorkers,
   getWorkerDisplayName,
@@ -117,6 +123,135 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
     uploadedAt: when.uploadedAt,
     documentId: doc.id,
     documentType: doc.documentType,
+    isManualEntry: isManualPoDocument(doc),
+  };
+}
+
+type InventoryDraftLine = JobInventoryLine & { localKey: string };
+
+function newInventoryKey(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptyInventoryLine(): InventoryDraftLine {
+  return {
+    category: "",
+    profileType: "",
+    size: "",
+    materialGrade: "",
+    quantity: null,
+    description: "",
+    localKey: newInventoryKey(),
+  };
+}
+
+function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
+  return lines.map((line) => ({
+    ...line,
+    localKey: line.id != null ? `saved-${line.id}` : newInventoryKey(),
+  }));
+}
+
+function inventoryField(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function inventoryLinesEqual(a: JobInventoryLine, b: JobInventoryLine): boolean {
+  return (
+    inventoryField(a.category) === inventoryField(b.category) &&
+    inventoryField(a.profileType) === inventoryField(b.profileType) &&
+    inventoryField(a.size) === inventoryField(b.size) &&
+    inventoryField(a.materialGrade) === inventoryField(b.materialGrade) &&
+    inventoryField(a.description) === inventoryField(b.description) &&
+    (a.quantity ?? 0) === (b.quantity ?? 0)
+  );
+}
+
+function isInventoryLineIncomplete(item: JobInventoryLine): boolean {
+  return !item.category?.trim() || !item.profileType?.trim();
+}
+
+const INVENTORY_TABLE_HEADERS = [
+  "Category",
+  "Profile",
+  "Size",
+  "Grade",
+  "Qty",
+  "Description",
+] as const;
+
+function inventoryCell(value: string | number | null | undefined): string {
+  if (value == null) return "—";
+  const text = String(value).trim();
+  return text || "—";
+}
+
+function isBlankInventoryLine(item: JobInventoryLine): boolean {
+  return (
+    !item.category?.trim() &&
+    !item.profileType?.trim() &&
+    !item.size?.trim() &&
+    !item.materialGrade?.trim() &&
+    !item.description?.trim() &&
+    item.quantity == null
+  );
+}
+
+function parseInventoryQuantity(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.trunc(n));
+}
+
+function patchInventoryLine(
+  lines: InventoryDraftLine[],
+  localKey: string,
+  patch: Partial<JobInventoryLine>
+): InventoryDraftLine[] {
+  return lines.map((row) =>
+    row.localKey === localKey ? { ...row, ...patch } : row
+  );
+}
+
+/** A `measurement` row's display fields — raw Quotient `selected_items` shape.
+ *  `job.measurement` starts as the quote's own selected_items for a
+ *  quote-derived job (set at creation, QuotientEventProcessor.createJobIfAbsent)
+ *  and gets overwritten with the approved PO's line items once one lands
+ *  (JobDocumentServiceImpl.applyApprovedPoToJob) — one evolving field, so
+ *  reading it directly always shows the current authoritative item list. */
+/** Matches PoManualEntryFields.tsx's CURRENCY_OPTIONS. Falls back to the
+ *  raw ISO code for anything not in this list. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  AUD: "A$",
+  USD: "US$",
+  NZD: "NZ$",
+  GBP: "£",
+  EUR: "€",
+  INR: "₹",
+  SAR: "SAR",
+  AED: "AED",
+  CAD: "C$",
+};
+
+function orderItemFields(item: Record<string, unknown>): {
+  code: string;
+  name: string;
+  qty: string;
+  price: string;
+} {
+  const str = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  // sourceCode: manual/PO-entered rows (lib/poLineItems.ts). item_code/itemCode:
+  // Quotient's own selected_items shape.
+  const priceRaw = item.unit_price ?? item.unitPrice ?? item.price;
+  return {
+    code: str(item.sourceCode ?? item.item_code ?? item.itemCode),
+    name: str(item.heading ?? item.description),
+    qty: str(item.quantity),
+    price: typeof priceRaw === "number" ? priceRaw.toFixed(2) : str(priceRaw),
   };
 }
 
@@ -141,6 +276,8 @@ export function JobWorkflowDashboard({
 }: JobWorkflowDashboardProps) {
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const orderItems = job.measurement ?? [];
+
   const [showJobModal, setShowJobModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -181,9 +318,11 @@ export function JobWorkflowDashboard({
     jobType: extras.jobType ?? JOB_TYPE_OPTIONS[0],
     projectedStartDate: extras.projectedStartDate ?? "",
   });
-  const [inventoryDraft, setInventoryDraft] = useState<RequiredInventoryItem[]>(
-    () => extras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
+  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftLine[]>(
+    () => toInventoryDraft(job.inventory ?? [])
   );
+  const [inventoryBusy, setInventoryBusy] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -275,11 +414,11 @@ export function JobWorkflowDashboard({
       jobType: nextExtras.jobType ?? JOB_TYPE_OPTIONS[0],
       projectedStartDate: nextExtras.projectedStartDate ?? "",
     });
-    setInventoryDraft(
-      nextExtras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
-    );
+    if (!showInventoryModal) {
+      setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+    }
     setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
-  }, [job]);
+  }, [job, showInventoryModal]);
 
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
@@ -357,6 +496,21 @@ export function JobWorkflowDashboard({
     }
   };
 
+  /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
+   *  the file itself (unlike `handleDownloadFile`, which redirects those
+   *  document types to Document Versions instead). */
+  const handleDownloadVersionFile = async (file: JobFileRecord) => {
+    if (file.documentId == null) return;
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
   const handleUploadProjectDocument = async () => {
     if (!job.dbId || !fileUploadDraft.file || fileUploadDraft.milestoneId === "") return;
     setFileUploading(true);
@@ -398,6 +552,86 @@ export function JobWorkflowDashboard({
   const handlePaymentDueDateChange = (date: string) => {
     if (!date) return;
     void savePayment({ estimatedDate: date });
+  };
+
+  const openInventoryEditor = () => {
+    const current = toInventoryDraft(job.inventory ?? []);
+    setInventoryDraft(current.length === 0 ? [emptyInventoryLine()] : current);
+    setInventoryError(null);
+    setShowInventoryModal(true);
+  };
+
+  const closeInventoryEditor = () => {
+    if (inventoryBusy) return;
+    setShowInventoryModal(false);
+    setInventoryError(null);
+    setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+  };
+
+  const addInventoryLine = () => {
+    setInventoryDraft((prev) => [...prev, emptyInventoryLine()]);
+  };
+
+  const removeInventoryLine = (localKey: string) => {
+    setInventoryDraft((prev) => prev.filter((row) => row.localKey !== localKey));
+    setInventoryError(null);
+  };
+
+  const saveInventory = async () => {
+    if (!job.dbId) return;
+    const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
+    if (filled.some(isInventoryLineIncomplete)) {
+      setInventoryError(
+        "Each inventory line needs a category and a profile type."
+      );
+      return;
+    }
+
+    const original = job.inventory ?? [];
+    const originalById = new Map(
+      original
+        .filter((line) => line.id != null)
+        .map((line) => [line.id as number, line])
+    );
+    const keptIds = new Set(
+      filled.filter((line) => line.id != null).map((line) => line.id as number)
+    );
+    const toDelete = [...originalById.keys()].filter((id) => !keptIds.has(id));
+    const toUpdate = filled.filter((line) => {
+      if (line.id == null) return false;
+      const previous = originalById.get(line.id);
+      return !previous || !inventoryLinesEqual(line, previous);
+    });
+    const toCreate = filled.filter((line) => line.id == null);
+
+    setInventoryBusy(true);
+    setInventoryError(null);
+    try {
+      await Promise.all([
+        ...toDelete.map((id) => deleteJobInventoryLine(job.dbId!, id)),
+        ...toUpdate.map((line) =>
+          updateJobInventoryLine(job.dbId!, line.id!, uiInventoryLineToDto(line))
+        ),
+      ]);
+      if (toCreate.length > 0) {
+        await saveJobInventory(
+          job.dbId,
+          toCreate.map((line) => {
+            const dto = uiInventoryLineToDto(line);
+            delete dto.id;
+            return dto;
+          })
+        );
+      }
+      await onJobChanged?.();
+      setShowInventoryModal(false);
+    } catch (e) {
+      setInventoryError(
+        e instanceof Error ? e.message : "Could not save inventory"
+      );
+    } finally {
+      setInventoryBusy(false);
+    }
   };
 
   const jobCardNotesDirty = jobCardNotesDraft !== (extras.jobCardNotes ?? "");
@@ -498,6 +732,7 @@ export function JobWorkflowDashboard({
         onUploadFile={openFileUploadModal}
         onDownloadFile={handleDownloadFile}
         onOpenFile={handleOpenProjectFile}
+        onDownloadVersionFile={handleDownloadVersionFile}
       />
 
       <div className="mt-4 space-y-4">
@@ -533,6 +768,9 @@ export function JobWorkflowDashboard({
               : ""}
           </p>
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
+          {orderItems.length > 0 && (
+            <p className="text-sm text-slate-500">Order Items: {orderItems.length}</p>
+          )}
         </WidgetCard>
 
         <JobStatusCard
@@ -553,11 +791,7 @@ export function JobWorkflowDashboard({
           className="lg:col-span-2"
         />
 
-        {/* Its own 3-column row, nested inside the outer 2-col grid (hence
-            lg:col-span-2 on the wrapper) — these three cards are short enough
-            to sit side by side on large screens instead of wrapping to a
-            second row under a plain 2-col track. */}
-        <div className="grid gap-4 lg:col-span-2 lg:grid-cols-3">
+        <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
           <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
             <label className="mt-2 inline-flex items-center gap-2 text-sm">
               <input
@@ -573,16 +807,6 @@ export function JobWorkflowDashboard({
               />
               Ready to Manufacture
             </label>
-          </WidgetCard>
-
-          <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
-            <div className="space-y-1.5">
-              {inventoryDraft.map((item) => (
-                <p key={item.label} className="text-sm text-slate-700">
-                  {item.label} · Qty {item.qty}
-                </p>
-              ))}
-            </div>
           </WidgetCard>
 
           <WidgetCard title="Payment Status" icon={CircleDollarSign}>
@@ -630,6 +854,52 @@ export function JobWorkflowDashboard({
             </label>
           </WidgetCard>
         </div>
+
+        <WidgetCard
+          title="Inventory"
+          icon={Package}
+          onEdit={openInventoryEditor}
+          className="lg:col-span-2"
+        >
+          {(job.inventory ?? []).length === 0 ? (
+            <p className="text-sm text-slate-400">No inventory lines yet.</p>
+          ) : (
+            <div className="-mx-1 overflow-x-auto">
+              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {INVENTORY_TABLE_HEADERS.map((header) => (
+                      <th key={header} className="px-2 py-2 font-semibold">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(job.inventory ?? []).map((item, index) => (
+                    <tr
+                      key={item.id ?? index}
+                      className="border-b border-[#E5E7EB] last:border-0"
+                    >
+                      <td className="px-2 py-2 font-medium text-slate-800">
+                        {inventoryCell(item.category)}
+                      </td>
+                      <td className="px-2 py-2">{inventoryCell(item.profileType)}</td>
+                      <td className="px-2 py-2">{inventoryCell(item.size)}</td>
+                      <td className="px-2 py-2">{inventoryCell(item.materialGrade)}</td>
+                      <td className="px-2 py-2 tabular-nums">
+                        {inventoryCell(item.quantity)}
+                      </td>
+                      <td className="px-2 py-2 text-slate-600">
+                        {inventoryCell(item.description)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </WidgetCard>
 
       </section>
 
@@ -843,6 +1113,41 @@ export function JobWorkflowDashboard({
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
           </label>
+          {orderItems.length > 0 && (
+            <div className="rounded-lg border border-[#E5E7EB] bg-slate-50/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Order Items
+              </p>
+              <div className="mt-2 max-h-40 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase text-slate-400">
+                    <tr>
+                      <th className="pb-1 pr-2 font-medium">Code</th>
+                      <th className="pb-1 pr-2 font-medium">Item</th>
+                      <th className="pb-1 pr-2 font-medium">Qty</th>
+                      <th className="pb-1 font-medium">
+                        Price
+                        {job.currency ? ` (${CURRENCY_SYMBOLS[job.currency] ?? job.currency})` : ""}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderItems.map((item, i) => {
+                      const f = orderItemFields(item);
+                      return (
+                        <tr key={i} className="border-t border-[#E5E7EB]/70">
+                          <td className="py-1 pr-2 font-mono text-slate-600">{f.code}</td>
+                          <td className="py-1 pr-2 text-slate-800">{f.name}</td>
+                          <td className="py-1 pr-2 text-slate-600">{f.qty}</td>
+                          <td className="py-1 text-slate-600">{f.price}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <button
             className="btn-primary w-full"
             onClick={() => {
@@ -875,16 +1180,15 @@ export function JobWorkflowDashboard({
 
       <EditModal
         open={showInventoryModal}
-        title="Required Inventory"
-        onClose={() => setShowInventoryModal(false)}
+        title="Add Inventory"
+        onClose={closeInventoryEditor}
         headerAction={
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
+            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
             aria-label="Add inventory item"
-            onClick={() =>
-              setInventoryDraft((prev) => [...prev, { label: "", qty: "" }])
-            }
+            disabled={inventoryBusy}
+            onClick={addInventoryLine}
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             Add
@@ -892,65 +1196,108 @@ export function JobWorkflowDashboard({
         }
       >
         <div className="space-y-3">
-          {inventoryDraft.map((item, index) => (
-            <div key={`inv-${index}`} className="space-y-2">
-              {!item.label.trim() ? (
-                <>
-                  <ModalField
-                    label="Description"
-                    value={item.label}
-                    onChange={(label) =>
-                      setInventoryDraft((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, label } : row
-                        )
-                      )
-                    }
-                    placeholder="e.g. Profiles | Channel | 254x70 | IsoFR"
-                  />
-                  <ModalField
-                    label="Quantity"
-                    value={item.qty}
-                    onChange={(qty) =>
-                      setInventoryDraft((prev) =>
-                        prev.map((row, i) => (i === index ? { ...row, qty } : row))
-                      )
-                    }
-                    type="number"
-                  />
-                </>
-              ) : (
+          {inventoryError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {inventoryError}
+            </p>
+          ) : null}
+          <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+            {inventoryDraft.map((item, index) => (
+              <div key={item.localKey} className="space-y-3">
+                {item.id != null || inventoryDraft.length > 1 ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-[#111827]">
+                      {inventoryDraft.length > 1 ? `Line ${index + 1}` : "Item"}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="Remove inventory line"
+                      disabled={inventoryBusy}
+                      className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                      onClick={() => removeInventoryLine(item.localKey)}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                ) : null}
                 <ModalField
-                  label={item.label}
-                  value={item.qty}
-                  onChange={(qty) =>
+                  label="Category"
+                  value={item.category ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. Fixings"
+                  onChange={(category) =>
                     setInventoryDraft((prev) =>
-                      prev.map((row, i) => (i === index ? { ...row, qty } : row))
+                      patchInventoryLine(prev, item.localKey, { category })
                     )
                   }
-                  type="number"
                 />
-              )}
-            </div>
-          ))}
+                <ModalField
+                  label="Profile type"
+                  value={item.profileType ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. Clip"
+                  onChange={(profileType) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { profileType })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Size"
+                  value={item.size ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. M8"
+                  onChange={(size) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { size })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Material grade"
+                  value={item.materialGrade ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. 316"
+                  onChange={(materialGrade) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { materialGrade })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Quantity"
+                  value={item.quantity != null ? String(item.quantity) : ""}
+                  disabled={inventoryBusy}
+                  type="number"
+                  onChange={(qty) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, {
+                        quantity: parseInventoryQuantity(qty),
+                      })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Description"
+                  value={item.description ?? ""}
+                  disabled={inventoryBusy}
+                  multiline
+                  placeholder="Optional notes"
+                  onChange={(description) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { description })
+                    )
+                  }
+                />
+              </div>
+            ))}
+          </div>
           <button
             className="btn-primary w-full"
-            disabled={isSaving}
-            onClick={() =>
-              void onSavePatch({
-                printDetails: {
-                  ...pd,
-                  workflowExtras: {
-                    ...extras,
-                    requiredInventory: inventoryDraft.filter(
-                      (item) => item.label.trim() || item.qty.trim()
-                    ),
-                  },
-                },
-              }).then(() => setShowInventoryModal(false))
-            }
+            disabled={inventoryBusy || !job.dbId}
+            onClick={() => void saveInventory()}
           >
-            {isSaving ? "Saving…" : "Save inventory"}
+            {inventoryBusy ? "Saving…" : "Save"}
           </button>
         </div>
       </EditModal>

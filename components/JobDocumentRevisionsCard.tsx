@@ -1,7 +1,16 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { FileStack, FileText, Loader2, Paperclip, Pencil, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  FileStack,
+  FileText,
+  Loader2,
+  Paperclip,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
 import { PoManualEntryFields } from "@/components/PoManualEntryFields";
@@ -24,6 +33,7 @@ import type {
 } from "@/lib/frp/job-mapper";
 import {
   emptyPoItemRow,
+  firstPoItemRowsError,
   isManualPoDocument,
   lineItemsFromRows,
   manualPoDocumentNameFromRows,
@@ -108,6 +118,13 @@ function poDetailValue(data: Record<string, unknown> | null | undefined, key: st
   return "—";
 }
 
+/** A PO document's own saved currency (`totals.currency`), if it has one. */
+function poDocCurrency(doc: FrpJobDocumentDTO): string {
+  const source = asRecord(doc.editedDocumentData ?? doc.documentData);
+  const currency = asRecord(source.totals).currency;
+  return typeof currency === "string" ? currency.trim().toUpperCase() : "";
+}
+
 const ORDER_EXTRA_KEYS: { field: string; key: string }[] = [
   { field: "Order Date", key: "orderDate" },
   { field: "Buyer Name", key: "buyerContact" },
@@ -183,8 +200,6 @@ function matchedByHint(matchedBy?: string): string | null {
       return "matched by description";
     case "POSITION":
       return "not matched by item code — paired by list order";
-    case "UNMATCHED":
-      return "no matching item code";
     default:
       return null;
   }
@@ -405,6 +420,7 @@ export function JobDocumentRevisionsCard({
   const [userNamesById, setUserNamesById] = useState<Record<number, string>>({});
 
   const [comparison, setComparison] = useState<FrpPoComparisonDTO | null>(null);
+  const [showAllPoItems, setShowAllPoItems] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareUnavailable, setCompareUnavailable] = useState(false);
@@ -429,6 +445,9 @@ export function JobDocumentRevisionsCard({
     currency: "",
   });
   const [addPoItems, setAddPoItems] = useState([emptyPoItemRow()]);
+  // Set once when the modal opens (not derived live from the draft) so typing
+  // the first character doesn't immediately re-lock the field mid-entry.
+  const [addPoBuyerEditable, setAddPoBuyerEditable] = useState(false);
 
   // Full PO-details form — order metadata plus quantity/price/scope. Filled
   // in by hand when OCR/LLM extraction fails, or edited afterwards either
@@ -446,6 +465,7 @@ export function JobDocumentRevisionsCard({
     currency: "",
   });
   const [poDetailsItems, setPoDetailsItems] = useState([emptyPoItemRow()]);
+  const [poDetailsBuyerEditable, setPoDetailsBuyerEditable] = useState(false);
 
   const [reviewModalTarget, setReviewModalTarget] = useState<DocTab | null>(null);
   const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">(
@@ -545,6 +565,10 @@ export function JobDocumentRevisionsCard({
     }
   }, [focusDocument, poDocs, drawingDocs]);
 
+  useEffect(() => {
+    setShowAllPoItems(false);
+  }, [selectedPoId]);
+
   // Poll while OCR/LLM is still running in the background after a fast upload.
   useEffect(() => {
     if (!dbId || docType !== "po" || selectedPoId == null) return;
@@ -611,8 +635,11 @@ export function JobDocumentRevisionsCard({
    *  a prior manual save) — the one entry point for editing a PO's own
    *  details, whether extraction succeeded (a couple of corrections) or
    *  failed outright (everything entered by hand). Quote-side reference
-   *  values only show once a comparison already exists. Order No and Buyer
-   *  Name are read-only here — identity facts, not something to correct. */
+   *  values only show once a comparison already exists. Order No is
+   *  editable here since extraction can fail to read it. Buyer Name is a
+   *  fixed job-level fact once known (job contact, or whatever was saved on
+   *  this PO before) — locked in that case; editable only while genuinely
+   *  blank, and locks again the moment it's saved. */
   const openPoDetailsModal = () => {
     const source =
       comparison?.extractedData ??
@@ -623,13 +650,17 @@ export function JobDocumentRevisionsCard({
     const qty = fields.find((f) => f.field === "Quantity");
     const price = fields.find((f) => f.field === "Price");
     const scope = fields.find((f) => f.field === "Description" || f.field === "Scope");
+    const buyerName =
+      job.clientContactName?.trim() ||
+      (typeof source.buyerContact === "string" ? source.buyerContact.trim() : "");
+    setPoDetailsBuyerEditable(!buyerName);
     setPoDetailsDraft({
       quoteQty: qty?.quote ?? "",
       quotePrice: price?.quote ?? "",
       quoteScope: scope?.quote ?? "",
       orderNo: typeof source.orderNo === "string" ? source.orderNo : "",
       orderDate: typeof source.orderDate === "string" ? source.orderDate : "",
-      buyerName: typeof source.buyerContact === "string" ? source.buyerContact : "",
+      buyerName,
       expectedDate: typeof source.expectedDate === "string" ? source.expectedDate : "",
       currency:
         typeof asRecord(asRecord(source).totals).currency === "string"
@@ -657,6 +688,11 @@ export function JobDocumentRevisionsCard({
 
   const savePoDetailsModal = async () => {
     if (!selectedPo?.id) return;
+    const itemsError = firstPoItemRowsError(poDetailsItems);
+    if (itemsError) {
+      setError(itemsError);
+      return;
+    }
     setActionBusy(true);
     setError(null);
     try {
@@ -700,14 +736,20 @@ export function JobDocumentRevisionsCard({
     setAddPoMode("upload");
     setAddPoFile(null);
     setAddPoRemarks("");
-    // Order No and Buyer Name are fixed job-level facts, not typed per PO —
-    // same read-only treatment as the Edit PO modal.
+    // Order No is a fixed job-level fact, not typed per PO. Buyer Name locks
+    // once known (job contact) but stays editable while genuinely blank.
+    // Currency defaults to whatever this job's existing PO(s) already used,
+    // so it doesn't have to be re-picked on every additional PO for the same
+    // order — first doc (by version/id) that actually has one wins; blank if
+    // none do.
+    const buyerName = job.clientContactName?.trim() ?? "";
+    setAddPoBuyerEditable(!buyerName);
     setAddPoDetails({
       orderNo: job.orderNumber ?? "",
       orderDate: "",
-      buyerName: job.clientContactName ?? "",
+      buyerName,
       expectedDate: "",
-      currency: "",
+      currency: poDocs.map(poDocCurrency).find((c) => c) ?? "",
     });
     setAddPoItems([emptyPoItemRow()]);
     setAddPoError(null);
@@ -750,6 +792,11 @@ export function JobDocumentRevisionsCard({
           remarks: addPoRemarks.trim() || undefined,
         });
       } else {
+        const itemsError = firstPoItemRowsError(addPoItems);
+        if (itemsError) {
+          setAddPoError(itemsError);
+          return;
+        }
         const lineItems = manualPoLineItemsFromRows(addPoItems);
         if (lineItems.length === 0) {
           setAddPoError("Add at least one line item.");
@@ -838,6 +885,19 @@ export function JobDocumentRevisionsCard({
     extraOrderRows.length > 0 && !compareGroups.some((s) => s.group === "Order")
       ? [{ group: "Order", matchedBy: undefined as string | undefined, rows: [] }, ...compareGroups]
       : compareGroups;
+
+  const PO_ITEM_PREVIEW_COUNT = 2;
+  const totalItemSections = compareSections.filter((s) => s.group.startsWith("Item")).length;
+  const hasMorePoItems = totalItemSections > PO_ITEM_PREVIEW_COUNT;
+  let visibleItemSections = 0;
+  const visibleCompareSections = compareSections.filter((s) => {
+    if (!s.group.startsWith("Item")) return true;
+    visibleItemSections += 1;
+    return showAllPoItems || visibleItemSections <= PO_ITEM_PREVIEW_COUNT;
+  });
+  const lastVisibleItemGroup = [...visibleCompareSections]
+    .reverse()
+    .find((s) => s.group.startsWith("Item"))?.group;
 
   const poBanner = (() => {
     if (!comparison) return null;
@@ -1044,7 +1104,7 @@ export function JobDocumentRevisionsCard({
                                 </td>
                               </tr>
                             ) : (
-                              compareSections.map((section) => {
+                              visibleCompareSections.map((section) => {
                                 const hint = section.group.startsWith("Item")
                                   ? matchedByHint(section.matchedBy)
                                   : null;
@@ -1103,6 +1163,31 @@ export function JobDocumentRevisionsCard({
                                         </td>
                                       </tr>
                                     ))}
+                                    {hasMorePoItems && section.group === lastVisibleItemGroup ? (
+                                      <tr className="border-t border-[#EEF1F4]">
+                                        <td colSpan={3} className="py-2">
+                                          <div className="flex justify-center sm:justify-end">
+                                            <button
+                                              type="button"
+                                              onClick={() => setShowAllPoItems((v) => !v)}
+                                              className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 transition-colors hover:border-orange-300 hover:bg-orange-100 hover:text-orange-800"
+                                            >
+                                              {showAllPoItems ? (
+                                                <>
+                                                  <ChevronUp className="h-3.5 w-3.5" />
+                                                  Show less
+                                                </>
+                                              ) : (
+                                                <>
+                                                  <ChevronDown className="h-3.5 w-3.5" />
+                                                  {`Load more (${totalItemSections - PO_ITEM_PREVIEW_COUNT} more)`}
+                                                </>
+                                              )}
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ) : null}
                                   </Fragment>
                                 );
                               })
@@ -1280,7 +1365,7 @@ export function JobDocumentRevisionsCard({
               currency: poDetailsDraft.currency,
             }}
             onDetailsChange={(next) => setPoDetailsDraft((d) => ({ ...d, ...next }))}
-            orderNoEditable={false}
+            buyerNameEditable={poDetailsBuyerEditable}
             items={poDetailsItems}
             onItemsChange={setPoDetailsItems}
           />
@@ -1369,6 +1454,7 @@ export function JobDocumentRevisionsCard({
                 details={addPoDetails}
                 onDetailsChange={setAddPoDetails}
                 orderNoEditable
+                buyerNameEditable={addPoBuyerEditable}
                 items={addPoItems}
                 onItemsChange={setAddPoItems}
               />

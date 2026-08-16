@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 /**
  * Shared modal shell + text field, used by every "edit this card" popup on
  * the job dashboard. Pulled out of JobWorkflowDashboard.tsx so new cards
@@ -14,6 +16,7 @@ export function ModalField({
   placeholder,
   disabled = false,
   multiline = false,
+  error,
 }: {
   label: string;
   value: string;
@@ -24,9 +27,12 @@ export function ModalField({
   /** Renders a <textarea> instead of a single-line <input>, for longer
    *  free-text fields like remarks/notes. */
   multiline?: boolean;
+  /** Validation message shown under the field, e.g. from a zod safeParse. */
+  error?: string;
 }) {
   const fieldClass =
     "mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  const borderClass = error ? "border-red-400 focus:border-red-400" : "";
   return (
     <label className="block text-sm font-medium text-slate-700">
       {label}
@@ -37,7 +43,7 @@ export function ModalField({
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           rows={3}
-          className={`${fieldClass} resize-y`}
+          className={`${fieldClass} resize-y ${borderClass}`}
         />
       ) : (
         <input
@@ -46,9 +52,10 @@ export function ModalField({
           placeholder={placeholder}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className={fieldClass}
+          className={`${fieldClass} ${borderClass}`}
         />
       )}
+      {error ? <p className="mt-1 text-xs font-normal text-red-600">{error}</p> : null}
     </label>
   );
 }
@@ -59,17 +66,30 @@ export function EditModal({
   onClose,
   children,
   headerAction,
+  panelClassName,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   headerAction?: React.ReactNode;
+  /** Extra classes on the panel, e.g. `max-w-5xl` for a wide table editor. */
+  panelClassName?: string;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl p-5">
+      <div
+        className={`glass-panel w-full rounded-2xl p-5 ${panelClassName ?? "max-w-md"}`}
+      >
         <div className="mb-4 flex items-center justify-between gap-2">
           <h3 className="min-w-0 truncate text-lg font-semibold text-[#111827]">{title}</h3>
           <div className="flex shrink-0 items-center gap-2">

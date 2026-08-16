@@ -10,6 +10,7 @@
 import type {
   Job,
   JobCardPrintDetails,
+  JobInventoryLine,
   JobSchedulingLogistics,
   ShipmentMethod,
 } from "@/lib/types";
@@ -43,6 +44,8 @@ export interface FrpJobSummaryDTO {
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
   createdDate?: string;
 }
 
@@ -66,6 +69,8 @@ export interface FrpJobDTO {
   priority?: string;
   /** `WRITE_ONLY`, create only. Resolved through `JobStatusLabel`. */
   stageStatusLabel?: string;
+  /** `READ_ONLY` — furthest milestone that's complete or active, e.g. `"design"`. */
+  currentStageKey?: string | null;
   resinCode?: string | null;
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
@@ -89,6 +94,26 @@ export interface FrpJobDTO {
   customer?: FrpCustomerDTO | null;
   /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
   payments?: FrpJobPaymentDTO[];
+  /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
+   *  `/jobs/{id}/inventory`. */
+  inventory?: FrpInventoryDTO[];
+}
+
+/** `InventoryDTO` — one material line on a job, nested on `JobDTO` in the
+ *  detail view and addressable directly through `/jobs/{id}/inventory`. */
+export interface FrpInventoryDTO {
+  id?: number;
+  /** `READ_ONLY` — taken from the path, not the body. */
+  jobId?: number;
+  category?: string | null;
+  profileType?: string | null;
+  size?: string | null;
+  materialGrade?: string | null;
+  quantity?: number | null;
+  description?: string | null;
+  /** `READ_ONLY` — resolved from the authenticated user by Spring Data auditing. */
+  createdBy?: number | null;
+  createdDate?: string;
 }
 
 /** `CustomerDTO` — nested on `JobDTO` in the detail view. */
@@ -520,6 +545,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
     percentComplete: dto.percentComplete ?? null,
+    currentStageKey: dto.currentStageKey ?? null,
   };
 }
 
@@ -668,6 +694,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     ownerName: dto.ownerName ?? null,
     orderNumber: dto.orderNumber ?? null,
     measurement: dto.measurement ?? null,
+    currency: typeof dto.payload?.currency === "string" ? dto.payload.currency : null,
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
@@ -680,6 +707,43 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     createdAt: dto.createdDate,
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
+    currentStageKey: dto.currentStageKey ?? null,
+    inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  };
+}
+
+function inventoryLineToUi(line: FrpInventoryDTO): JobInventoryLine {
+  return {
+    id: line.id,
+    category: line.category ?? null,
+    profileType: line.profileType ?? null,
+    size: line.size ?? null,
+    materialGrade: line.materialGrade ?? null,
+    quantity: inventoryQuantityToUi(line.quantity),
+    description: line.description ?? null,
+  };
+}
+
+/** Integer quantity as stored by `InventoryDTO.quantity`; blanks become null. */
+function inventoryQuantityToUi(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.trunc(value);
+}
+
+/**
+ * UI row → `InventoryDTO` write body. `category` and `profileType` are required
+ * on create; empty optional strings are sent as `""` so a single-line PUT can
+ * clear them (`null` on that endpoint means "leave the stored value").
+ */
+export function uiInventoryLineToDto(line: JobInventoryLine): FrpInventoryDTO {
+  return {
+    ...(line.id != null ? { id: line.id } : {}),
+    category: line.category?.trim() || undefined,
+    profileType: line.profileType?.trim() || undefined,
+    size: line.size?.trim() ?? "",
+    materialGrade: line.materialGrade?.trim() ?? "",
+    quantity: inventoryQuantityToUi(line.quantity) ?? 0,
+    description: line.description?.trim() ?? "",
   };
 }
 
@@ -719,6 +783,8 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
     schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
+    measurement: job.measurement ?? undefined,
+    payload: job.currency ? { currency: job.currency } : undefined,
   };
 }
 

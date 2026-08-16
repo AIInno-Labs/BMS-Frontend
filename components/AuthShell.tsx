@@ -39,6 +39,14 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
     }
   }, [loading, isAuthenticated, router]);
 
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileSidebarOpen]);
+
   if (loading || !isAuthenticated) {
     return <AuthLoadingStub />;
   }
