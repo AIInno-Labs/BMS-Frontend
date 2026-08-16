@@ -254,7 +254,10 @@ export function JobWorkflowExtrasSection({
             ))}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Job type: <span className="font-medium text-slate-700">{extras.jobType}</span>
+            Job type:{" "}
+            <span className="font-medium text-slate-700">
+              {job.jobType || extras.jobType || "—"}
+            </span>
             {extras.projectedStartDate ? (
               <>
                 {" "}

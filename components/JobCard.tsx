@@ -49,6 +49,7 @@ import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
 import { FrpApiError } from "@/lib/frp/types";
 import { isCancelledJob } from "@/lib/frp/job-status";
+import { JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import type {
   Job,
   JobPriority,
@@ -820,6 +821,29 @@ export function JobCard({ jobId }: JobCardProps) {
                 )}
               </FieldBlock>
 
+              <FieldBlock label="Job type" icon={Wrench}>
+                {isEditing && isManager ? (
+                  <select
+                    value={draft.jobType ?? ""}
+                    onChange={(e) =>
+                      patchDraft({ jobType: e.target.value.trim() || null })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Not set</option>
+                    {JOB_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-base font-semibold text-slate-900">
+                    {display.jobType || "—"}
+                  </p>
+                )}
+              </FieldBlock>
+
               <FieldBlock label="Client contact" icon={UserCircle}>
                 {isEditing && isManager ? (
                   <input
@@ -1022,6 +1046,30 @@ export function JobCard({ jobId }: JobCardProps) {
                 )}
               </div>
             )}
+
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <StickyNote className="h-4 w-4" aria-hidden />
+                Description
+              </h2>
+              {isEditing && isManager ? (
+                <textarea
+                  value={draft.description ?? ""}
+                  onChange={(e) =>
+                    patchDraft({ description: e.target.value || null })
+                  }
+                  rows={3}
+                  className={`${inputClass} mt-2 min-h-[80px] resize-y`}
+                  placeholder="What this job is, in prose…"
+                />
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
+                  {display.description?.trim() ||
+                    display.manualInstructions ||
+                    "—"}
+                </p>
+              )}
+            </section>
 
             <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
               <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
