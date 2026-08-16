@@ -328,12 +328,12 @@ function Field({
       ? "—"
       : String(value);
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <div className="min-w-0">
+      <p className="break-words text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </p>
       <p
-        className={`mt-0.5 text-sm font-medium text-slate-900 ${mono ? "font-mono" : ""}`}
+        className={`mt-0.5 break-words text-sm font-medium text-slate-900 ${mono ? "font-mono" : ""}`}
       >
         {display}
       </p>
@@ -349,7 +349,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
         {title}
       </h2>
@@ -556,20 +556,27 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
               <Field label="when" value={quote.accepted_when ? formatCreatedDate(quote.accepted_when) : null} />
               <Field label="accepted_on_behalf" value={quote.accepted_on_behalf ? "true" : "false"} />
             </div>
-            <Field label="comments" value={quote.accepted_comments} />
+            <div className="mt-3">
+              <Field label="comments" value={quote.accepted_comments} />
+            </div>
           </Section>
 
           <Section title="declined">
-            <Field label="when" value={quote.declined_when ? formatCreatedDate(quote.declined_when) : null} />
-            <Field label="comments" value={quote.declined_comments} />
+            <div className="space-y-3">
+              <Field label="when" value={quote.declined_when ? formatCreatedDate(quote.declined_when) : null} />
+              <Field label="comments" value={quote.declined_comments} />
+            </div>
           </Section>
 
           <Section title="viewed">
-            <Field label="when" value={quote.viewed_when ? formatCreatedDate(quote.viewed_when) : null} />
-            <Field label="total_views" value={quote.viewed_total_views} />
+            <div className="space-y-3">
+              <Field label="when" value={quote.viewed_when ? formatCreatedDate(quote.viewed_when) : null} />
+              <Field label="total_views" value={quote.viewed_total_views} />
+            </div>
           </Section>
         </div>
 
+        <div className="mt-4 space-y-4">
         {quote.item_headings && (
           <Section title="item_headings">
             <pre className="whitespace-pre-wrap font-mono text-sm text-slate-800">
@@ -719,6 +726,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             </table>
           </div>
         </Section>
+        </div>
       </div>
     </main>
   );
