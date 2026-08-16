@@ -726,6 +726,8 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
     schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
+    measurement: job.measurement ?? undefined,
+    payload: job.currency ? { currency: job.currency } : undefined,
   };
 }
 

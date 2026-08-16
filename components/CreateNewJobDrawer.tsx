@@ -106,6 +106,51 @@ function emptyJobItemRow(): JobItemRow {
   };
 }
 
+function parseOptionalNumber(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isFilledJobItem(item: JobItemRow): boolean {
+  return Boolean(
+    item.itemCode.trim() ||
+      item.itemName.trim() ||
+      item.description.trim() ||
+      item.quantity.trim() ||
+      item.unitPrice.trim()
+  );
+}
+
+/**
+ * Items step → `JobDTO.measurement`. Same keys Quotient `selected_items` uses
+ * (`item_code`, `heading`, `quantity`, `unit_price`) so the job screen can
+ * render factory-raised lines with the existing `orderItemFields` reader.
+ */
+function jobItemsToMeasurement(
+  items: JobItemRow[]
+): Array<Record<string, unknown>> | null {
+  const rows = items.filter(isFilledJobItem);
+  if (rows.length === 0) return null;
+  return rows.map((item) => {
+    const quantity = parseOptionalNumber(item.quantity);
+    const unitPrice = parseOptionalNumber(item.unitPrice);
+    const itemTotal =
+      quantity != null && unitPrice != null
+        ? Math.round(quantity * unitPrice * 100) / 100
+        : null;
+    return {
+      item_code: item.itemCode.trim() || null,
+      heading: item.itemName.trim() || null,
+      description: item.description.trim() || null,
+      quantity,
+      unit_price: unitPrice,
+      item_total: itemTotal,
+    };
+  });
+}
+
 export interface CreateJobFormValues {
   jobId: string;
   clientName: string;
@@ -305,6 +350,8 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
     assignedWorkerId: values.assignedWorkerId || null,
     assignedWorkerName: assignedWorkerName || null,
     manualInstructions: values.description.trim(),
+    measurement: jobItemsToMeasurement(values.items),
+    currency: values.currency.trim() || null,
     printDetails: ensurePrintDetails({
       id: values.jobId,
       clientName: values.clientName,
