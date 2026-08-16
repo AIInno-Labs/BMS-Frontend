@@ -42,6 +42,7 @@ import {
   totalPriceFromRows,
   type PoItemRow,
 } from "@/lib/poLineItems";
+import { isCancelledJob } from "@/lib/frp/job-status";
 import type { Job } from "@/lib/types";
 
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -344,6 +345,7 @@ function ReviewActions({
   onApprove,
   onReject,
   busy,
+  locked,
 }: {
   status: ReviewStatus;
   reviewedBy?: string | null;
@@ -352,6 +354,7 @@ function ReviewActions({
   onApprove: () => void;
   onReject: () => void;
   busy?: boolean;
+  locked?: boolean;
 }) {
   if (status === "approved" || status === "rejected") {
     const verb = status === "approved" ? "Approved" : "Rejected";
@@ -368,6 +371,11 @@ function ReviewActions({
           </>
         ) : null}
       </p>
+    );
+  }
+  if (locked) {
+    return (
+      <p className="text-right text-xs text-slate-500">Cancelled — not editable</p>
     );
   }
   return (
@@ -410,6 +418,7 @@ export function JobDocumentRevisionsCard({
   focusDocument = null,
   onJobChanged,
 }: JobDocumentRevisionsCardProps) {
+  const locked = isCancelledJob(job.status);
   const { user: me } = useAuth();
   const [docType, setDocType] = useState<DocTab>("po");
 
@@ -733,6 +742,7 @@ export function JobDocumentRevisionsCard({
   };
 
   const openAddPoModal = () => {
+    if (locked) return;
     setAddPoMode("upload");
     setAddPoFile(null);
     setAddPoRemarks("");
@@ -825,6 +835,7 @@ export function JobDocumentRevisionsCard({
   };
 
   const openReviewModal = (target: DocTab, action: "approved" | "rejected") => {
+    if (locked) return;
     setReviewModalTarget(target);
     setReviewModalAction(action);
     setReviewRemarkDraft("");
@@ -994,7 +1005,8 @@ export function JobDocumentRevisionsCard({
             <button
               type="button"
               onClick={openAddPoModal}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+              disabled={locked}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
               Add New PO
@@ -1214,6 +1226,7 @@ export function JobDocumentRevisionsCard({
                             reviewedDate={formatReviewDate(selectedPo.modifiedAt)}
                             remarks={comparison.notes ?? selectedPo.remarks}
                             busy={actionBusy}
+                            locked={locked}
                             onApprove={() => openReviewModal("po", "approved")}
                             onReject={() => openReviewModal("po", "rejected")}
                           />
@@ -1316,6 +1329,7 @@ export function JobDocumentRevisionsCard({
                     reviewedDate={formatReviewDate(selectedDrawing.modifiedAt)}
                     remarks={selectedDrawing.remarks}
                     busy={actionBusy}
+                    locked={locked}
                     onApprove={() => openReviewModal("drawing", "approved")}
                     onReject={() => openReviewModal("drawing", "rejected")}
                   />

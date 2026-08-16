@@ -23,6 +23,7 @@ import {
   type PoItemRow,
 } from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
+import { isCancelledJob } from "@/lib/frp/job-status";
 
 interface JobStatusCardProps {
   job: Job;
@@ -90,6 +91,7 @@ export function JobStatusCard({
   onDocumentsChanged,
   onOpenDocument,
 }: JobStatusCardProps) {
+  const locked = isCancelledJob(job.status);
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -218,6 +220,7 @@ export function JobStatusCard({
   );
 
   const openStageModal = (stage: FrpJobStageDTO) => {
+    if (locked) return;
     setModalStage(stage);
     // Files themselves aren't re-picked on open — already-uploaded documents
     // are shown read-only from `stage.documents` (see the modal body below).
@@ -240,7 +243,7 @@ export function JobStatusCard({
   };
 
   const onToggle = (stage: FrpJobStageDTO) => {
-    if (savingId != null) return;
+    if (locked || savingId != null) return;
     if (stage.status === "COMPLETE") {
       void persist(stage, { status: "PENDING" });
       return;
@@ -337,6 +340,7 @@ export function JobStatusCard({
   /** Deletes an already-uploaded document. Purely a document action — it
    *  doesn't touch the stage's own COMPLETE status either way. */
   const handleDeleteDocument = async (docId: number, docName?: string) => {
+    if (locked) return;
     if (!window.confirm(`Delete ${docName ?? "this document"}?`)) return;
     setDeletingDocId(docId);
     try {
@@ -364,7 +368,9 @@ export function JobStatusCard({
           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Current status
           </span>
-          <span className="text-sm font-semibold text-orange-700">{job.status}</span>
+          <span className="text-sm font-semibold text-orange-700">
+            {isCancelledJob(job.status) ? "Cancelled" : job.status}
+          </span>
         </div>
 
         {loading ? (
@@ -433,7 +439,7 @@ export function JobStatusCard({
                         <input
                           type="checkbox"
                           checked={done}
-                          disabled={savingId != null}
+                          disabled={locked || savingId != null}
                           onChange={() => onToggle(item)}
                           className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-orange-600 focus:ring-orange-300"
                         />

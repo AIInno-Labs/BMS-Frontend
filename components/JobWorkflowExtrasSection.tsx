@@ -26,6 +26,7 @@ import {
   SHIPMENT_METHOD_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
+import { isCancelledJob } from "@/lib/frp/job-status";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import type { Job, JobCardPrintDetails, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
@@ -67,6 +68,7 @@ export function JobWorkflowExtrasSection({
   onOpenFile,
   onDownloadVersionFile,
 }: JobWorkflowExtrasSectionProps) {
+  const cancelled = isCancelledJob(job.status);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const workers = getAssignableWorkers();
 
@@ -244,7 +246,7 @@ export function JobWorkflowExtrasSection({
                   type="checkbox"
                   checked={Boolean(extras[key])}
                   onChange={(e) => void patchRequirements(key, e.target.checked)}
-                  disabled={isSaving}
+                  disabled={isSaving || cancelled}
                   className="h-4 w-4 rounded border-slate-300 text-orange-600"
                 />
                 {label}
@@ -265,7 +267,7 @@ export function JobWorkflowExtrasSection({
         <WidgetCard
           title="Scheduling & logistics"
           icon={Truck}
-          onEdit={() => setShowLogisticsModal(true)}
+          onEdit={cancelled ? undefined : () => setShowLogisticsModal(true)}
         >
           <Row label="Production status" value={extras.productionStatus || "—"} />
           <Row label="Responsible" value={extras.responsibleParty || "—"} />
@@ -281,7 +283,7 @@ export function JobWorkflowExtrasSection({
         <WidgetCard
           title="Materials & specifications"
           icon={ClipboardList}
-          onEdit={() => setShowMaterialsModal(true)}
+          onEdit={cancelled ? undefined : () => setShowMaterialsModal(true)}
         >
           <p className="line-clamp-3 text-sm text-slate-600">
             {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No materials list."}
@@ -302,7 +304,7 @@ export function JobWorkflowExtrasSection({
           files={files}
           fileSort={fileSort}
           onFileSortChange={onFileSortChange}
-          onUpload={onUploadFile}
+          onUpload={cancelled ? undefined : onUploadFile}
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
           onDownloadVersionFile={onDownloadVersionFile}

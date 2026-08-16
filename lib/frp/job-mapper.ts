@@ -71,6 +71,10 @@ export interface FrpJobDTO {
   stageStatusLabel?: string;
   /** `READ_ONLY` — furthest milestone that's complete or active, e.g. `"design"`. */
   currentStageKey?: string | null;
+  /** `READ_ONLY` — id of the current milestone. Present on create. */
+  currentStageId?: number | null;
+  /** `READ_ONLY` — stage tree. Present on `GET /jobs/{id}`; may be absent on create. */
+  stages?: FrpJobStageDTO[];
   resinCode?: string | null;
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
