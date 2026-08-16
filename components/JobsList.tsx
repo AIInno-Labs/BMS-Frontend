@@ -42,6 +42,7 @@ import {
   type JobStageGroup,
   parseStageGroupParam,
 } from "@/lib/jobStageGroups";
+import { isCancelledJob } from "@/lib/frp/job-status";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
 import type { Job, JobStatus, ResinType } from "@/lib/types";
@@ -63,8 +64,21 @@ const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
   delivered: "status-pill status-pill--delivered",
 };
 
-function getStageBadgeClass(status: Job["status"]): string {
-  return STAGE_GROUP_CLASS[resolveStatusGroup(status)];
+function stageGroupFromKey(stageKey?: string | null): JobStageGroup | null {
+  if (stageKey === "draft" || stageKey === "design" || stageKey === "approval") {
+    return "not-started";
+  }
+  if (stageKey === "production" || stageKey === "qc") return "manufacturing";
+  if (stageKey === "dispatch" || stageKey === "completed") return "delivered";
+  return null;
+}
+
+function getStageBadgeClass(job: Job): string {
+  if (isCancelledJob(job.status)) {
+    const fromKey = stageGroupFromKey(job.currentStageKey);
+    if (fromKey) return STAGE_GROUP_CLASS[fromKey];
+  }
+  return STAGE_GROUP_CLASS[resolveStatusGroup(job.status)];
 }
 
 const STAGE_GROUP_LABEL_FULL: Record<JobStageGroup, string> = {
@@ -89,6 +103,32 @@ function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
   if (real) return variant === "full" ? real.title : real.shortLabel;
   const group = resolveStatusGroup(job.status);
   return variant === "full" ? STAGE_GROUP_LABEL_FULL[group] : STAGE_GROUP_LABEL_SHORT[group];
+}
+
+const STAGE_BADGE_CLASS =
+  "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
+
+/** Stage from currentStageKey, plus Cancelled when stageStatus is CANCELLED. */
+function JobListStageBadges({
+  job,
+  variant,
+}: {
+  job: Job;
+  variant: "full" | "short";
+}) {
+  const cancelled = isCancelledJob(job.status);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span className={`${STAGE_BADGE_CLASS} ${getStageBadgeClass(job)}`}>
+        {getStageBadgeLabel(job, variant)}
+      </span>
+      {cancelled ? (
+        <span className={`${STAGE_BADGE_CLASS} status-pill status-pill--cancelled`}>
+          Cancelled
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 export function JobsList({ jobs }: JobsListProps) {
@@ -346,11 +386,7 @@ export function JobsList({ jobs }: JobsListProps) {
                         >
                           <span className="font-semibold text-slate-900">{job.id}</span>
                           <span className="min-w-0 truncate text-slate-600">{job.clientName}</span>
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
-                          >
-                            {job.status}
-                          </span>
+                          <JobListStageBadges job={job} variant="short" />
                         </Link>
                       </li>
                     ))}
@@ -528,11 +564,7 @@ function JobsTable({
                   {!workerMode && <td className={`${TD} text-left tabular-nums`}>{formatShortDate(job.dueDate)}</td>}
                   {!workerMode && (
                     <td className={`${TD} text-left`}>
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
-                      >
-                        {getStageBadgeLabel(job, "full")}
-                      </span>
+                      <JobListStageBadges job={job} variant="full" />
                     </td>
                   )}
                   {workerMode && <td className={`${TD} text-left tabular-nums`}>{formatShortDate(job.dueDate)}</td>}
@@ -573,10 +605,8 @@ function JobsCards({
               </p>
             </div>
             {!workerMode && (
-              <span
-                className={`shrink-0 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
-              >
-                {getStageBadgeLabel(job, "short")}
+              <span className="shrink-0">
+                <JobListStageBadges job={job} variant="short" />
               </span>
             )}
           </div>
