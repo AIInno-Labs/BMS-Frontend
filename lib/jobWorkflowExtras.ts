@@ -1,13 +1,8 @@
 import type { Job, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
+import { JOB_TYPE_LABELS } from "@/lib/frp/job-status";
 import { formatCreatedDate } from "@/lib/mockData";
 
-export const JOB_TYPE_OPTIONS = [
-  "Standard fabrication",
-  "Custom structure",
-  "Grating supply",
-  "Handrail / ladder",
-  "Repair / refit",
-] as const;
+export const JOB_TYPE_OPTIONS = JOB_TYPE_LABELS;
 
 export const PRODUCTION_STATUS_OPTIONS = [
   "Pending",
@@ -65,7 +60,7 @@ export function ensureWorkflowExtras(
     documentsRequired: raw?.documentsRequired ?? false,
     sampleRequired: raw?.sampleRequired ?? false,
     coiRequired: raw?.coiRequired ?? false,
-    jobType: raw?.jobType ?? JOB_TYPE_OPTIONS[0],
+    jobType: raw?.jobType ?? job.jobType ?? undefined,
     projectedStartDate: raw?.projectedStartDate ?? "",
     productionStatus: raw?.productionStatus ?? PRODUCTION_STATUS_OPTIONS[0],
     responsibleParty: raw?.responsibleParty ?? job.assignedWorkerName ?? "",

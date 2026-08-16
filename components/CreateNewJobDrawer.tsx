@@ -6,6 +6,7 @@ import { Download, FileText, Plus, Trash2, Upload, X } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { useJobs } from "@/context/JobsContext";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
+import { JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import { jobPriorities, resinTypes } from "@/lib/jobData";
 import { JobItemRowSchema } from "@/lib/schemas/job";
 import type { Job, JobPriority, JobStatus, ResinType } from "@/lib/types";
@@ -160,6 +161,7 @@ export interface CreateJobFormValues {
   projectName: string;
   orderNo: string;
   description: string;
+  jobType: string;
   resinType: ResinType;
   priority: JobPriority;
   dueDate: string;
@@ -225,6 +227,7 @@ function buildInitialForm(jobs: Job[]): CreateJobFormValues {
     projectName: "",
     orderNo: "",
     description: "",
+    jobType: "",
     resinType: resinTypes[0],
     priority: "Normal",
     dueDate: "",
@@ -343,6 +346,8 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
     priority: values.priority,
     alert: values.alert.trim() || null,
     notes: values.notes.trim() || null,
+    description: values.description.trim() || null,
+    jobType: values.jobType.trim() || null,
     manufacturingRequired: values.needsJobCard,
     installRequired: values.installRequired,
     qaCompleted: values.qaCompleted,
@@ -688,6 +693,20 @@ export function CreateNewJobDrawer({
                 className={`${inputClass} min-h-[88px] resize-y p-2`}
                 placeholder="Scope, lay-up notes, site requirements…"
               />
+            </Field>
+            <Field label="Job type">
+              <select
+                value={form.jobType}
+                onChange={(e) => patch({ jobType: e.target.value })}
+                className={inputClass}
+              >
+                <option value="">Not set</option>
+                {JOB_TYPE_OPTIONS.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Fabrication Type">
               <select

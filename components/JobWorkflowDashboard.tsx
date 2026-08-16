@@ -314,10 +314,10 @@ export function JobWorkflowDashboard({
     status: job.status,
     dueDate: job.dueDate ?? "",
     priority: job.priority,
-    manualInstructions: job.manualInstructions ?? "",
+    description: job.description ?? job.manualInstructions ?? "",
     assignedWorkerId: job.assignedWorkerId ?? "",
     raisedBy: pd.raisedBy ?? "",
-    jobType: extras.jobType ?? JOB_TYPE_OPTIONS[0],
+    jobType: job.jobType ?? extras.jobType ?? "",
     projectedStartDate: extras.projectedStartDate ?? "",
   });
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftLine[]>(
@@ -410,10 +410,10 @@ export function JobWorkflowDashboard({
       status: job.status,
       dueDate: job.dueDate ?? "",
       priority: job.priority,
-      manualInstructions: job.manualInstructions ?? "",
+      description: job.description ?? job.manualInstructions ?? "",
       assignedWorkerId: job.assignedWorkerId ?? "",
       raisedBy: nextPd.raisedBy ?? "",
-      jobType: nextExtras.jobType ?? JOB_TYPE_OPTIONS[0],
+      jobType: job.jobType ?? nextExtras.jobType ?? "",
       projectedStartDate: nextExtras.projectedStartDate ?? "",
     });
     if (!showInventoryModal) {
@@ -754,14 +754,17 @@ export function JobWorkflowDashboard({
           <p className="text-sm text-slate-600">
             Assigned: {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
           </p>
-          <p className="text-sm text-slate-600">
-            {job.manualInstructions?.trim() || "No description provided."}
+          <p className="whitespace-pre-wrap text-sm text-slate-600">
+            {job.description?.trim() ||
+              job.manualInstructions?.trim() ||
+              "No description provided."}
           </p>
           <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
             {job.priority}
           </span>
           <p className="text-sm text-slate-500">
-            Type: {extras.jobType} · Stage: {cancelled ? "Cancelled" : job.status}
+            Type: {job.jobType || extras.jobType || "—"} · Stage:{" "}
+            {cancelled ? "Cancelled" : job.status}
           </p>
           <p className="text-sm text-slate-500">
             Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
@@ -1037,8 +1040,8 @@ export function JobWorkflowDashboard({
           <label className="block text-sm font-medium text-slate-700">
             Description
             <textarea
-              value={jobDraft.manualInstructions}
-              onChange={(e) => setJobDraft((p) => ({ ...p, manualInstructions: e.target.value }))}
+              value={jobDraft.description}
+              onChange={(e) => setJobDraft((p) => ({ ...p, description: e.target.value }))}
               rows={3}
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
@@ -1072,6 +1075,7 @@ export function JobWorkflowDashboard({
               onChange={(e) => setJobDraft((p) => ({ ...p, jobType: e.target.value }))}
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
+              <option value="">Not set</option>
               {JOB_TYPE_OPTIONS.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -1159,7 +1163,8 @@ export function JobWorkflowDashboard({
                 status: jobDraft.status,
                 dueDate: jobDraft.dueDate.trim() || null,
                 priority: jobDraft.priority,
-                manualInstructions: jobDraft.manualInstructions,
+                description: jobDraft.description.trim() || null,
+                jobType: jobDraft.jobType.trim() || null,
                 assignedWorkerId: workerId,
                 assignedWorkerName: resolveWorkerNameFromId(workerId),
                 printDetails: {
@@ -1167,7 +1172,7 @@ export function JobWorkflowDashboard({
                   raisedBy: jobDraft.raisedBy,
                   workflowExtras: {
                     ...ensureWorkflowExtras(pd.workflowExtras, job),
-                    jobType: jobDraft.jobType,
+                    jobType: jobDraft.jobType.trim() || undefined,
                     projectedStartDate: jobDraft.projectedStartDate,
                   },
                 },

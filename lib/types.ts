@@ -119,6 +119,10 @@ export interface Job {
   alert: string | null;
   /** Free working notes on the job. Distinct from the short `alert` flag. */
   notes: string | null;
+  /** What the job is, in prose. Distinct from notes. */
+  description?: string | null;
+  /** Kind of work (`JobType`). Null on jobs raised before the field existed. */
+  jobType?: string | null;
   manufacturingRequired: boolean;
   installRequired: boolean;
   qaCompleted: boolean;

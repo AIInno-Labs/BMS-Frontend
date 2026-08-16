@@ -219,10 +219,17 @@ export function JobDetailsView({
                   Description
                 </dt>
                 <dd className="mt-0.5 leading-relaxed text-slate-700">
-                  {job.manualInstructions?.trim() ||
+                  {job.description?.trim() ||
+                    job.manualInstructions?.trim() ||
                     job.alert ||
                     "No description provided."}
                 </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Job type
+                </dt>
+                <dd className="mt-0.5 text-[#0F172A]">{job.jobType || "—"}</dd>
               </div>
               <div>
                 <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">

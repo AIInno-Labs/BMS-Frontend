@@ -20,6 +20,8 @@ import {
   priorityToUi,
   resinToBackend,
   resinToUi,
+  jobTypeToBackend,
+  jobTypeToUi,
   statusToBackend,
   statusToUi,
 } from "@/lib/frp/job-status";
@@ -37,6 +39,8 @@ export interface FrpJobSummaryDTO {
   dueDate?: string | null;
   stageStatus?: string;
   priority?: string;
+  /** `JobType` enum name. Null on jobs raised before the field existed. */
+  jobType?: string | null;
   resinCode?: string | null;
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
@@ -90,6 +94,14 @@ export interface FrpJobDTO {
   /** Free working notes, saved through the normal job update. Distinct from
    *  the short `alert` flag; print-only text stays in `jobCard`. */
   notes?: string | null;
+  /** What the job is, in prose. Distinct from notes. */
+  description?: string | null;
+  /** `JobType` enum name. Null on jobs raised before the field existed. */
+  jobType?: string | null;
+  /** Currency for the payment totalled from `measurement`, e.g. `INR`. Sent on
+   *  create and update; returned by `GET /jobs/{id}` off the payment it was
+   *  stored on. Absent from the list view, which does not load payments. */
+  currency?: string | null;
   /** `READ_ONLY` here — written via `PUT /jobs/{id}/job-card`. */
   jobCard?: FrpJobCardPayload | null;
   createdDate?: string;
@@ -535,6 +547,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     resinType: resinToUi(dto.resinCode),
     status: statusToUi(dto.stageStatus),
     priority: priorityToUi(dto.priority),
+    jobType: jobTypeToUi(dto.jobType),
     alert: null,
     notes: dto.notes ?? null,
     ownerName: dto.ownerName ?? null,
@@ -669,6 +682,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       programHistory: card?.programHistory ?? [],
       additionalNotes: card?.additionalNotes,
       jobCardNotes: card?.notes || dto.notes || undefined,
+      jobType: jobTypeToUi(dto.jobType) ?? undefined,
       paymentReceived:
         payment != null
           ? paymentReceivedFromStatus(payment.status)
@@ -695,10 +709,17 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
+    description: dto.description ?? null,
+    jobType: jobTypeToUi(dto.jobType),
     ownerName: dto.ownerName ?? null,
     orderNumber: dto.orderNumber ?? null,
     measurement: dto.measurement ?? null,
-    currency: typeof dto.payload?.currency === "string" ? dto.payload.currency : null,
+    // `currency` is the field; `payload.currency` is where this client used to
+    // put it, and still where jobs created before the switch carry it. Reading
+    // both means an existing job's currency survives the change.
+    currency:
+      dto.currency ??
+      (typeof dto.payload?.currency === "string" ? dto.payload.currency : null),
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
@@ -786,9 +807,15 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
+    description: job.description?.trim() || undefined,
+    jobType: jobTypeToBackend(job.jobType) ?? undefined,
     schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
     measurement: job.measurement ?? undefined,
-    payload: job.currency ? { currency: job.currency } : undefined,
+    // Its own field, not smuggled inside `payload`. `payload` is the raw body a
+    // job was raised from; a currency picked in a dropdown is not that, and the
+    // backend never read it from there — every manual job silently fell back to
+    // AUD however the dropdown was set.
+    currency: job.currency ?? undefined,
   };
 }
 
@@ -821,6 +848,13 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
+    description: job.description?.trim() || undefined,
+    jobType: jobTypeToBackend(job.jobType) ?? undefined,
+    // Line items are editable here, so the currency they are totalled in has to
+    // be too. Omitting it leaves the payment's existing currency alone rather
+    // than resetting it, so a partial update cannot silently change the money.
+    measurement: job.measurement ?? undefined,
+    currency: job.currency ?? undefined,
   };
 }
 
