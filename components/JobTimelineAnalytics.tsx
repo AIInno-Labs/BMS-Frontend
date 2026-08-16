@@ -525,9 +525,28 @@ export function JobTimelineAnalytics({
           : real.status === "IN_PROGRESS" || pct > 0
             ? "active"
             : "upcoming";
-      const subStages = subStagesFromReal(real.children, state) ?? s.subStages;
-      return { ...s, completionPct: pct, state, subStages };
+      return { ...s, completionPct: pct, state };
     });
+
+    // The backend only flips the next milestone's status to IN_PROGRESS via a
+    // specific save path (JobStageServiceImpl.openNextMilestone) - it doesn't
+    // always run, so a job can sit with its next stage still PENDING/0% right
+    // after the prior one completes. The tracker should show "where the job
+    // is now" regardless, so promote the first non-complete stage in sequence
+    // to active on the client, independent of the backend's own status field.
+    const firstIncompleteIndex = stages.findIndex((s) => s.state !== "complete");
+    if (firstIncompleteIndex !== -1 && stages[firstIncompleteIndex].state === "upcoming") {
+      stages[firstIncompleteIndex] = { ...stages[firstIncompleteIndex], state: "active" };
+    }
+
+    for (let i = 0; i < stages.length; i++) {
+      const real = byKey.get(stages[i].id);
+      if (!real) continue;
+      stages[i] = {
+        ...stages[i],
+        subStages: subStagesFromReal(real.children, stages[i].state) ?? stages[i].subStages,
+      };
+    }
 
     const ROLLUP: TimelineStageId[] = [
       "draft",
