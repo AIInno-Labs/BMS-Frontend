@@ -1,9 +1,4 @@
-import type {
-  Job,
-  JobMaterialRow,
-  JobWorkflowExtras,
-  RequiredInventoryItem,
-} from "@/lib/types";
+import type { Job, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
 import { formatCreatedDate } from "@/lib/mockData";
 
 export const JOB_TYPE_OPTIONS = [
@@ -31,12 +26,6 @@ export const SHIPMENT_METHOD_OPTIONS = [
   "Freight forwarder",
   "To be confirmed",
 ] as const;
-
-export const DEFAULT_REQUIRED_INVENTORY: RequiredInventoryItem[] = [
-  { label: "Profiles | Channel | 254x70 | IsoFR", qty: "48" },
-  { label: "Stanchions | Square Tube | 50x6 | VEFR", qty: "6" },
-  { label: "Profiles | Round Tube | 32 Fluted | VEFR", qty: "6" },
-];
 
 export const DEFAULT_MATERIAL_ROWS: JobMaterialRow[] = [
   { material: "Top Cap", qty: "", availability: "In stock" },
@@ -96,10 +85,6 @@ export function ensureWorkflowExtras(
     additionalNotes: raw?.additionalNotes ?? "",
     resinMatQty: raw?.resinMatQty ?? "48",
     fiberRollQty: raw?.fiberRollQty ?? "6",
-    requiredInventory:
-      raw?.requiredInventory && raw.requiredInventory.length > 0
-        ? raw.requiredInventory.map((item) => ({ ...item }))
-        : DEFAULT_REQUIRED_INVENTORY.map((item) => ({ ...item })),
     paymentReceived: raw?.paymentReceived ?? null,
     paymentDueDate: raw?.paymentDueDate ?? "",
     jobCardNotes: raw?.jobCardNotes ?? "",
