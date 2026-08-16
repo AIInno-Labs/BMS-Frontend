@@ -66,12 +66,15 @@ export function EditModal({
   onClose,
   children,
   headerAction,
+  panelClassName,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   headerAction?: React.ReactNode;
+  /** Extra classes on the panel, e.g. `max-w-5xl` for a wide table editor. */
+  panelClassName?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -84,7 +87,9 @@ export function EditModal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl p-5">
+      <div
+        className={`glass-panel w-full rounded-2xl p-5 ${panelClassName ?? "max-w-md"}`}
+      >
         <div className="mb-4 flex items-center justify-between gap-2">
           <h3 className="min-w-0 truncate text-lg font-semibold text-[#111827]">{title}</h3>
           <div className="flex shrink-0 items-center gap-2">

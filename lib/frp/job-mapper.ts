@@ -10,6 +10,7 @@
 import type {
   Job,
   JobCardPrintDetails,
+  JobInventoryLine,
   JobSchedulingLogistics,
   ShipmentMethod,
 } from "@/lib/types";
@@ -93,6 +94,26 @@ export interface FrpJobDTO {
   customer?: FrpCustomerDTO | null;
   /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
   payments?: FrpJobPaymentDTO[];
+  /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
+   *  `/jobs/{id}/inventory`. */
+  inventory?: FrpInventoryDTO[];
+}
+
+/** `InventoryDTO` — one material line on a job, nested on `JobDTO` in the
+ *  detail view and addressable directly through `/jobs/{id}/inventory`. */
+export interface FrpInventoryDTO {
+  id?: number;
+  /** `READ_ONLY` — taken from the path, not the body. */
+  jobId?: number;
+  category?: string | null;
+  profileType?: string | null;
+  size?: string | null;
+  materialGrade?: string | null;
+  quantity?: number | null;
+  description?: string | null;
+  /** `READ_ONLY` — resolved from the authenticated user by Spring Data auditing. */
+  createdBy?: number | null;
+  createdDate?: string;
 }
 
 /** `CustomerDTO` — nested on `JobDTO` in the detail view. */
@@ -686,6 +707,42 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
     currentStageKey: dto.currentStageKey ?? null,
+    inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  };
+}
+
+function inventoryLineToUi(line: FrpInventoryDTO): JobInventoryLine {
+  return {
+    id: line.id,
+    category: line.category ?? null,
+    profileType: line.profileType ?? null,
+    size: line.size ?? null,
+    materialGrade: line.materialGrade ?? null,
+    quantity: inventoryQuantityToUi(line.quantity),
+    description: line.description ?? null,
+  };
+}
+
+/** Integer quantity as stored by `InventoryDTO.quantity`; blanks become null. */
+function inventoryQuantityToUi(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.trunc(value);
+}
+
+/**
+ * UI row → `InventoryDTO` write body. `category` and `profileType` are required
+ * on create; empty optional strings are sent as `""` so a single-line PUT can
+ * clear them (`null` on that endpoint means "leave the stored value").
+ */
+export function uiInventoryLineToDto(line: JobInventoryLine): FrpInventoryDTO {
+  return {
+    ...(line.id != null ? { id: line.id } : {}),
+    category: line.category?.trim() || undefined,
+    profileType: line.profileType?.trim() || undefined,
+    size: line.size?.trim() ?? "",
+    materialGrade: line.materialGrade?.trim() ?? "",
+    quantity: inventoryQuantityToUi(line.quantity) ?? 0,
+    description: line.description?.trim() ?? "",
   };
 }
 
