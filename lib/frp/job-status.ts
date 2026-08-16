@@ -76,10 +76,24 @@ const BACKEND_SET = new Set<string>(BACKEND_JOB_STATUSES);
 
 /** Backend value → UI label. Unknown input reads as `Pending`. */
 export function statusToUi(value?: string | null): LegacyJobStatus {
-  if (value && BACKEND_SET.has(value)) {
-    return STATUS_TO_LABEL[value as BackendJobStatus];
+  if (!value) return "Pending";
+  const trimmed = value.trim();
+  if (BACKEND_SET.has(trimmed)) {
+    return STATUS_TO_LABEL[trimmed as BackendJobStatus];
+  }
+  const asEnum = trimmed.toUpperCase().replace(/\s+/g, "_");
+  if (BACKEND_SET.has(asEnum)) {
+    return STATUS_TO_LABEL[asEnum as BackendJobStatus];
+  }
+  if (trimmed in LABEL_TO_STATUS) {
+    return trimmed as LegacyJobStatus;
   }
   return "Pending";
+}
+
+/** Terminal cancel — the job must not be edited. */
+export function isCancelledJob(status?: string | null): boolean {
+  return statusToUi(status) === "Cancelled";
 }
 
 /**

@@ -499,7 +499,10 @@ export function CreateNewJobDrawer({
     setErrors({});
     try {
       const job = buildJobFromForm(form);
-      const created = await createJobFromUi(job);
+      const created = await createJobFromUi(
+        job,
+        pendingFiles.map((p) => p.file)
+      );
       await refreshJobs({ silent: true });
       onClose();
       router.push(`/jobs/${encodeURIComponent(created.id)}`);

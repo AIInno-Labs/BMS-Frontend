@@ -66,6 +66,7 @@ import {
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
+import { isCancelledJob } from "@/lib/frp/job-status";
 
 interface JobWorkflowDashboardProps {
   job: Job;
@@ -274,6 +275,7 @@ export function JobWorkflowDashboard({
   onSavePatch,
   onJobChanged,
 }: JobWorkflowDashboardProps) {
+  const cancelled = isCancelledJob(job.status);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.measurement ?? [];
@@ -729,7 +731,7 @@ export function JobWorkflowDashboard({
         files={sortedFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
-        onUploadFile={openFileUploadModal}
+        onUploadFile={cancelled ? () => undefined : openFileUploadModal}
         onDownloadFile={handleDownloadFile}
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
@@ -737,7 +739,7 @@ export function JobWorkflowDashboard({
 
       <div className="mt-4 space-y-4">
       <section className="grid gap-4 lg:grid-cols-2">
-        <WidgetCard title="Customer Details" icon={User} onEdit={() => setShowCustomerModal(true)}>
+        <WidgetCard title="Customer Details" icon={User} onEdit={cancelled ? undefined : () => setShowCustomerModal(true)}>
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
@@ -746,7 +748,7 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Job Details"
           icon={Settings}
-          onEdit={() => setShowJobModal(true)}
+          onEdit={cancelled ? undefined : () => setShowJobModal(true)}
         >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
@@ -759,7 +761,7 @@ export function JobWorkflowDashboard({
             {job.priority}
           </span>
           <p className="text-sm text-slate-500">
-            Type: {extras.jobType} · Stage: {job.status}
+            Type: {extras.jobType} · Stage: {cancelled ? "Cancelled" : job.status}
           </p>
           <p className="text-sm text-slate-500">
             Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
@@ -797,7 +799,7 @@ export function JobWorkflowDashboard({
               <input
                 type="checkbox"
                 checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-                disabled={isSaving}
+                disabled={isSaving || cancelled}
                 onChange={(e) =>
                   void onSavePatch({
                     status: e.target.checked ? "In Fabrication" : "Pending",
@@ -823,7 +825,7 @@ export function JobWorkflowDashboard({
                     type="radio"
                     name={`payment-received-${job.id}`}
                     checked={extras.paymentReceived === true}
-                    disabled={isSaving || paymentBusy || !job.dbId}
+                    disabled={isSaving || paymentBusy || cancelled || !job.dbId}
                     onChange={() => handlePaymentReceivedChange(true)}
                     className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                   />
@@ -834,7 +836,7 @@ export function JobWorkflowDashboard({
                     type="radio"
                     name={`payment-received-${job.id}`}
                     checked={extras.paymentReceived === false}
-                    disabled={isSaving || paymentBusy || !job.dbId}
+                    disabled={isSaving || paymentBusy || cancelled || !job.dbId}
                     onChange={() => handlePaymentReceivedChange(false)}
                     className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                   />
@@ -847,7 +849,7 @@ export function JobWorkflowDashboard({
               <input
                 type="date"
                 value={extras.paymentDueDate ?? ""}
-                disabled={isSaving || paymentBusy || !job.dbId}
+                disabled={isSaving || paymentBusy || cancelled || !job.dbId}
                 onChange={(e) => handlePaymentDueDateChange(e.target.value)}
                 className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
               />
@@ -858,7 +860,7 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Inventory"
           icon={Package}
-          onEdit={openInventoryEditor}
+          onEdit={cancelled ? undefined : openInventoryEditor}
           className="lg:col-span-2"
         >
           {(job.inventory ?? []).length === 0 ? (
@@ -913,7 +915,7 @@ export function JobWorkflowDashboard({
             type="button"
             className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={saveJobCardNotes}
-            disabled={isSaving || !jobCardNotesDirty}
+            disabled={isSaving || cancelled || !jobCardNotesDirty}
           >
             {isSaving ? "Saving…" : "Save notes"}
           </button>

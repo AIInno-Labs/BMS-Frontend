@@ -29,7 +29,7 @@ interface JobFilesDocumentStripProps {
   files: JobFileRecord[];
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
-  onUpload: () => void;
+  onUpload?: () => void;
   onDownload: (file: JobFileRecord) => void;
   /** PO / drawing clicks — parent scrolls to Document Versions. */
   onOpenFile?: (file: JobFileRecord) => void;
@@ -186,6 +186,7 @@ export function JobFilesDocumentStrip({
           }}
         />
       ))}
+      {onUpload ? (
       <button
         type="button"
         onClick={onUpload}
@@ -195,6 +196,7 @@ export function JobFilesDocumentStrip({
         <Plus className="h-6 w-6" aria-hidden />
         <span className="mt-1 text-[10px] font-semibold">Upload</span>
       </button>
+      ) : null}
     </div>
   );
 
@@ -234,6 +236,7 @@ export function JobFilesDocumentStrip({
             Download
           </button>
         )}
+        {onUpload ? (
         <button
           type="button"
           className="text-sm font-semibold text-orange-700 hover:text-orange-800"
@@ -241,6 +244,7 @@ export function JobFilesDocumentStrip({
         >
           Upload another →
         </button>
+        ) : null}
       </div>
     </div>
   ) : (
@@ -249,6 +253,7 @@ export function JobFilesDocumentStrip({
       <p className="mt-1 text-xs text-slate-500">
         Add specifications, drawings, POs, or QA documents for this job.
       </p>
+      {onUpload ? (
       <button
         type="button"
         className="mt-3 text-sm font-semibold text-orange-700 hover:text-orange-800"
@@ -256,6 +261,7 @@ export function JobFilesDocumentStrip({
       >
         Upload file →
       </button>
+      ) : null}
     </div>
   );
 
