@@ -694,6 +694,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     ownerName: dto.ownerName ?? null,
     orderNumber: dto.orderNumber ?? null,
     measurement: dto.measurement ?? null,
+    currency: typeof dto.payload?.currency === "string" ? dto.payload.currency : null,
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
@@ -782,6 +783,8 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
     schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
+    measurement: job.measurement ?? undefined,
+    payload: job.currency ? { currency: job.currency } : undefined,
   };
 }
 

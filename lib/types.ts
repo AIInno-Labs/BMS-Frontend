@@ -132,6 +132,8 @@ export interface Job {
   orderNumber?: string | null;
   /** The quote's line items (Quotient `selected_items`), verbatim. */
   measurement?: Array<Record<string, unknown>> | null;
+  /** ISO 4217 code from the originating quote's payload, if any. */
+  currency?: string | null;
   manualInstructions: string;
   /** How and when the job ships — one row per job, saved on the job. */
   schedulingLogistics?: JobSchedulingLogistics | null;

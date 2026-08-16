@@ -217,6 +217,44 @@ function patchInventoryLine(
   );
 }
 
+/** A `measurement` row's display fields — raw Quotient `selected_items` shape.
+ *  `job.measurement` starts as the quote's own selected_items for a
+ *  quote-derived job (set at creation, QuotientEventProcessor.createJobIfAbsent)
+ *  and gets overwritten with the approved PO's line items once one lands
+ *  (JobDocumentServiceImpl.applyApprovedPoToJob) — one evolving field, so
+ *  reading it directly always shows the current authoritative item list. */
+/** Matches PoManualEntryFields.tsx's CURRENCY_OPTIONS. Falls back to the
+ *  raw ISO code for anything not in this list. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  AUD: "A$",
+  USD: "US$",
+  NZD: "NZ$",
+  GBP: "£",
+  EUR: "€",
+  INR: "₹",
+  SAR: "SAR",
+  AED: "AED",
+  CAD: "C$",
+};
+
+function orderItemFields(item: Record<string, unknown>): {
+  code: string;
+  name: string;
+  qty: string;
+  price: string;
+} {
+  const str = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  // sourceCode: manual/PO-entered rows (lib/poLineItems.ts). item_code/itemCode:
+  // Quotient's own selected_items shape.
+  const priceRaw = item.unit_price ?? item.unitPrice ?? item.price;
+  return {
+    code: str(item.sourceCode ?? item.item_code ?? item.itemCode),
+    name: str(item.heading ?? item.description),
+    qty: str(item.quantity),
+    price: typeof priceRaw === "number" ? priceRaw.toFixed(2) : str(priceRaw),
+  };
+}
+
 /** Top-level milestones only (same set Status Control offers), excluding draft. */
 function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
   return stages
@@ -238,6 +276,8 @@ export function JobWorkflowDashboard({
 }: JobWorkflowDashboardProps) {
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const orderItems = job.measurement ?? [];
+
   const [showJobModal, setShowJobModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -728,6 +768,9 @@ export function JobWorkflowDashboard({
               : ""}
           </p>
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
+          {orderItems.length > 0 && (
+            <p className="text-sm text-slate-500">Order Items: {orderItems.length}</p>
+          )}
         </WidgetCard>
 
         <JobStatusCard
@@ -1070,6 +1113,41 @@ export function JobWorkflowDashboard({
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
           </label>
+          {orderItems.length > 0 && (
+            <div className="rounded-lg border border-[#E5E7EB] bg-slate-50/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Order Items
+              </p>
+              <div className="mt-2 max-h-40 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase text-slate-400">
+                    <tr>
+                      <th className="pb-1 pr-2 font-medium">Code</th>
+                      <th className="pb-1 pr-2 font-medium">Item</th>
+                      <th className="pb-1 pr-2 font-medium">Qty</th>
+                      <th className="pb-1 font-medium">
+                        Price
+                        {job.currency ? ` (${CURRENCY_SYMBOLS[job.currency] ?? job.currency})` : ""}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderItems.map((item, i) => {
+                      const f = orderItemFields(item);
+                      return (
+                        <tr key={i} className="border-t border-[#E5E7EB]/70">
+                          <td className="py-1 pr-2 font-mono text-slate-600">{f.code}</td>
+                          <td className="py-1 pr-2 text-slate-800">{f.name}</td>
+                          <td className="py-1 pr-2 text-slate-600">{f.qty}</td>
+                          <td className="py-1 text-slate-600">{f.price}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <button
             className="btn-primary w-full"
             onClick={() => {

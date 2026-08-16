@@ -32,6 +32,16 @@ export const optionalEmailField = z
   .optional()
   .or(z.literal(""));
 
+/** A plain non-negative number as typed in a manual-entry form: decimals
+ *  allowed (e.g. "12", "12.5", ".5") — no currency symbols, commas, or
+ *  letters. Blank is fine since a row can be left partly filled in. */
+export const decimalField = z
+  .string()
+  .trim()
+  .regex(/^(\d+(\.\d+)?|\.\d+)$/, "Numbers only (decimals allowed)")
+  .optional()
+  .or(z.literal(""));
+
 /** Flattens the first ZodError issue per field into a simple {field: message} map. */
 export function fieldErrorsFrom(error: z.ZodError): Record<string, string> {
   const errors: Record<string, string> = {};
