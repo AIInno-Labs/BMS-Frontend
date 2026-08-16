@@ -118,6 +118,13 @@ function poDetailValue(data: Record<string, unknown> | null | undefined, key: st
   return "—";
 }
 
+/** A PO document's own saved currency (`totals.currency`), if it has one. */
+function poDocCurrency(doc: FrpJobDocumentDTO): string {
+  const source = asRecord(doc.editedDocumentData ?? doc.documentData);
+  const currency = asRecord(source.totals).currency;
+  return typeof currency === "string" ? currency.trim().toUpperCase() : "";
+}
+
 const ORDER_EXTRA_KEYS: { field: string; key: string }[] = [
   { field: "Order Date", key: "orderDate" },
   { field: "Buyer Name", key: "buyerContact" },
@@ -438,6 +445,9 @@ export function JobDocumentRevisionsCard({
     currency: "",
   });
   const [addPoItems, setAddPoItems] = useState([emptyPoItemRow()]);
+  // Set once when the modal opens (not derived live from the draft) so typing
+  // the first character doesn't immediately re-lock the field mid-entry.
+  const [addPoBuyerEditable, setAddPoBuyerEditable] = useState(false);
 
   // Full PO-details form — order metadata plus quantity/price/scope. Filled
   // in by hand when OCR/LLM extraction fails, or edited afterwards either
@@ -455,6 +465,7 @@ export function JobDocumentRevisionsCard({
     currency: "",
   });
   const [poDetailsItems, setPoDetailsItems] = useState([emptyPoItemRow()]);
+  const [poDetailsBuyerEditable, setPoDetailsBuyerEditable] = useState(false);
 
   const [reviewModalTarget, setReviewModalTarget] = useState<DocTab | null>(null);
   const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">(
@@ -626,8 +637,9 @@ export function JobDocumentRevisionsCard({
    *  failed outright (everything entered by hand). Quote-side reference
    *  values only show once a comparison already exists. Order No is
    *  editable here since extraction can fail to read it. Buyer Name is a
-   *  fixed job-level fact (not typed per PO), so it's prefilled from the
-   *  job's client contact and read-only. */
+   *  fixed job-level fact once known (job contact, or whatever was saved on
+   *  this PO before) — locked in that case; editable only while genuinely
+   *  blank, and locks again the moment it's saved. */
   const openPoDetailsModal = () => {
     const source =
       comparison?.extractedData ??
@@ -638,13 +650,17 @@ export function JobDocumentRevisionsCard({
     const qty = fields.find((f) => f.field === "Quantity");
     const price = fields.find((f) => f.field === "Price");
     const scope = fields.find((f) => f.field === "Description" || f.field === "Scope");
+    const buyerName =
+      job.clientContactName?.trim() ||
+      (typeof source.buyerContact === "string" ? source.buyerContact.trim() : "");
+    setPoDetailsBuyerEditable(!buyerName);
     setPoDetailsDraft({
       quoteQty: qty?.quote ?? "",
       quotePrice: price?.quote ?? "",
       quoteScope: scope?.quote ?? "",
       orderNo: typeof source.orderNo === "string" ? source.orderNo : "",
       orderDate: typeof source.orderDate === "string" ? source.orderDate : "",
-      buyerName: job.clientContactName ?? "",
+      buyerName,
       expectedDate: typeof source.expectedDate === "string" ? source.expectedDate : "",
       currency:
         typeof asRecord(asRecord(source).totals).currency === "string"
@@ -720,14 +736,20 @@ export function JobDocumentRevisionsCard({
     setAddPoMode("upload");
     setAddPoFile(null);
     setAddPoRemarks("");
-    // Order No and Buyer Name are fixed job-level facts, not typed per PO —
-    // same read-only treatment as the Edit PO modal.
+    // Order No is a fixed job-level fact, not typed per PO. Buyer Name locks
+    // once known (job contact) but stays editable while genuinely blank.
+    // Currency defaults to whatever this job's existing PO(s) already used,
+    // so it doesn't have to be re-picked on every additional PO for the same
+    // order — first doc (by version/id) that actually has one wins; blank if
+    // none do.
+    const buyerName = job.clientContactName?.trim() ?? "";
+    setAddPoBuyerEditable(!buyerName);
     setAddPoDetails({
       orderNo: job.orderNumber ?? "",
       orderDate: "",
-      buyerName: job.clientContactName ?? "",
+      buyerName,
       expectedDate: "",
-      currency: "",
+      currency: poDocs.map(poDocCurrency).find((c) => c) ?? "",
     });
     setAddPoItems([emptyPoItemRow()]);
     setAddPoError(null);
@@ -1343,6 +1365,7 @@ export function JobDocumentRevisionsCard({
               currency: poDetailsDraft.currency,
             }}
             onDetailsChange={(next) => setPoDetailsDraft((d) => ({ ...d, ...next }))}
+            buyerNameEditable={poDetailsBuyerEditable}
             items={poDetailsItems}
             onItemsChange={setPoDetailsItems}
           />
@@ -1431,6 +1454,7 @@ export function JobDocumentRevisionsCard({
                 details={addPoDetails}
                 onDetailsChange={setAddPoDetails}
                 orderNoEditable
+                buyerNameEditable={addPoBuyerEditable}
                 items={addPoItems}
                 onItemsChange={setAddPoItems}
               />

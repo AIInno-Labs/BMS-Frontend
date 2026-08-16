@@ -673,6 +673,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     ownerName: dto.ownerName ?? null,
     orderNumber: dto.orderNumber ?? null,
     measurement: dto.measurement ?? null,
+    currency: typeof dto.payload?.currency === "string" ? dto.payload.currency : null,
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,

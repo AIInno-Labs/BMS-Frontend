@@ -39,6 +39,7 @@ export function PoManualEntryFields({
   details,
   onDetailsChange,
   orderNoEditable = true,
+  buyerNameEditable = false,
   items,
   onItemsChange,
 }: {
@@ -46,6 +47,9 @@ export function PoManualEntryFields({
   onDetailsChange: (value: PoDetailsFormValue) => void;
   /** Add PO allows setting it; Edit PO keeps it locked once a doc exists. */
   orderNoEditable?: boolean;
+  /** Locked once a buyer name already exists (job contact or a prior save);
+   *  editable only while it's genuinely blank, and locks again after save. */
+  buyerNameEditable?: boolean;
   items: PoItemRow[];
   onItemsChange: (value: PoItemRow[]) => void;
 }) {
@@ -64,7 +68,13 @@ export function PoManualEntryFields({
         value={details.orderDate}
         onChange={(v) => onDetailsChange({ ...details, orderDate: v })}
       />
-      <ModalField label="Buyer Name" value={details.buyerName} onChange={() => {}} disabled />
+      <ModalField
+        label="Buyer Name"
+        value={details.buyerName}
+        onChange={(v) => onDetailsChange({ ...details, buyerName: v })}
+        placeholder="e.g. Jane Smith"
+        disabled={!buyerNameEditable}
+      />
       <ModalField
         label="Expected Date"
         type="date"
