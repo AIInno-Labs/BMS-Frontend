@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, RefreshCw } from "lucide-react";
+import { MessageCircle, RefreshCw, X } from "lucide-react";
 import {
   factoryStatusLabel,
   isSystemLogged,
@@ -10,7 +10,19 @@ import {
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
-import { listQuotes } from "@/lib/frp/api";
+import { listQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
+
+const STATUS_OPTIONS: { value: FrpQuoteStatus; label: string }[] = [
+  { value: "AWAITING_ACCEPTANCE", label: "Awaiting acceptance" },
+  { value: "ACCEPTED", label: "Accepted" },
+  { value: "DECLINED", label: "Declined" },
+  { value: "EXPIRED", label: "Expired" },
+  { value: "COMPLETED", label: "Completed" },
+];
+
+function statusLabel(value: string): string {
+  return STATUS_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
 
 
 function SystemLoggedBadge({ logged }: { logged: boolean }) {
@@ -107,18 +119,54 @@ function FactoryBadge({ item }: { item: QuoteListItem }) {
   );
 }
 
+function FilterChip({
+  label,
+  onClear,
+}: {
+  label: string;
+  onClear: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-blue-800">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        className="rounded-full p-0.5 text-blue-500 hover:bg-blue-100 hover:text-blue-800"
+        aria-label={`Remove filter: ${label}`}
+      >
+        <X className="h-3 w-3" aria-hidden />
+      </button>
+    </span>
+  );
+}
+
 export function QuotesPage() {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<FrpQuoteStatus | "">("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const page = await listQuotes(0, 200);
-      const quotes = (page.content ?? []).map((row) => {
+      // Status is filtered server-side (GET /quotes?status=...). Search still
+      // has no server-side support, so page through every result (rather than
+      // capping at some fixed size) so it has the complete table to search —
+      // no magic ceiling to outgrow as the table gets bigger.
+      const PAGE_SIZE = 500;
+      const MAX_PAGES = 500; // safety net against a runaway loop, not a real cap
+      const rows: Record<string, unknown>[] = [];
+      for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
+        const page = await listQuotes(pageNum, PAGE_SIZE, {
+          status: statusFilter || undefined,
+        });
+        rows.push(...(page.content ?? []));
+        if (page.last || (page.content ?? []).length === 0) break;
+      }
+      const quotes = rows.map((row) => {
         const r = row as Record<string, unknown>;
 
         const journey_outcome = journeyOutcomeFromStatus(r.status);
@@ -166,14 +214,16 @@ export function QuotesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
 
-  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
-    if (initialLoadStartedRef.current) return;
-    initialLoadStartedRef.current = true;
     void load();
   }, [load]);
+
+  const hasActiveFilters = statusFilter !== "";
+  const clearFilters = () => {
+    setStatusFilter("");
+  };
 
   const filtered = quotes.filter((q) => {
     const hay = `${q.quote_number} ${q.title ?? ""} ${
@@ -198,25 +248,62 @@ export function QuotesPage() {
           </p>
         </header>
 
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search quote #, title, company…"
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          />
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              aria-hidden
-            />
-            Refresh
-          </button>
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search quote #, title, company…"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-64"
+              />
+              <select
+                value={statusFilter}
+                onChange={(e) =>
+                  setStatusFilter(e.target.value as FrpQuoteStatus | "")
+                }
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-44"
+                aria-label="Filter by quote status"
+              >
+                <option value="">All statuses</option>
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                aria-hidden
+              />
+              Refresh
+            </button>
+          </div>
+
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-2">
+              {statusFilter && (
+                <FilterChip
+                  label={`Status: ${statusLabel(statusFilter)}`}
+                  onClear={() => setStatusFilter("")}
+                />
+              )}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -257,7 +344,7 @@ export function QuotesPage() {
                   <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Quote Status</th>
                   <th className="px-4 py-3">System Logged</th>
-                  <th className="px-4 py-3">Factory Status</th>
+                  <th className="px-4 py-3">Job Status</th>
                   <th className="px-4 py-3">Last Event</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Updated</th>

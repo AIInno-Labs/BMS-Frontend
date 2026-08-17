@@ -49,6 +49,8 @@ interface JobWorkflowExtrasSectionProps {
   onPreviewFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs. */
   onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** Called after a document is soft-deleted, so the parent can refetch the file list. */
+  onDeletedFile?: () => void;
   /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
   onFailedFile?: (file: JobFileRecord) => void;
 }
@@ -72,6 +74,7 @@ export function JobWorkflowExtrasSection({
   onOpenFile,
   onPreviewFile,
   onDownloadVersionFile,
+  onDeletedFile,
   onFailedFile,
 }: JobWorkflowExtrasSectionProps) {
   const cancelled = isCancelledJob(job.status);
@@ -318,6 +321,7 @@ export function JobWorkflowExtrasSection({
           onOpenFile={onOpenFile}
           onPreviewFile={onPreviewFile}
           onDownloadVersionFile={onDownloadVersionFile}
+          onDeleted={onDeletedFile}
           onFailedFile={onFailedFile}
         />
       </section>

@@ -132,6 +132,7 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
     documentId: doc.id,
     documentType: doc.documentType,
     isManualEntry: isManualPoDocument(doc),
+    reviewStatus: doc.status,
     storageStatus: doc.storageStatus,
     remarks: doc.remarks ?? null,
   };
@@ -879,6 +880,7 @@ export function JobWorkflowDashboard({
         onPreviewFile={(file) => setPreviewFile(file)}
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
+        onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
         onFailedFile={handleFailedSharePointFile}
       />
 
@@ -938,6 +940,7 @@ export function JobWorkflowDashboard({
           refreshKey={documentsRefreshKey}
           focusDocument={versionsFocus}
           onJobChanged={onJobChanged}
+          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
           className="lg:col-span-2"
         />
 
