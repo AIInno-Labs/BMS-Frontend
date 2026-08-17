@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Download,
+  Eye,
   FileImage,
   FileSpreadsheet,
   FileText,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { isPreviewableFile } from "@/components/DocumentPreviewModal";
 import { deleteJobDocument } from "@/lib/frp/api";
 import {
   JOB_FILE_SORT_OPTIONS,
@@ -45,6 +47,8 @@ interface JobFilesDocumentStripProps {
   onDownload: (file: JobFileRecord) => void;
   /** PO / drawing clicks — parent scrolls to Document Versions. */
   onOpenFile?: (file: JobFileRecord) => void;
+  /** Clicking a PDF/image thumbnail — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
    *  the file itself, unlike `onOpenFile` which navigates to Document
    *  Versions. Falls back to `onDownload` if not provided. */
@@ -74,11 +78,14 @@ function PreviewIcon({ kind }: { kind: ReturnType<typeof getFilePreviewKind> }) 
 function FileThumbnailTile({
   file,
   selected,
+  canPreview,
   onSelect,
   onDelete,
 }: {
   file: JobFileRecord;
   selected: boolean;
+  /** Clicking opens the preview modal rather than downloading/navigating. */
+  canPreview: boolean;
   onSelect: () => void;
   onDelete?: () => void;
 }) {
@@ -86,46 +93,23 @@ function FileThumbnailTile({
   const ext = fileExtensionLabel(file.name);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`relative shrink-0 rounded-xl border bg-white p-2.5 text-left transition-all ${
-        selected
-          ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
-          : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
-      }`}
-      aria-pressed={selected}
-      aria-label={
-        isVersionsDocument(file)
-          ? `Open ${file.name} in Document Versions`
-          : `${file.name}, ${file.category}. Click to open.`
-      }
-    >
-      {file.isManualEntry ? (
-        <span
-          title="Manually entered — no file attached"
-          className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
-        >
-          <span aria-hidden>M</span>
-          <span className="sr-only">Manually entered — no file attached</span>
-        </span>
-      ) : null}
-      {file.storageStatus === "PENDING" ? (
-        <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[10px] font-semibold text-orange-700">
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-          Uploading
-        </span>
-      ) : null}
-      {file.storageStatus === "FAILED" ? (
-        <span
-          title={file.remarks?.trim() || "SharePoint upload failed"}
-          className="absolute right-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
-        >
-          Failed
-        </span>
-      ) : null}
-      <div
-        className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
+    <div className="group relative shrink-0">
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`relative rounded-xl border bg-white p-2.5 text-left transition-all ${
+          selected
+            ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
+            : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
+        }`}
+        aria-pressed={selected}
+        aria-label={
+          canPreview
+            ? `Preview ${file.name}`
+            : isVersionsDocument(file)
+              ? `Open ${file.name} in Document Versions`
+              : `${file.name}, ${file.category}. Click to open.`
+        }
       >
         {file.isManualEntry ? (
           <span
@@ -134,6 +118,20 @@ function FileThumbnailTile({
           >
             <span aria-hidden>M</span>
             <span className="sr-only">Manually entered — no file attached</span>
+          </span>
+        ) : null}
+        {file.storageStatus === "PENDING" ? (
+          <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[10px] font-semibold text-orange-700">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            Uploading
+          </span>
+        ) : null}
+        {file.storageStatus === "FAILED" ? (
+          <span
+            title={file.remarks?.trim() || "SharePoint upload failed"}
+            className="absolute right-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
+          >
+            Failed
           </span>
         ) : null}
         <div
@@ -184,6 +182,7 @@ export function JobFilesDocumentStrip({
   onUpload,
   onDownload,
   onOpenFile,
+  onPreviewFile,
   onDownloadVersionFile,
   onFailedFile,
   variant = "full",
@@ -250,6 +249,7 @@ export function JobFilesDocumentStrip({
           key={fileKey(file)}
           file={file}
           selected={variant !== "compact" && selectedFile != null && fileKey(selectedFile) === fileKey(file)}
+          canPreview={onPreviewFile != null && isPreviewableFile(file)}
           onSelect={() => {
             if (file.storageStatus === "FAILED") {
               if (variant !== "compact") setSelectedKey(fileKey(file));
@@ -258,6 +258,13 @@ export function JobFilesDocumentStrip({
             }
             if (file.storageStatus === "PENDING") {
               if (variant !== "compact") setSelectedKey(fileKey(file));
+              return;
+            }
+            // PDFs and images preview in-app; the Document Versions route for
+            // PO/drawing docs stays reachable from the detail panel.
+            if (onPreviewFile && isPreviewableFile(file)) {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onPreviewFile(file);
               return;
             }
             if (isVersionsDocument(file) && onOpenFile) {
@@ -321,6 +328,19 @@ export function JobFilesDocumentStrip({
             onClick={() => onFailedFile(selectedFile)}
           >
             Delete file
+          </button>
+        ) : null}
+        {selectedFile.storageStatus !== "PENDING" &&
+        selectedFile.storageStatus !== "FAILED" &&
+        onPreviewFile &&
+        isPreviewableFile(selectedFile) ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+            onClick={() => onPreviewFile(selectedFile)}
+          >
+            <Eye className="h-4 w-4 text-orange-600" aria-hidden />
+            Preview
           </button>
         ) : null}
         {selectedFile.storageStatus === "PENDING" ||

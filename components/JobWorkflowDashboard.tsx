@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
 import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
@@ -293,6 +294,8 @@ export function JobWorkflowDashboard({
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
+  /** Document shown in the in-app PDF/image preview modal. */
+  const [previewFile, setPreviewFile] = useState<JobFileRecord | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
@@ -874,6 +877,7 @@ export function JobWorkflowDashboard({
         onFileSortChange={setFileSort}
         onUploadFile={cancelled ? () => undefined : openFileUploadModal}
         onDownloadFile={handleDownloadFile}
+        onPreviewFile={(file) => setPreviewFile(file)}
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
         onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
@@ -1546,6 +1550,12 @@ export function JobWorkflowDashboard({
           </button>
         </div>
       </EditModal>
+
+      <DocumentPreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onDownload={(file) => void handleDownloadVersionFile(file)}
+      />
     </div>
   );
 }

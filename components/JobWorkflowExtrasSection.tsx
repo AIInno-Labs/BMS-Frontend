@@ -45,6 +45,8 @@ interface JobWorkflowExtrasSectionProps {
   onUploadFile: () => void;
   onDownloadFile: (file: JobFileRecord) => void;
   onOpenFile?: (file: JobFileRecord) => void;
+  /** PDF/image thumbnail click — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs. */
   onDownloadVersionFile?: (file: JobFileRecord) => void;
   /** Called after a document is soft-deleted, so the parent can refetch the file list. */
@@ -70,6 +72,7 @@ export function JobWorkflowExtrasSection({
   onUploadFile,
   onDownloadFile,
   onOpenFile,
+  onPreviewFile,
   onDownloadVersionFile,
   onDeletedFile,
   onFailedFile,
@@ -316,6 +319,7 @@ export function JobWorkflowExtrasSection({
           onUpload={cancelled ? undefined : onUploadFile}
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
+          onPreviewFile={onPreviewFile}
           onDownloadVersionFile={onDownloadVersionFile}
           onDeleted={onDeletedFile}
           onFailedFile={onFailedFile}
