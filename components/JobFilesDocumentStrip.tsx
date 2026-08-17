@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Download,
+  Eye,
   FileImage,
   FileSpreadsheet,
   FileText,
@@ -10,6 +11,7 @@ import {
   PenLine,
   Plus,
 } from "lucide-react";
+import { isPreviewableFile } from "@/components/DocumentPreviewModal";
 import {
   JOB_FILE_SORT_OPTIONS,
   type JobFileRecord,
@@ -34,6 +36,8 @@ interface JobFilesDocumentStripProps {
   onDownload: (file: JobFileRecord) => void;
   /** PO / drawing clicks — parent scrolls to Document Versions. */
   onOpenFile?: (file: JobFileRecord) => void;
+  /** Clicking a PDF/image thumbnail — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
    *  the file itself, unlike `onOpenFile` which navigates to Document
    *  Versions. Falls back to `onDownload` if not provided. */
@@ -61,10 +65,13 @@ function PreviewIcon({ kind }: { kind: ReturnType<typeof getFilePreviewKind> }) 
 function FileThumbnailTile({
   file,
   selected,
+  canPreview,
   onSelect,
 }: {
   file: JobFileRecord;
   selected: boolean;
+  /** Clicking opens the preview modal rather than downloading/navigating. */
+  canPreview: boolean;
   onSelect: () => void;
 }) {
   const style = getFileThumbnailStyle(file);
@@ -81,9 +88,11 @@ function FileThumbnailTile({
       }`}
       aria-pressed={selected}
       aria-label={
-        isVersionsDocument(file)
-          ? `Open ${file.name} in Document Versions`
-          : `${file.name}, ${file.category}. Click to open.`
+        canPreview
+          ? `Preview ${file.name}`
+          : isVersionsDocument(file)
+            ? `Open ${file.name} in Document Versions`
+            : `${file.name}, ${file.category}. Click to open.`
       }
     >
       {file.isManualEntry ? (
@@ -143,6 +152,7 @@ export function JobFilesDocumentStrip({
   onUpload,
   onDownload,
   onOpenFile,
+  onPreviewFile,
   onDownloadVersionFile,
   onFailedFile,
   variant = "full",
@@ -190,6 +200,7 @@ export function JobFilesDocumentStrip({
           key={fileKey(file)}
           file={file}
           selected={variant !== "compact" && selectedFile != null && fileKey(selectedFile) === fileKey(file)}
+          canPreview={onPreviewFile != null && isPreviewableFile(file)}
           onSelect={() => {
             if (file.storageStatus === "FAILED") {
               if (variant !== "compact") setSelectedKey(fileKey(file));
@@ -198,6 +209,13 @@ export function JobFilesDocumentStrip({
             }
             if (file.storageStatus === "PENDING") {
               if (variant !== "compact") setSelectedKey(fileKey(file));
+              return;
+            }
+            // PDFs and images preview in-app; the Document Versions route for
+            // PO/drawing docs stays reachable from the detail panel.
+            if (onPreviewFile && isPreviewableFile(file)) {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onPreviewFile(file);
               return;
             }
             if (isVersionsDocument(file) && onOpenFile) {
@@ -253,6 +271,16 @@ export function JobFilesDocumentStrip({
             onClick={() => onFailedFile(selectedFile)}
           >
             Delete file
+          </button>
+        ) : null}
+        {onPreviewFile && isPreviewableFile(selectedFile) ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+            onClick={() => onPreviewFile(selectedFile)}
+          >
+            <Eye className="h-4 w-4 text-orange-600" aria-hidden />
+            Preview
           </button>
         ) : null}
         {selectedFile.storageStatus === "PENDING" ||

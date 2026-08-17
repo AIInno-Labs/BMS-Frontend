@@ -45,6 +45,8 @@ interface JobWorkflowExtrasSectionProps {
   onUploadFile: () => void;
   onDownloadFile: (file: JobFileRecord) => void;
   onOpenFile?: (file: JobFileRecord) => void;
+  /** PDF/image thumbnail click — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs. */
   onDownloadVersionFile?: (file: JobFileRecord) => void;
   /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
@@ -68,6 +70,7 @@ export function JobWorkflowExtrasSection({
   onUploadFile,
   onDownloadFile,
   onOpenFile,
+  onPreviewFile,
   onDownloadVersionFile,
   onFailedFile,
 }: JobWorkflowExtrasSectionProps) {
@@ -313,6 +316,7 @@ export function JobWorkflowExtrasSection({
           onUpload={cancelled ? undefined : onUploadFile}
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
+          onPreviewFile={onPreviewFile}
           onDownloadVersionFile={onDownloadVersionFile}
           onFailedFile={onFailedFile}
         />
