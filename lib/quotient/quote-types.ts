@@ -2,6 +2,27 @@
 
 export type JourneyOutcome = "open" | "accepted" | "declined" | "completed";
 
+/**
+ * Where a quote ended up, derived from its `status`.
+ *
+ * The backend used to send a separate `journeyStatus` saying the same thing in
+ * different words; it was removed as redundant. `status` is the single source:
+ * AWAITING_ACCEPTANCE and EXPIRED are still open as far as the outcome goes,
+ * because neither is a decision the customer made.
+ */
+export function journeyOutcomeFromStatus(status: unknown): JourneyOutcome {
+  switch (String(status ?? "").toUpperCase()) {
+    case "ACCEPTED":
+      return "accepted";
+    case "DECLINED":
+      return "declined";
+    case "COMPLETED":
+      return "completed";
+    default:
+      return "open";
+  }
+}
+
 export interface QuoteLineItem {
   sl_no: number;
   item_code: string | null;

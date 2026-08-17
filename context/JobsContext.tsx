@@ -202,14 +202,24 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     void refreshStaff();
   }, [refreshJobs, refreshStaff]);
 
-  const getJobById = useCallback(
-    (id: string) => jobs.find((j) => j.id === id),
+  /**
+   * A job by job number ("JOB-Q-1255") or by database id ("448").
+   *
+   * Job.id is the job number, and that is what the app links by. But a
+   * quotation reports its job as `jobId` - the database id - so a link from a
+   * quote arrives in the other currency. Accepting both is why /jobs/448 lands
+   * on the job instead of the search-jobs fallback.
+   */
+  const findJob = useCallback(
+    (id: string) => jobs.find((j) => j.id === id || j.dbId === id),
     [jobs]
   );
 
+  const getJobById = findJob;
+
   const loadJobDetail = useCallback(
     async (id: string): Promise<Job> => {
-      const known = jobs.find((j) => j.id === id);
+      const known = findJob(id);
       if (!known?.dbId) {
         throw new Error(`Job ${id} is not loaded — refresh the job list first.`);
       }
@@ -217,7 +227,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       setJobs((prev) => prev.map((j) => (j.id === full.id ? full : j)));
       return full;
     },
-    [jobs]
+    [findJob]
   );
 
   const rebalanceFloor = useCallback(async () => {

@@ -326,6 +326,13 @@ export type FrpDocumentExtractionStatus =
   | "FAILED"
   | "SKIPPED";
 
+/** SharePoint bytes — mirrors backend `DocumentStorageStatus`. */
+export type FrpDocumentStorageStatus =
+  | "NOT_APPLICABLE"
+  | "PENDING"
+  | "STORED"
+  | "FAILED";
+
 export type FrpDocumentSort = "RECENT" | "ALL";
 
 /** `JobDocumentDTO` — a document attached to a job / stage. */
@@ -346,6 +353,8 @@ export interface FrpJobDocumentDTO {
   documentVersion?: number;
   status?: FrpDocumentStatus;
   extractionStatus?: FrpDocumentExtractionStatus;
+  /** SharePoint upload — PENDING until the async worker stores or fails. */
+  storageStatus?: FrpDocumentStorageStatus;
   uploadedBy?: number;
   uploadedAt?: string;
   modifiedBy?: number;

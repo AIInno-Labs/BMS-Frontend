@@ -9,6 +9,10 @@ export type JobFileRecord = {
   documentType?: "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
   /** PO entered by hand with no file attached (see `isManualPoDocument`). */
   isManualEntry?: boolean;
+  /** SharePoint upload. PENDING while the file is still going up; FAILED if it never landed. */
+  storageStatus?: "NOT_APPLICABLE" | "PENDING" | "STORED" | "FAILED";
+  /** Backend remarks — used for a SharePoint failure reason when present. */
+  remarks?: string | null;
 };
 
 export type JobFileSortMode = "recents" | "newest" | "name" | "category";

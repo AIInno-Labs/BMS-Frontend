@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -400,6 +400,44 @@ function ReviewActions({
   );
 }
 
+function ComparisonAccordion({
+  title,
+  open,
+  onToggle,
+  children,
+  action,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#E5E7EB]">
+      <div className="flex items-center gap-2 bg-[#FAFBFC] px-2 py-1.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left text-sm font-semibold text-slate-800 hover:bg-orange-50/60"
+        >
+          <span>{title}</span>
+          {open ? (
+            <ChevronUp className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+          ) : (
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+          )}
+        </button>
+        {action}
+      </div>
+      {open ? (
+        <div className="border-t border-[#E5E7EB] bg-white p-3">{children}</div>
+      ) : null}
+    </div>
+  );
+}
+
 interface JobDocumentRevisionsCardProps {
   job: Job;
   className?: string;
@@ -421,6 +459,8 @@ export function JobDocumentRevisionsCard({
   const locked = isCancelledJob(job.status);
   const { user: me } = useAuth();
   const [docType, setDocType] = useState<DocTab>("po");
+  const [poCompareOpen, setPoCompareOpen] = useState(false);
+  const [drawingCompareOpen, setDrawingCompareOpen] = useState(false);
 
   const [poDocs, setPoDocs] = useState<FrpJobDocumentDTO[]>([]);
   const [drawingDocs, setDrawingDocs] = useState<FrpJobDocumentDTO[]>([]);
@@ -566,10 +606,12 @@ export function JobDocumentRevisionsCard({
     if (!focusDocument) return;
     setDocType(focusDocument.tab);
     if (focusDocument.tab === "po") {
+      setPoCompareOpen(true);
       if (poDocs.some((d) => d.id === focusDocument.documentId)) {
         setSelectedPoId(focusDocument.documentId);
       }
     } else if (drawingDocs.some((d) => d.id === focusDocument.documentId)) {
+      setDrawingCompareOpen(true);
       setSelectedDrawingId(focusDocument.documentId);
     }
   }, [focusDocument, poDocs, drawingDocs]);
@@ -1075,186 +1117,183 @@ export function JobDocumentRevisionsCard({
                   </div>
 
                   {selectedPo.extractionStatus === "PENDING" ? (
-                    <div className="space-y-3">
-                      <p className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                        Extracting PO data in the background… this card will
-                        update when ready.
-                      </p>
-                      <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-                        <PoPaperclipLabel doc={selectedPo} onDownload={openDownload} />
-                      </div>
-                    </div>
+                    <p className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      Extracting PO data in the background… this card will
+                      update when ready.
+                    </p>
                   ) : compareLoading ? (
                     <div className="flex items-center gap-2 text-sm text-slate-500">
                       <Loader2 className="h-4 w-4 animate-spin" /> Comparing with quote…
                     </div>
-                  ) : comparison ? (
-                    <>
-                      {poBanner ? (
-                        <p
-                          className={`rounded-lg border px-3 py-2 text-sm font-medium ${poBanner.className}`}
-                        >
-                          {poBanner.text}
-                        </p>
-                      ) : null}
-
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
-                              <th className="pb-1 pr-2 font-semibold">Field</th>
-                              <th className="pb-1 pr-2 font-semibold">Quote</th>
-                              <th className="pb-1 font-semibold">This PO</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {compareSections.length === 0 && extraOrderRows.length === 0 ? (
-                              <tr>
-                                <td colSpan={3} className="py-2 text-sm text-slate-500">
-                                  No comparison fields returned for this PO.
-                                </td>
-                              </tr>
-                            ) : (
-                              visibleCompareSections.map((section) => {
-                                const hint = section.group.startsWith("Item")
-                                  ? matchedByHint(section.matchedBy)
-                                  : null;
-                                const extraRows = section.group === "Order" ? extraOrderRows : [];
-                                const rows = comparison
-                                  ? rowsWithItemCode(comparison, section)
-                                  : section.rows;
-                                return (
-                                  <Fragment key={section.group}>
-                                    <tr className="border-t-2 border-[#E5E7EB]">
-                                      <td
-                                        colSpan={3}
-                                        className="bg-[#FAFBFC] py-1 pr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-                                      >
-                                        {section.group}
-                                        {hint ? (
-                                          <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
-                                            {hint}
-                                          </span>
-                                        ) : null}
-                                      </td>
-                                    </tr>
-                                    {rows.map((d, index) => (
-                                      <tr
-                                        key={compareFieldKey(d, index)}
-                                        className="border-t border-[#EEF1F4] align-top"
-                                      >
-                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">
-                                          {d.field === "Scope" ? "Description" : d.field}
-                                        </td>
-                                        <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue value={d.quote ?? "—"} />
-                                        </td>
-                                        <td
-                                          className={`py-1.5 font-medium ${
-                                            d.variance ? "text-red-600" : "text-emerald-600"
-                                          }`}
-                                        >
-                                          <ComparisonValue value={d.thisPo ?? "—"} />
-                                        </td>
-                                      </tr>
-                                    ))}
-                                    {extraRows.map((row) => (
-                                      <tr
-                                        key={`extra:${row.field}`}
-                                        className="border-t border-[#EEF1F4] align-top"
-                                      >
-                                        <td className="py-1.5 pr-2 font-semibold text-slate-700">
-                                          {row.field}
-                                        </td>
-                                        <td className="py-1.5 pr-2 text-slate-600">
-                                          <ComparisonValue value={row.quote} />
-                                        </td>
-                                        <td className="py-1.5 font-medium text-slate-700">
-                                          <ComparisonValue value={row.thisPo} />
-                                        </td>
-                                      </tr>
-                                    ))}
-                                    {hasMorePoItems && section.group === lastVisibleItemGroup ? (
-                                      <tr className="border-t border-[#EEF1F4]">
-                                        <td colSpan={3} className="py-2">
-                                          <div className="flex justify-center sm:justify-end">
-                                            <button
-                                              type="button"
-                                              onClick={() => setShowAllPoItems((v) => !v)}
-                                              className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 transition-colors hover:border-orange-300 hover:bg-orange-100 hover:text-orange-800"
-                                            >
-                                              {showAllPoItems ? (
-                                                <>
-                                                  <ChevronUp className="h-3.5 w-3.5" />
-                                                  Show less
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <ChevronDown className="h-3.5 w-3.5" />
-                                                  {`Load more (${totalItemSections - PO_ITEM_PREVIEW_COUNT} more)`}
-                                                </>
-                                              )}
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ) : null}
-                                  </Fragment>
-                                );
-                              })
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-                        <PoPaperclipLabel
-                          doc={selectedPo}
-                          extraData={
-                            comparison.extractedData ?? comparison.editedDocumentData
-                          }
-                          onDownload={openDownload}
-                        />
-                      </div>
-
-                      {anyVariance ? (
-                        <div className="flex items-center justify-end">
-                          <ReviewActions
-                            status={poReviewStatus}
-                            reviewedBy={resolveUserName(selectedPo.modifiedBy)}
-                            reviewedDate={formatReviewDate(selectedPo.modifiedAt)}
-                            remarks={comparison.notes ?? selectedPo.remarks}
-                            busy={actionBusy}
-                            locked={locked}
-                            onApprove={() => openReviewModal("po", "approved")}
-                            onReject={() => openReviewModal("po", "rejected")}
-                          />
-                        </div>
-                      ) : null}
-                    </>
                   ) : (
-                    <div className="space-y-3">
-                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                        {selectedPo.extractionStatus === "FAILED" || compareUnavailable
-                          ? "PO extraction failed. You can re-upload the file, or add the order details by hand below."
-                          : "No comparison available for this purchase order yet."}
-                      </p>
-                      {selectedPo.extractionStatus === "FAILED" ? (
-                        <button
-                          type="button"
-                          onClick={openPoDetailsModal}
-                          disabled={actionBusy}
-                          className="btn-primary w-full"
-                        >
-                          Enter PO details manually
-                        </button>
-                      ) : null}
-                      <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
-                        <PoPaperclipLabel doc={selectedPo} onDownload={openDownload} />
-                      </div>
-                    </div>
+                    <ComparisonAccordion
+                      title="PO Comparison"
+                      open={poCompareOpen}
+                      onToggle={() => setPoCompareOpen((v) => !v)}
+                    >
+                      {comparison ? (
+                        <div className="space-y-3">
+                          {poBanner ? (
+                            <p
+                              className={`rounded-lg border px-3 py-2 text-sm font-medium ${poBanner.className}`}
+                            >
+                              {poBanner.text}
+                            </p>
+                          ) : null}
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                                  <th className="pb-1 pr-2 font-semibold">Field</th>
+                                  <th className="pb-1 pr-2 font-semibold">Quote</th>
+                                  <th className="pb-1 font-semibold">This PO</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {compareSections.length === 0 && extraOrderRows.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={3} className="py-2 text-sm text-slate-500">
+                                      No comparison fields returned for this PO.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  visibleCompareSections.map((section) => {
+                                    const hint = section.group.startsWith("Item")
+                                      ? matchedByHint(section.matchedBy)
+                                      : null;
+                                    const extraRows = section.group === "Order" ? extraOrderRows : [];
+                                    const rows = comparison
+                                      ? rowsWithItemCode(comparison, section)
+                                      : section.rows;
+                                    return (
+                                      <Fragment key={section.group}>
+                                        <tr className="border-t-2 border-[#E5E7EB]">
+                                          <td
+                                            colSpan={3}
+                                            className="bg-[#FAFBFC] py-1 pr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                                          >
+                                            {section.group}
+                                            {hint ? (
+                                              <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
+                                                {hint}
+                                              </span>
+                                            ) : null}
+                                          </td>
+                                        </tr>
+                                        {rows.map((d, index) => (
+                                          <tr
+                                            key={compareFieldKey(d, index)}
+                                            className="border-t border-[#EEF1F4] align-top"
+                                          >
+                                            <td className="py-1.5 pr-2 font-semibold text-slate-700">
+                                              {d.field === "Scope" ? "Description" : d.field}
+                                            </td>
+                                            <td className="py-1.5 pr-2 text-slate-600">
+                                              <ComparisonValue value={d.quote ?? "—"} />
+                                            </td>
+                                            <td
+                                              className={`py-1.5 font-medium ${
+                                                d.variance ? "text-red-600" : "text-emerald-600"
+                                              }`}
+                                            >
+                                              <ComparisonValue value={d.thisPo ?? "—"} />
+                                            </td>
+                                          </tr>
+                                        ))}
+                                        {extraRows.map((row) => (
+                                          <tr
+                                            key={`extra:${row.field}`}
+                                            className="border-t border-[#EEF1F4] align-top"
+                                          >
+                                            <td className="py-1.5 pr-2 font-semibold text-slate-700">
+                                              {row.field}
+                                            </td>
+                                            <td className="py-1.5 pr-2 text-slate-600">
+                                              <ComparisonValue value={row.quote} />
+                                            </td>
+                                            <td className="py-1.5 font-medium text-slate-700">
+                                              <ComparisonValue value={row.thisPo} />
+                                            </td>
+                                          </tr>
+                                        ))}
+                                        {hasMorePoItems && section.group === lastVisibleItemGroup ? (
+                                          <tr className="border-t border-[#EEF1F4]">
+                                            <td colSpan={3} className="py-2">
+                                              <div className="flex justify-center sm:justify-end">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setShowAllPoItems((v) => !v)}
+                                                  className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 transition-colors hover:border-orange-300 hover:bg-orange-100 hover:text-orange-800"
+                                                >
+                                                  {showAllPoItems ? (
+                                                    <>
+                                                      <ChevronUp className="h-3.5 w-3.5" />
+                                                      Show less
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      <ChevronDown className="h-3.5 w-3.5" />
+                                                      {`Load more (${totalItemSections - PO_ITEM_PREVIEW_COUNT} more)`}
+                                                    </>
+                                                  )}
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        ) : null}
+                                      </Fragment>
+                                    );
+                                  })
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                            {selectedPo.extractionStatus === "FAILED" || compareUnavailable
+                              ? "PO extraction failed. You can re-upload the file, or add the order details by hand below."
+                              : "No comparison available for this purchase order yet."}
+                          </p>
+                          {selectedPo.extractionStatus === "FAILED" ? (
+                            <button
+                              type="button"
+                              onClick={openPoDetailsModal}
+                              disabled={actionBusy}
+                              className="btn-primary w-full"
+                            >
+                              Enter PO details manually
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
+                    </ComparisonAccordion>
                   )}
+
+                  <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
+                    <PoPaperclipLabel
+                      doc={selectedPo}
+                      extraData={
+                        comparison?.extractedData ?? comparison?.editedDocumentData
+                      }
+                      onDownload={openDownload}
+                    />
+                    {comparison || selectedPo.status ? (
+                      <ReviewActions
+                        status={poReviewStatus}
+                        reviewedBy={resolveUserName(selectedPo.modifiedBy)}
+                        reviewedDate={formatReviewDate(selectedPo.modifiedAt)}
+                        remarks={comparison?.notes ?? selectedPo.remarks}
+                        busy={actionBusy}
+                        locked={locked}
+                        onApprove={() => openReviewModal("po", "approved")}
+                        onReject={() => openReviewModal("po", "rejected")}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               )
             ) : drawingDocs.length === 0 || !selectedDrawing ? (
@@ -1287,24 +1326,32 @@ export function JobDocumentRevisionsCard({
                   </select>
                 </label>
 
-                {drawingBanner ? (
-                  <p
-                    className={`rounded-lg border px-3 py-2 text-sm font-medium ${drawingBanner.className}`}
-                  >
-                    {drawingBanner.text}
-                  </p>
-                ) : null}
+                <ComparisonAccordion
+                  title="Drawing Comparison"
+                  open={drawingCompareOpen}
+                  onToggle={() => setDrawingCompareOpen((v) => !v)}
+                >
+                  <div className="space-y-3">
+                    {drawingBanner ? (
+                      <p
+                        className={`rounded-lg border px-3 py-2 text-sm font-medium ${drawingBanner.className}`}
+                      >
+                        {drawingBanner.text}
+                      </p>
+                    ) : null}
 
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Notes
-                  </p>
-                  {selectedDrawing.remarks?.trim() ? (
-                    <p className="mt-1.5 text-sm text-slate-700">{selectedDrawing.remarks}</p>
-                  ) : (
-                    <p className="mt-1 text-sm text-slate-500">No remarks on this revision.</p>
-                  )}
-                </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Notes
+                      </p>
+                      {selectedDrawing.remarks?.trim() ? (
+                        <p className="mt-1.5 text-sm text-slate-700">{selectedDrawing.remarks}</p>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-500">No remarks on this revision.</p>
+                      )}
+                    </div>
+                  </div>
+                </ComparisonAccordion>
 
                 <div className="flex items-center justify-between gap-2 border-t border-[#EEF1F4] pt-2 text-sm text-slate-600">
                   <button
@@ -1315,24 +1362,23 @@ export function JobDocumentRevisionsCard({
                     <Paperclip className="h-3.5 w-3.5 text-slate-400" />
                     {selectedDrawing.documentName || "Drawing"}
                   </button>
-                  {selectedDrawing.milestoneStageName ? (
-                    <span className="text-xs text-slate-500">
-                      {selectedDrawing.milestoneStageName}
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="flex items-center justify-end">
-                  <ReviewActions
-                    status={drawingReviewStatus}
-                    reviewedBy={resolveUserName(selectedDrawing.modifiedBy)}
-                    reviewedDate={formatReviewDate(selectedDrawing.modifiedAt)}
-                    remarks={selectedDrawing.remarks}
-                    busy={actionBusy}
-                    locked={locked}
-                    onApprove={() => openReviewModal("drawing", "approved")}
-                    onReject={() => openReviewModal("drawing", "rejected")}
-                  />
+                  <div className="flex items-center gap-3">
+                    {selectedDrawing.milestoneStageName ? (
+                      <span className="text-xs text-slate-500">
+                        {selectedDrawing.milestoneStageName}
+                      </span>
+                    ) : null}
+                    <ReviewActions
+                      status={drawingReviewStatus}
+                      reviewedBy={resolveUserName(selectedDrawing.modifiedBy)}
+                      reviewedDate={formatReviewDate(selectedDrawing.modifiedAt)}
+                      remarks={selectedDrawing.remarks}
+                      busy={actionBusy}
+                      locked={locked}
+                      onApprove={() => openReviewModal("drawing", "approved")}
+                      onReject={() => openReviewModal("drawing", "rejected")}
+                    />
+                  </div>
                 </div>
               </div>
             )}

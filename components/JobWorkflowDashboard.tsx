@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -31,6 +31,7 @@ import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
+  deleteJobDocument,
   deleteJobInventoryLine,
   downloadJobDocument,
   listJobDocuments,
@@ -94,6 +95,11 @@ interface JobWorkflowDashboardProps {
 
 type JobFile = JobFileRecord;
 
+const SHAREPOINT_POLL_INTERVAL_MS = 10_000;
+const SHAREPOINT_PENDING_TIMEOUT_MS = 90_000;
+const SHAREPOINT_FAILED_HINT =
+  "SharePoint did not store this file. Delete it and upload again.";
+
 function formatDocUploadedAt(iso?: string): { time: string; uploadedAt?: number } {
   if (!iso) return { time: "Uploaded" };
   const ms = Date.parse(iso);
@@ -125,6 +131,8 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
     documentId: doc.id,
     documentType: doc.documentType,
     isManualEntry: isManualPoDocument(doc),
+    storageStatus: doc.storageStatus,
+    remarks: doc.remarks ?? null,
   };
 }
 
@@ -287,6 +295,12 @@ export function JobWorkflowDashboard({
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+  const pendingSharePointSeenAt = useRef<Map<number, number>>(new Map());
+  const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [failedFile, setFailedFile] = useState<JobFile | null>(null);
+  const [failedFileBusy, setFailedFileBusy] = useState(false);
   const [versionsFocus, setVersionsFocus] = useState<{
     documentId: number;
     tab: "po" | "drawing";
@@ -427,6 +441,103 @@ export function JobWorkflowDashboard({
     [files, fileSort]
   );
 
+  const filesWithSharePointTimeout = useMemo(() => {
+    if (sharePointTimedOutIds.size === 0) return sortedFiles;
+    return sortedFiles.map((file) =>
+      file.documentId != null &&
+      sharePointTimedOutIds.has(file.documentId) &&
+      file.storageStatus === "PENDING"
+        ? { ...file, storageStatus: "FAILED" as const, remarks: SHAREPOINT_FAILED_HINT }
+        : file
+    );
+  }, [sortedFiles, sharePointTimedOutIds]);
+
+  const displayFiles = useMemo(() => {
+    if (!fileUploading || !fileUploadDraft.file) return filesWithSharePointTimeout;
+    const optimistic: JobFile = {
+      name: fileUploadDraft.file.name,
+      category: "Uploading",
+      time: "just now",
+      uploadedAt: Date.now(),
+      storageStatus: "PENDING",
+    };
+    return [
+      optimistic,
+      ...filesWithSharePointTimeout.filter((f) => f.name !== optimistic.name),
+    ];
+  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout]);
+
+  useEffect(() => {
+    const now = Date.now();
+    const seen = pendingSharePointSeenAt.current;
+    const pendingIds = new Set<number>();
+    for (const file of files) {
+      if (file.storageStatus === "PENDING" && file.documentId != null) {
+        pendingIds.add(file.documentId);
+        if (!seen.has(file.documentId)) seen.set(file.documentId, now);
+      }
+    }
+    for (const id of [...seen.keys()]) {
+      if (!pendingIds.has(id)) seen.delete(id);
+    }
+    setSharePointTimedOutIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (pendingIds.has(id)) next.add(id);
+      }
+      if (next.size === prev.size) {
+        let same = true;
+        for (const id of prev) {
+          if (!next.has(id)) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [files]);
+
+  const hasPendingSharePoint = files.some(
+    (f) =>
+      f.storageStatus === "PENDING" &&
+      (f.documentId == null || !sharePointTimedOutIds.has(f.documentId))
+  );
+
+  useEffect(() => {
+    if (!job.dbId || !hasPendingSharePoint) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      const timedOut: number[] = [];
+      let stillWaiting = false;
+      for (const [id, startedAt] of pendingSharePointSeenAt.current) {
+        if (now - startedAt >= SHAREPOINT_PENDING_TIMEOUT_MS) {
+          timedOut.push(id);
+        } else {
+          stillWaiting = true;
+        }
+      }
+      if (timedOut.length > 0) {
+        setSharePointTimedOutIds((prev) => {
+          const next = new Set(prev);
+          let added = false;
+          for (const id of timedOut) {
+            if (!next.has(id)) {
+              next.add(id);
+              added = true;
+            }
+          }
+          return added ? next : prev;
+        });
+      }
+      if (stillWaiting) {
+        setDocumentsRefreshKey((k) => k + 1);
+      }
+    }, SHAREPOINT_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [job.dbId, hasPendingSharePoint]);
+
   const systemNote = job.createdAt
     ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
     : "Job created and added to the fabrication queue";
@@ -473,13 +584,39 @@ export function JobWorkflowDashboard({
   };
 
   const handleOpenProjectFile = (file: JobFileRecord) => {
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      if (file.storageStatus === "FAILED") setFailedFile(file);
+      return;
+    }
     openDocumentVersions({
       documentId: file.documentId,
       documentType: file.documentType,
     });
   };
 
+  const handleFailedSharePointFile = (file: JobFileRecord) => {
+    setFailedFile(file);
+  };
+
+  const handleDeleteFailedSharePointFile = async () => {
+    if (failedFile?.documentId == null) return;
+    setFailedFileBusy(true);
+    try {
+      await deleteJobDocument(failedFile.documentId);
+      setFailedFile(null);
+      setDocumentsRefreshKey((k) => k + 1);
+      if (!cancelled) openFileUploadModal();
+    } catch {
+      // Leave the dialog open so the user can retry or close.
+    } finally {
+      setFailedFileBusy(false);
+    }
+  };
+
   const handleDownloadFile = async (file: JobFileRecord) => {
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      return;
+    }
     if (
       (file.documentType === "PRODUCTION" || file.documentType === "DRAWING") &&
       file.documentId != null
@@ -503,6 +640,9 @@ export function JobWorkflowDashboard({
    *  document types to Document Versions instead). */
   const handleDownloadVersionFile = async (file: JobFileRecord) => {
     if (file.documentId == null) return;
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      return;
+    }
     try {
       const res = await downloadJobDocument(file.documentId);
       if (res.downloadUrl) {
@@ -728,13 +868,14 @@ export function JobWorkflowDashboard({
         pd={pd}
         isSaving={isSaving}
         onSavePatch={onSavePatch}
-        files={sortedFiles}
+        files={displayFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
         onUploadFile={cancelled ? () => undefined : openFileUploadModal}
         onDownloadFile={handleDownloadFile}
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
+        onFailedFile={handleFailedSharePointFile}
       />
 
       <div className="mt-4 space-y-4">
@@ -962,6 +1103,22 @@ export function JobWorkflowDashboard({
         </p>
       )}
       </div>
+
+      <ConfirmDialog
+        open={failedFile != null}
+        title="Upload failed"
+        description={SHAREPOINT_FAILED_HINT}
+        confirmLabel="Delete file"
+        cancelLabel="Close"
+        tone="danger"
+        busy={failedFileBusy}
+        onClose={() => {
+          if (!failedFileBusy) setFailedFile(null);
+        }}
+        onConfirm={() => {
+          void handleDeleteFailedSharePointFile();
+        }}
+      />
 
       <ConfirmDialog
         open={showCancelConfirm}

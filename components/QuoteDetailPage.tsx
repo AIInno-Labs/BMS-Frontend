@@ -6,11 +6,11 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
   factoryStatusLabel,
   isFactoryComplete,
-  journeyOutcomeLabel,
   progressLabel,
 } from "@/lib/quotes/labels";
 import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
+import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate } from "@/lib/mockData";
 import { getQuote } from "@/lib/frp/api";
 import { useAuth } from "@/context/AuthContext";
@@ -24,15 +24,7 @@ import { FIELD_KEYS } from "@/lib/frp/access";
  * `payload.quote_status` can lag behind the latest event.
  */
 function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
-  const journeyRaw = String(
-    raw.journeyStatus ?? raw.journey_outcome ?? ""
-  ).toLowerCase();
-  const journey_outcome: QuotientQuote["journey_outcome"] =
-    journeyRaw === "accepted" ||
-    journeyRaw === "declined" ||
-    journeyRaw === "completed"
-      ? journeyRaw
-      : "open";
+  const journey_outcome = journeyOutcomeFromStatus(raw.status);
 
   const fromDetails = (raw.fromDetails ?? {}) as Record<string, unknown>;
   const payload = (raw.payload ?? {}) as Record<string, unknown>;
@@ -193,11 +185,15 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
       str(fromDetails.name) ??
       str(fromDetails.contactName) ??
       str(fromDetails.businessName),
+    // Company first. Quotient's `for` and the contact's own name are both
+    // people, and a quote is for the business - so the company answers "who is
+    // this for", with the individual left to the contact fields below.
     quote_for_label:
-      str(payload.for) ??
-      fullName ??
       str(quoteFor.company_name) ??
-      str(quoteFor.company),
+      str(quoteFor.company) ??
+      str(raw.company) ??
+      str(payload.for) ??
+      fullName,
     first_sent: str(payload.first_sent),
     valid_until: str(payload.valid_until) ?? str(raw.validUntil ?? raw.valid_until),
     is_archived: Boolean(
@@ -472,13 +468,6 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             </span>
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-800">
               progress: {progressLabel(quote.progress, quote.journey_outcome)}
-            </span>
-            <span
-              className={`rounded-md px-2 py-1 text-xs font-semibold ${
-                factoryDone ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
-              }`}
-            >
-              journey: {journeyOutcomeLabel(quote.journey_outcome)}
             </span>
             <span
               className={`rounded-md px-2 py-1 text-xs font-semibold ${
