@@ -344,7 +344,7 @@ export function QuotesPage() {
                   <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Quote Status</th>
                   <th className="px-4 py-3">System Logged</th>
-                  <th className="px-4 py-3">Factory Status</th>
+                  <th className="px-4 py-3">Job Status</th>
                   <th className="px-4 py-3">Last Event</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Updated</th>
