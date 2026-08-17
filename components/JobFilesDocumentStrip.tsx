@@ -6,6 +6,7 @@ import {
   FileImage,
   FileSpreadsheet,
   FileText,
+  Loader2,
   PenLine,
   Plus,
   X,
@@ -48,6 +49,8 @@ interface JobFilesDocumentStripProps {
    *  the file itself, unlike `onOpenFile` which navigates to Document
    *  Versions. Falls back to `onDownload` if not provided. */
   onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** FAILED SharePoint uploads — tell the user to delete and re-upload. */
+  onFailedFile?: (file: JobFileRecord) => void;
   /** Full-width “Project documents” row vs compact Files widget */
   variant?: "full" | "compact";
   /** Called after a document is soft-deleted, so the parent can refetch the file list. */
@@ -83,21 +86,46 @@ function FileThumbnailTile({
   const ext = fileExtensionLabel(file.name);
 
   return (
-    <div className="group relative shrink-0">
-      <button
-        type="button"
-        onClick={onSelect}
-        className={`relative rounded-xl border bg-white p-2.5 text-left transition-all ${
-          selected
-            ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
-            : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
-        }`}
-        aria-pressed={selected}
-        aria-label={
-          isVersionsDocument(file)
-            ? `Open ${file.name} in Document Versions`
-            : `${file.name}, ${file.category}. Click to open.`
-        }
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`relative shrink-0 rounded-xl border bg-white p-2.5 text-left transition-all ${
+        selected
+          ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
+          : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
+      }`}
+      aria-pressed={selected}
+      aria-label={
+        isVersionsDocument(file)
+          ? `Open ${file.name} in Document Versions`
+          : `${file.name}, ${file.category}. Click to open.`
+      }
+    >
+      {file.isManualEntry ? (
+        <span
+          title="Manually entered — no file attached"
+          className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
+        >
+          <span aria-hidden>M</span>
+          <span className="sr-only">Manually entered — no file attached</span>
+        </span>
+      ) : null}
+      {file.storageStatus === "PENDING" ? (
+        <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[10px] font-semibold text-orange-700">
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+          Uploading
+        </span>
+      ) : null}
+      {file.storageStatus === "FAILED" ? (
+        <span
+          title={file.remarks?.trim() || "SharePoint upload failed"}
+          className="absolute right-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
+        >
+          Failed
+        </span>
+      ) : null}
+      <div
+        className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
       >
         {file.isManualEntry ? (
           <span
@@ -157,6 +185,7 @@ export function JobFilesDocumentStrip({
   onDownload,
   onOpenFile,
   onDownloadVersionFile,
+  onFailedFile,
   variant = "full",
   onDeleted,
 }: JobFilesDocumentStripProps) {
@@ -222,6 +251,15 @@ export function JobFilesDocumentStrip({
           file={file}
           selected={variant !== "compact" && selectedFile != null && fileKey(selectedFile) === fileKey(file)}
           onSelect={() => {
+            if (file.storageStatus === "FAILED") {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onFailedFile?.(file);
+              return;
+            }
+            if (file.storageStatus === "PENDING") {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              return;
+            }
             if (isVersionsDocument(file) && onOpenFile) {
               if (variant !== "compact") setSelectedKey(fileKey(file));
               onOpenFile(file);
@@ -263,9 +301,30 @@ export function JobFilesDocumentStrip({
       <p className="mt-1 text-xs text-slate-500">
         {selectedFile.category} · {selectedFile.time}
       </p>
+      {selectedFile.storageStatus === "PENDING" ? (
+        <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-orange-700">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          Uploading to SharePoint…
+        </p>
+      ) : null}
+      {selectedFile.storageStatus === "FAILED" ? (
+        <p className="mt-2 text-xs font-semibold text-red-700">
+          SharePoint upload failed. Delete this file and upload again.
+        </p>
+      ) : null}
       <p className="mt-1 text-xs text-slate-500">Job {jobId}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {isVersionsDocument(selectedFile) && onOpenFile ? (
+        {selectedFile.storageStatus === "FAILED" && onFailedFile ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-50"
+            onClick={() => onFailedFile(selectedFile)}
+          >
+            Delete file
+          </button>
+        ) : null}
+        {selectedFile.storageStatus === "PENDING" ||
+        selectedFile.storageStatus === "FAILED" ? null : isVersionsDocument(selectedFile) && onOpenFile ? (
           <>
             <button
               type="button"

@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/context/AuthContext";
 import {
   listOrgParameters,
@@ -57,6 +58,10 @@ function groupOf(name: string): "SharePoint" | "Quotient" | "LLM" | "Other" {
   return "Other";
 }
 
+function integrationLabel(group: "SharePoint" | "Quotient" | "LLM" | "Other") {
+  return group === "Other" ? "OCR and others" : group;
+}
+
 function sharePointSaveOrder(rows: ApplicationParameterDTO[]) {
   const byName = new Map(rows.map((row) => [row.paramName, row]));
   const ordered: ApplicationParameterDTO[] = [];
@@ -93,6 +98,9 @@ export default function OrgIntegrationsPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmGroup, setConfirmGroup] = useState<
+    "SharePoint" | "Quotient" | "LLM" | "Other" | null
+  >(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -155,11 +163,15 @@ export default function OrgIntegrationsPage() {
     return map;
   }, [params]);
 
-  async function onSaveGroup(
+  function onSubmitGroup(
     e: FormEvent,
     group: "SharePoint" | "Quotient" | "LLM" | "Other"
   ) {
     e.preventDefault();
+    setConfirmGroup(group);
+  }
+
+  async function saveGroup(group: "SharePoint" | "Quotient" | "LLM" | "Other") {
     setSaving(true);
     setError(null);
     setMessage(null);
@@ -194,6 +206,7 @@ export default function OrgIntegrationsPage() {
         });
       }
       setMessage(`${group} settings saved.`);
+      setConfirmGroup(null);
       await load();
     } catch (err) {
       setError(
@@ -289,7 +302,7 @@ export default function OrgIntegrationsPage() {
             return (
               <form
                 key={group}
-                onSubmit={(e) => void onSaveGroup(e, group)}
+                onSubmit={(e) => onSubmitGroup(e, group)}
                 className="app-card mt-6 space-y-4 !p-5"
               >
                 <h3 className="text-sm font-semibold text-[#111827]">{group}</h3>
@@ -447,6 +460,21 @@ export default function OrgIntegrationsPage() {
             );
           })
         )}
+
+        <ConfirmDialog
+          open={confirmGroup != null}
+          title={`Save ${confirmGroup ? integrationLabel(confirmGroup) : ""} settings?`}
+          description={`These values are used for live ${confirmGroup ? integrationLabel(confirmGroup) : ""} Integration. Check they are correct before saving.`}
+          confirmLabel="Save"
+          cancelLabel="Cancel"
+          busy={saving}
+          onConfirm={() => {
+            if (confirmGroup) void saveGroup(confirmGroup);
+          }}
+          onClose={() => {
+            if (!saving) setConfirmGroup(null);
+          }}
+        />
       </div>
     </main>
   );

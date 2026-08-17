@@ -49,6 +49,8 @@ interface JobWorkflowExtrasSectionProps {
   onDownloadVersionFile?: (file: JobFileRecord) => void;
   /** Called after a document is soft-deleted, so the parent can refetch the file list. */
   onDeletedFile?: () => void;
+  /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
+  onFailedFile?: (file: JobFileRecord) => void;
 }
 
 function addDaysIso(days: number): string {
@@ -70,6 +72,7 @@ export function JobWorkflowExtrasSection({
   onOpenFile,
   onDownloadVersionFile,
   onDeletedFile,
+  onFailedFile,
 }: JobWorkflowExtrasSectionProps) {
   const cancelled = isCancelledJob(job.status);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
@@ -315,6 +318,7 @@ export function JobWorkflowExtrasSection({
           onOpenFile={onOpenFile}
           onDownloadVersionFile={onDownloadVersionFile}
           onDeleted={onDeletedFile}
+          onFailedFile={onFailedFile}
         />
       </section>
 
