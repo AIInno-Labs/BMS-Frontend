@@ -5,36 +5,13 @@ import Link from "next/link";
 import { MessageCircle, RefreshCw } from "lucide-react";
 import {
   factoryStatusLabel,
-  isFactoryComplete,
   isSystemLogged,
-  journeyOutcomeLabel,
 } from "@/lib/quotes/labels";
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
+import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { listQuotes } from "@/lib/frp/api";
 
-function JourneyBadge({ item }: { item: QuoteListItem }) {
-  const complete = isFactoryComplete(
-    item.journey_outcome,
-    item.factory_job_status
-  );
-  const outcome = journeyOutcomeLabel(item.journey_outcome);
-  return (
-    <span
-      className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${
-        complete
-          ? "bg-emerald-100 text-emerald-800"
-          : item.journey_outcome === "declined"
-          ? "bg-red-100 text-red-800"
-          : item.journey_outcome === "accepted"
-          ? "bg-blue-100 text-blue-800"
-          : "bg-slate-100 text-slate-700"
-      }`}
-    >
-      {outcome}
-    </span>
-  );
-}
 
 function SystemLoggedBadge({ logged }: { logged: boolean }) {
   return (
@@ -63,7 +40,6 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
             {q.quote_number}
           </p>
         </div>
-        <JourneyBadge item={q} />
       </div>
       <p className="mt-2 line-clamp-2 text-sm font-medium text-slate-800">
         {q.title ?? "—"}
@@ -104,10 +80,9 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
 }
 
 function FactoryBadge({ item }: { item: QuoteListItem }) {
-  // Gated on factory_job_status, not job_id - QuotationDTO doesn't expose a
-  // job id at all, but factory_status is only ever set (both by the backend
-  // and by seed.sql) when a quote-derived job actually exists, so it's the
-  // reliable signal here.
+  // Gated on factory_job_status rather than job_id. QuotationDTO does expose a
+  // jobId now, but factory_status is what this badge is actually reporting -
+  // where the work is - and it is only ever set once a job exists.
   if (!item.factory_job_status) {
     return <span className="text-xs text-slate-500">—</span>;
   }
@@ -146,15 +121,7 @@ export function QuotesPage() {
       const quotes = (page.content ?? []).map((row) => {
         const r = row as Record<string, unknown>;
 
-        const journeyRaw = String(
-          r.journeyStatus ?? r.journey_outcome ?? ""
-        ).toLowerCase();
-        const journey_outcome: QuoteListItem["journey_outcome"] =
-          journeyRaw === "accepted" ||
-          journeyRaw === "declined" ||
-          journeyRaw === "completed"
-            ? journeyRaw
-            : "open";
+        const journey_outcome = journeyOutcomeFromStatus(r.status);
 
         return {
           quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
@@ -287,9 +254,8 @@ export function QuotesPage() {
                 <tr>
                   <th className="px-4 py-3">Quote Number</th>
                   <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Quote For</th>
+                  <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Quote Status</th>
-                  <th className="px-4 py-3">Journey</th>
                   <th className="px-4 py-3">System Logged</th>
                   <th className="px-4 py-3">Factory Status</th>
                   <th className="px-4 py-3">Last Event</th>
@@ -337,9 +303,6 @@ export function QuotesPage() {
                         {q.quote_status ?? "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <JourneyBadge item={q} />
-                      </td>
-                      <td className="px-4 py-3">
                         <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
                       </td>
                       <td className="px-4 py-3">
@@ -383,14 +346,6 @@ export function QuotesPage() {
                           >
                             View
                           </Link>
-                          {q.job_id && (
-                            <Link
-                              href={`/jobs/${encodeURIComponent(q.job_id)}`}
-                              className="text-sm text-slate-600 hover:text-slate-900"
-                            >
-                              Job
-                            </Link>
-                          )}
                         </div>
                       </td>
                     </tr>

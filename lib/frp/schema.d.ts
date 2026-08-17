@@ -593,7 +593,6 @@ export interface components {
             /** @enum {string} */
             status?: "AWAITING_ACCEPTANCE" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "COMPLETED";
             /** @enum {string} */
-            journeyStatus?: "OPEN" | "ACCEPTED" | "DECLINED" | "COMPLETED";
             lastEvent?: string;
             factoryStatus?: string;
             quoteUrl?: string;

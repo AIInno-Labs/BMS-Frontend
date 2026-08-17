@@ -7,7 +7,6 @@ import { getQuote } from "@/lib/frp/api";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
 import {
   factoryStatusLabel,
-  journeyOutcomeLabel,
 } from "@/lib/quotes/labels";
 
 /** Read-only Quotient snapshot on job card — factory PDF fields edited separately below. */
@@ -67,10 +66,6 @@ export function JobCardQuotientPanel({ jobId }: { jobId: string }) {
           <p>
             <span className="font-semibold text-slate-500">Quote #</span>{" "}
             {quote.quote_number}
-          </p>
-          <p>
-            <span className="font-semibold text-slate-500">Journey</span>{" "}
-            {journeyOutcomeLabel(quote.journey_outcome)}
           </p>
           <p>
             <span className="font-semibold text-slate-500">Factory</span>{" "}

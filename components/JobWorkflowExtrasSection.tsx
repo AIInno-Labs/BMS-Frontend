@@ -47,6 +47,8 @@ interface JobWorkflowExtrasSectionProps {
   onOpenFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs. */
   onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
+  onFailedFile?: (file: JobFileRecord) => void;
 }
 
 function addDaysIso(days: number): string {
@@ -67,6 +69,7 @@ export function JobWorkflowExtrasSection({
   onDownloadFile,
   onOpenFile,
   onDownloadVersionFile,
+  onFailedFile,
 }: JobWorkflowExtrasSectionProps) {
   const cancelled = isCancelledJob(job.status);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
@@ -311,6 +314,7 @@ export function JobWorkflowExtrasSection({
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
           onDownloadVersionFile={onDownloadVersionFile}
+          onFailedFile={onFailedFile}
         />
       </section>
 
