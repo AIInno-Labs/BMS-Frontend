@@ -8,7 +8,10 @@ import {
   FileText,
   PenLine,
   Plus,
+  X,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { deleteJobDocument } from "@/lib/frp/api";
 import {
   JOB_FILE_SORT_OPTIONS,
   type JobFileRecord,
@@ -22,6 +25,14 @@ import {
 
 function isVersionsDocument(file: JobFileRecord): boolean {
   return file.documentType === "PRODUCTION" || file.documentType === "DRAWING";
+}
+
+/** PO/drawing cards lose their delete option once reviewed — accepted/
+ *  rejected versions are part of the audit trail, same rule as the
+ *  Document Versions card. */
+function isDeletableFile(file: JobFileRecord): boolean {
+  if (!isVersionsDocument(file)) return true;
+  return file.reviewStatus !== "ACCEPTED" && file.reviewStatus !== "REJECTED";
 }
 
 interface JobFilesDocumentStripProps {
@@ -39,6 +50,8 @@ interface JobFilesDocumentStripProps {
   onDownloadVersionFile?: (file: JobFileRecord) => void;
   /** Full-width “Project documents” row vs compact Files widget */
   variant?: "full" | "compact";
+  /** Called after a document is soft-deleted, so the parent can refetch the file list. */
+  onDeleted?: () => void;
 }
 
 function PreviewIcon({ kind }: { kind: ReturnType<typeof getFilePreviewKind> }) {
@@ -59,56 +72,73 @@ function FileThumbnailTile({
   file,
   selected,
   onSelect,
+  onDelete,
 }: {
   file: JobFileRecord;
   selected: boolean;
   onSelect: () => void;
+  onDelete?: () => void;
 }) {
   const style = getFileThumbnailStyle(file);
   const ext = fileExtensionLabel(file.name);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`relative shrink-0 rounded-xl border bg-white p-2.5 text-left transition-all ${
-        selected
-          ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
-          : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
-      }`}
-      aria-pressed={selected}
-      aria-label={
-        isVersionsDocument(file)
-          ? `Open ${file.name} in Document Versions`
-          : `${file.name}, ${file.category}. Click to open.`
-      }
-    >
-      {file.isManualEntry ? (
-        <span
-          title="Manually entered — no file attached"
-          className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
-        >
-          <span aria-hidden>M</span>
-          <span className="sr-only">Manually entered — no file attached</span>
-        </span>
-      ) : null}
-      <div
-        className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
+    <div className="group relative shrink-0">
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`relative rounded-xl border bg-white p-2.5 text-left transition-all ${
+          selected
+            ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
+            : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
+        }`}
+        aria-pressed={selected}
+        aria-label={
+          isVersionsDocument(file)
+            ? `Open ${file.name} in Document Versions`
+            : `${file.name}, ${file.category}. Click to open.`
+        }
       >
+        {file.isManualEntry ? (
+          <span
+            title="Manually entered — no file attached"
+            className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
+          >
+            <span aria-hidden>M</span>
+            <span className="sr-only">Manually entered — no file attached</span>
+          </span>
+        ) : null}
         <div
-          className="flex h-12 w-12 items-center justify-center rounded-md shadow-sm"
-          style={{ backgroundColor: style.accent }}
+          className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
         >
-          <PreviewIcon kind={style.kind} />
+          <div
+            className="flex h-12 w-12 items-center justify-center rounded-md shadow-sm"
+            style={{ backgroundColor: style.accent }}
+          >
+            <PreviewIcon kind={style.kind} />
+          </div>
+          <span className="mt-1.5 text-[9px] font-bold tracking-wider text-slate-600">
+            {ext}
+          </span>
         </div>
-        <span className="mt-1.5 text-[9px] font-bold tracking-wider text-slate-600">
-          {ext}
-        </span>
-      </div>
-      <p className="mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold text-slate-700">
-        {file.name}
-      </p>
-    </button>
+        <p className="mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold text-slate-700">
+          {file.name}
+        </p>
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="absolute right-1 top-1 z-20 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-700/90 text-white opacity-0 shadow-sm transition-opacity duration-150 hover:bg-red-600 group-hover:opacity-100 group-focus-within:opacity-100"
+          aria-label={`Delete ${file.name}`}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -128,8 +158,27 @@ export function JobFilesDocumentStrip({
   onOpenFile,
   onDownloadVersionFile,
   variant = "full",
+  onDeleted,
 }: JobFilesDocumentStripProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<JobFileRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleteTarget.documentId == null) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteJobDocument(deleteTarget.documentId);
+      setDeleteTarget(null);
+      onDeleted?.();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete document");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const selectedFile = useMemo(() => {
     if (files.length === 0) return null;
@@ -184,6 +233,14 @@ export function JobFilesDocumentStrip({
             }
             setSelectedKey(fileKey(file));
           }}
+          onDelete={
+            variant === "full" && file.documentId != null && isDeletableFile(file)
+              ? () => {
+                  setDeleteError(null);
+                  setDeleteTarget(file);
+                }
+              : undefined
+          }
         />
       ))}
       {onUpload ? (
@@ -217,14 +274,16 @@ export function JobFilesDocumentStrip({
             >
               View version →
             </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
-              onClick={() => (onDownloadVersionFile ?? onDownload)(selectedFile)}
-            >
-              <Download className="h-4 w-4 text-orange-600" aria-hidden />
-              Download
-            </button>
+            {!selectedFile.isManualEntry ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+                onClick={() => (onDownloadVersionFile ?? onDownload)(selectedFile)}
+              >
+                <Download className="h-4 w-4 text-orange-600" aria-hidden />
+                Download
+              </button>
+            ) : null}
           </>
         ) : (
           <button
@@ -282,6 +341,20 @@ export function JobFilesDocumentStrip({
         <div className="min-w-0 flex-1">{thumbnailRow}</div>
         <div className="w-full shrink-0 lg:max-w-sm">{detailPanel}</div>
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title="Delete this document?"
+        description={`This removes "${deleteTarget?.name ?? "this document"}" from the job's documents. This can't be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        busy={deleteBusy}
+        error={deleteError}
+        onConfirm={confirmDelete}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTarget(null);
+        }}
+      />
     </article>
   );
 }

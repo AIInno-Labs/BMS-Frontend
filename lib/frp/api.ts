@@ -925,13 +925,23 @@ export async function advanceJobStatus(
   await updateJobStage(dbId, match.id, { status: plan.status });
 }
 
+/** Backend `QuoteStatus` enum — mirrors `Enum/QuoteStatus.java`. */
+export type FrpQuoteStatus =
+  | "AWAITING_ACCEPTANCE"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "EXPIRED"
+  | "COMPLETED";
+
 export async function listQuotes(
   page = 0,
-  size = 100
+  size = 100,
+  filters?: { status?: FrpQuoteStatus; company?: string }
 ): Promise<PageResponse<Record<string, unknown>>> {
-  return frpFetch<PageResponse<Record<string, unknown>>>(
-    `/quotes?page=${page}&size=${size}`
-  );
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.company) params.set("company", filters.company);
+  return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes?${params}`);
 }
 
 /** Null when no quote exists with that number in the caller's organization. */

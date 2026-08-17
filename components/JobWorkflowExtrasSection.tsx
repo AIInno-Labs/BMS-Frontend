@@ -47,6 +47,8 @@ interface JobWorkflowExtrasSectionProps {
   onOpenFile?: (file: JobFileRecord) => void;
   /** Detail-panel "Download" for versioned PO/drawing docs. */
   onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** Called after a document is soft-deleted, so the parent can refetch the file list. */
+  onDeletedFile?: () => void;
 }
 
 function addDaysIso(days: number): string {
@@ -67,6 +69,7 @@ export function JobWorkflowExtrasSection({
   onDownloadFile,
   onOpenFile,
   onDownloadVersionFile,
+  onDeletedFile,
 }: JobWorkflowExtrasSectionProps) {
   const cancelled = isCancelledJob(job.status);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
@@ -311,6 +314,7 @@ export function JobWorkflowExtrasSection({
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
           onDownloadVersionFile={onDownloadVersionFile}
+          onDeleted={onDeletedFile}
         />
       </section>
 

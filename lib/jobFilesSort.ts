@@ -9,6 +9,8 @@ export type JobFileRecord = {
   documentType?: "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
   /** PO entered by hand with no file attached (see `isManualPoDocument`). */
   isManualEntry?: boolean;
+  /** Backend review status — mirrors `FrpDocumentStatus`. */
+  reviewStatus?: "ACTIVE" | "ACCEPTED" | "REJECTED";
 };
 
 export type JobFileSortMode = "recents" | "newest" | "name" | "category";

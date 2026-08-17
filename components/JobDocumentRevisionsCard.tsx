@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -10,14 +10,17 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PoManualEntryFields } from "@/components/PoManualEntryFields";
 import { useAuth } from "@/context/AuthContext";
 import {
   compareJobDocument,
   createManualPoDocument,
+  deleteJobDocument,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
@@ -409,6 +412,8 @@ interface JobDocumentRevisionsCardProps {
   focusDocument?: { documentId: number; tab: DocTab } | null;
   /** Re-pull job detail (timeline, factory status) after a review save. */
   onJobChanged?: () => void | Promise<void>;
+  /** Bumps the Project documents strip's refresh key after add/delete. */
+  onDocumentsChanged?: () => void;
 }
 
 export function JobDocumentRevisionsCard({
@@ -417,6 +422,7 @@ export function JobDocumentRevisionsCard({
   refreshKey = 0,
   focusDocument = null,
   onJobChanged,
+  onDocumentsChanged,
 }: JobDocumentRevisionsCardProps) {
   const locked = isCancelledJob(job.status);
   const { user: me } = useAuth();
@@ -426,6 +432,11 @@ export function JobDocumentRevisionsCard({
   const [drawingDocs, setDrawingDocs] = useState<FrpJobDocumentDTO[]>([]);
   const [selectedPoId, setSelectedPoId] = useState<number | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<number | null>(null);
+  // Tracks the latest version's id across fetches so a genuinely new PO/drawing
+  // (uploaded here, from Status Control, or anywhere else) can be auto-selected
+  // without disturbing the user's pick when a refetch finds no new version.
+  const prevLatestPoIdRef = useRef<number | null>(null);
+  const prevLatestDrawingIdRef = useRef<number | null>(null);
   const [userNamesById, setUserNamesById] = useState<Record<number, string>>({});
 
   const [comparison, setComparison] = useState<FrpPoComparisonDTO | null>(null);
@@ -475,6 +486,13 @@ export function JobDocumentRevisionsCard({
   });
   const [poDetailsItems, setPoDetailsItems] = useState([emptyPoItemRow()]);
   const [poDetailsBuyerEditable, setPoDetailsBuyerEditable] = useState(false);
+
+  const [showDeletePoConfirm, setShowDeletePoConfirm] = useState(false);
+  const [deletePoBusy, setDeletePoBusy] = useState(false);
+  const [deletePoError, setDeletePoError] = useState<string | null>(null);
+  const [showDeleteDrawingConfirm, setShowDeleteDrawingConfirm] = useState(false);
+  const [deleteDrawingBusy, setDeleteDrawingBusy] = useState(false);
+  const [deleteDrawingError, setDeleteDrawingError] = useState<string | null>(null);
 
   const [reviewModalTarget, setReviewModalTarget] = useState<DocTab | null>(null);
   const [reviewModalAction, setReviewModalAction] = useState<"approved" | "rejected">(
@@ -528,6 +546,8 @@ export function JobDocumentRevisionsCard({
       setSelectedPoId(null);
       setSelectedDrawingId(null);
       setComparison(null);
+      prevLatestPoIdRef.current = null;
+      prevLatestDrawingIdRef.current = null;
       return;
     }
     setListLoading(true);
@@ -541,13 +561,23 @@ export function JobDocumentRevisionsCard({
       const drawingSorted = sortByVersionDesc(drawings);
       setPoDocs(poSorted);
       setDrawingDocs(drawingSorted);
+
+      const newLatestPoId = poSorted[0]?.id ?? null;
+      const poHasNewLatest = newLatestPoId !== prevLatestPoIdRef.current;
+      prevLatestPoIdRef.current = newLatestPoId;
       setSelectedPoId((prev) => {
+        if (poHasNewLatest) return newLatestPoId;
         if (prev != null && poSorted.some((d) => d.id === prev)) return prev;
-        return poSorted[0]?.id ?? null;
+        return newLatestPoId;
       });
+
+      const newLatestDrawingId = drawingSorted[0]?.id ?? null;
+      const drawingHasNewLatest = newLatestDrawingId !== prevLatestDrawingIdRef.current;
+      prevLatestDrawingIdRef.current = newLatestDrawingId;
       setSelectedDrawingId((prev) => {
+        if (drawingHasNewLatest) return newLatestDrawingId;
         if (prev != null && drawingSorted.some((d) => d.id === prev)) return prev;
-        return drawingSorted[0]?.id ?? null;
+        return newLatestDrawingId;
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load documents");
@@ -562,15 +592,30 @@ export function JobDocumentRevisionsCard({
     void loadDocuments();
   }, [loadDocuments, refreshKey]);
 
+  // `focusDocument` comes from the parent and is never cleared after a
+  // navigation click, so without tracking what's already been applied, this
+  // would re-force the selection back to that stale target on every later
+  // refresh — including stomping on a genuinely new latest PO/drawing that
+  // just got uploaded. Only (re)apply it when it names a document we haven't
+  // already jumped to, retrying while the target doc is still loading.
+  const appliedFocusRef = useRef<{ documentId: number; tab: DocTab } | null>(null);
   useEffect(() => {
     if (!focusDocument) return;
+    if (
+      appliedFocusRef.current?.documentId === focusDocument.documentId &&
+      appliedFocusRef.current?.tab === focusDocument.tab
+    ) {
+      return;
+    }
     setDocType(focusDocument.tab);
     if (focusDocument.tab === "po") {
       if (poDocs.some((d) => d.id === focusDocument.documentId)) {
         setSelectedPoId(focusDocument.documentId);
+        appliedFocusRef.current = focusDocument;
       }
     } else if (drawingDocs.some((d) => d.id === focusDocument.documentId)) {
       setSelectedDrawingId(focusDocument.documentId);
+      appliedFocusRef.current = focusDocument;
     }
   }, [focusDocument, poDocs, drawingDocs]);
 
@@ -827,10 +872,49 @@ export function JobDocumentRevisionsCard({
       }
       setShowAddPoModal(false);
       await loadDocuments();
+      onDocumentsChanged?.();
     } catch (e) {
       setAddPoError(e instanceof Error ? e.message : "Could not add PO");
     } finally {
       setAddPoBusy(false);
+    }
+  };
+
+  /** Delete the currently selected PO version — only offered while it's
+   *  still pending review; once approved/rejected it's part of the audit
+   *  trail and shouldn't be removable. */
+  const deleteSelectedPo = async () => {
+    if (!selectedPo?.id) return;
+    setDeletePoBusy(true);
+    setDeletePoError(null);
+    try {
+      await deleteJobDocument(selectedPo.id);
+      setShowDeletePoConfirm(false);
+      await loadDocuments();
+      onDocumentsChanged?.();
+    } catch (e) {
+      setDeletePoError(e instanceof Error ? e.message : "Could not delete PO");
+    } finally {
+      setDeletePoBusy(false);
+    }
+  };
+
+  /** Delete the currently selected drawing revision — only offered while
+   *  it's still pending review; once approved/rejected it's part of the
+   *  audit trail and shouldn't be removable. */
+  const deleteSelectedDrawing = async () => {
+    if (!selectedDrawing?.id) return;
+    setDeleteDrawingBusy(true);
+    setDeleteDrawingError(null);
+    try {
+      await deleteJobDocument(selectedDrawing.id);
+      setShowDeleteDrawingConfirm(false);
+      await loadDocuments();
+      onDocumentsChanged?.();
+    } catch (e) {
+      setDeleteDrawingError(e instanceof Error ? e.message : "Could not delete drawing");
+    } finally {
+      setDeleteDrawingBusy(false);
     }
   };
 
@@ -1072,6 +1156,20 @@ export function JobDocumentRevisionsCard({
                       <Pencil className="h-3.5 w-3.5" />
                       Edit
                     </button>
+                    {toReviewStatus(selectedPo.status) === "pending" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeletePoError(null);
+                          setShowDeletePoConfirm(true);
+                        }}
+                        disabled={locked || actionBusy}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 px-2.5 py-2 text-xs font-medium text-red-600 hover:border-red-300 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
 
                   {selectedPo.extractionStatus === "PENDING" ? (
@@ -1272,20 +1370,36 @@ export function JobDocumentRevisionsCard({
               </div>
             ) : (
               <div className="space-y-3">
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Revision
-                  <select
-                    value={selectedDrawing.id ?? ""}
-                    onChange={(e) => setSelectedDrawingId(Number(e.target.value))}
-                    className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
-                  >
-                    {drawingDocs.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {versionOptionLabel(r, latestDrawingId)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="flex items-end gap-2">
+                  <label className="block flex-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Revision
+                    <select
+                      value={selectedDrawing.id ?? ""}
+                      onChange={(e) => setSelectedDrawingId(Number(e.target.value))}
+                      className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm font-normal normal-case text-[#111827]"
+                    >
+                      {drawingDocs.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {versionOptionLabel(r, latestDrawingId)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {drawingReviewStatus === "pending" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteDrawingError(null);
+                        setShowDeleteDrawingConfirm(true);
+                      }}
+                      disabled={locked || actionBusy}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 px-2.5 py-2 text-xs font-medium text-red-600 hover:border-red-300 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
 
                 {drawingBanner ? (
                   <p
@@ -1523,6 +1637,34 @@ export function JobDocumentRevisionsCard({
           </button>
         </div>
       </EditModal>
+
+      <ConfirmDialog
+        open={showDeletePoConfirm}
+        title="Delete this PO version?"
+        description={`This removes "${selectedPo ? poDocumentDisplayName(selectedPo, undefined, "Untitled") : "this PO"}" from the job. This can't be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        busy={deletePoBusy}
+        error={deletePoError}
+        onConfirm={deleteSelectedPo}
+        onClose={() => {
+          if (!deletePoBusy) setShowDeletePoConfirm(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={showDeleteDrawingConfirm}
+        title="Delete this drawing revision?"
+        description={`This removes "${selectedDrawing?.documentName || "this drawing"}" from the job. This can't be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        busy={deleteDrawingBusy}
+        error={deleteDrawingError}
+        onConfirm={deleteSelectedDrawing}
+        onClose={() => {
+          if (!deleteDrawingBusy) setShowDeleteDrawingConfirm(false);
+        }}
+      />
     </>
   );
 }

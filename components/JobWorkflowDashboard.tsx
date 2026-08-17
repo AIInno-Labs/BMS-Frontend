@@ -125,6 +125,7 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
     documentId: doc.id,
     documentType: doc.documentType,
     isManualEntry: isManualPoDocument(doc),
+    reviewStatus: doc.status,
   };
 }
 
@@ -735,6 +736,7 @@ export function JobWorkflowDashboard({
         onDownloadFile={handleDownloadFile}
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
+        onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
       />
 
       <div className="mt-4 space-y-4">
@@ -793,6 +795,7 @@ export function JobWorkflowDashboard({
           refreshKey={documentsRefreshKey}
           focusDocument={versionsFocus}
           onJobChanged={onJobChanged}
+          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
           className="lg:col-span-2"
         />
 
