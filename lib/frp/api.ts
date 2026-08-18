@@ -985,22 +985,45 @@ export async function getQuoteEvent(
 /**
  * `GET /jobs/{id}/messages` — the thread, newest first.
  *
- * `since` is what makes polling cheap: pass the timestamp of the newest
- * message already held and the server returns only what arrived after it.
- * Merge the result by `id` rather than appending — clock skew between app
- * servers could otherwise duplicate or drop a message.
+ * History only: read backwards a page at a time. Polling for new messages is
+ * `getNewJobMessages`.
  */
 export async function listJobMessages(
   dbId: string | number,
-  opts?: { since?: string | null; page?: number; size?: number }
+  opts?: { page?: number; size?: number }
 ): Promise<PageResponse<GroupChatDTO>> {
   const params = new URLSearchParams({
     page: String(opts?.page ?? 0),
     size: String(opts?.size ?? 20),
   });
-  if (opts?.since) params.set("since", opts.since);
   return frpFetch<PageResponse<GroupChatDTO>>(
     `/jobs/${encodeURIComponent(String(dbId))}/messages?${params.toString()}`
+  );
+}
+
+/**
+ * `GET /jobs/{id}/messages/new` — everything after a message already held,
+ * oldest first.
+ *
+ * Keyed on an id, not a timestamp. Two messages posted in the same
+ * millisecond share a `sentAt`, so a time cursor either re-sends them on every
+ * poll or skips one permanently, and the client cannot tell which. An id is
+ * unique and monotonic, so `afterId` has exactly one answer.
+ *
+ * Returns a plain array: a poll appends to a thread the caller already holds,
+ * so there is nothing to page through.
+ */
+export async function getNewJobMessages(
+  dbId: string | number,
+  afterId: number,
+  limit = 50
+): Promise<GroupChatDTO[]> {
+  const params = new URLSearchParams({
+    afterId: String(afterId),
+    limit: String(limit),
+  });
+  return frpFetch<GroupChatDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/new?${params.toString()}`
   );
 }
 
