@@ -19,6 +19,7 @@ import {
   saveJobCard,
   saveSchedulingLogistics,
   updateJobApi,
+  uploadJobDocument,
 } from "@/lib/frp/api";
 import {
   countsFromDto,
@@ -72,7 +73,7 @@ interface JobsContextValue {
   getJobById: (id: string) => Job | undefined;
   /** Full record including the job card — the list projection omits it. */
   loadJobDetail: (id: string) => Promise<Job>;
-  createJobFromUi: (job: Job) => Promise<Job>;
+  createJobFromUi: (job: Job, files?: File[]) => Promise<Job>;
   updateJob: (
     job: Job,
     audit?: JobUpdateAuditAction,
@@ -201,14 +202,24 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     void refreshStaff();
   }, [refreshJobs, refreshStaff]);
 
-  const getJobById = useCallback(
-    (id: string) => jobs.find((j) => j.id === id),
+  /**
+   * A job by job number ("JOB-Q-1255") or by database id ("448").
+   *
+   * Job.id is the job number, and that is what the app links by. But a
+   * quotation reports its job as `jobId` - the database id - so a link from a
+   * quote arrives in the other currency. Accepting both is why /jobs/448 lands
+   * on the job instead of the search-jobs fallback.
+   */
+  const findJob = useCallback(
+    (id: string) => jobs.find((j) => j.id === id || j.dbId === id),
     [jobs]
   );
 
+  const getJobById = findJob;
+
   const loadJobDetail = useCallback(
     async (id: string): Promise<Job> => {
-      const known = jobs.find((j) => j.id === id);
+      const known = findJob(id);
       if (!known?.dbId) {
         throw new Error(`Job ${id} is not loaded — refresh the job list first.`);
       }
@@ -216,7 +227,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       setJobs((prev) => prev.map((j) => (j.id === full.id ? full : j)));
       return full;
     },
-    [jobs]
+    [findJob]
   );
 
   const rebalanceFloor = useCallback(async () => {
@@ -229,21 +240,42 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   }, [jobs]);
 
   /**
-   * Create, then save the job card.
+   * Create the job, attach any files using `currentStageId` from the create
+   * response, then save the job card.
    *
-   * Two calls because `POST /jobs` does not accept a card — it seeds an empty
-   * one, and the card is replaced as a unit through its own endpoint. The
-   * customer is resolved backend-side from `customerCompanyName`; there is no
-   * `/customers` endpoint to call first.
+   * `POST /jobs` seeds stages and returns `currentStageId`. Files go to
+   * `POST /jobs/{id}/documents` with that id as `jobStageId`.
    */
-  const createJobFromUi = useCallback(async (job: Job): Promise<Job> => {
+  const createJobFromUi = useCallback(async (job: Job, files: File[] = []): Promise<Job> => {
     const created = await createJob(uiJobToCreateRequest(job));
     if (created.id == null) {
       throw new Error("Backend created the job without an id.");
     }
+
+    let uploadError: string | null = null;
+    if (files.length > 0) {
+      if (created.currentStageId == null) {
+        throw new Error("Job was created without a currentStageId, so files cannot be attached.");
+      }
+      const uploads = await Promise.allSettled(
+        files.map((file) =>
+          uploadJobDocument(created.id as number, {
+            jobStageId: created.currentStageId as number,
+            file,
+            documentName: file.name,
+          })
+        )
+      );
+      const failed = uploads.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        uploadError = `Job created, but ${failed} of ${files.length} file${files.length > 1 ? "s" : ""} failed to upload.`;
+      }
+    }
+
     const withCard = await saveJobCard(created.id, uiJobToJobCardPayload(job));
     const ui = frpJobToUi(withCard);
     setJobs((prev) => [ui, ...prev.filter((j) => j.id !== ui.id)]);
+    if (uploadError) throw new Error(uploadError);
     return ui;
   }, []);
 

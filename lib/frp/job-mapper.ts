@@ -10,6 +10,7 @@
 import type {
   Job,
   JobCardPrintDetails,
+  JobInventoryLine,
   JobSchedulingLogistics,
   ShipmentMethod,
 } from "@/lib/types";
@@ -19,6 +20,8 @@ import {
   priorityToUi,
   resinToBackend,
   resinToUi,
+  jobTypeToBackend,
+  jobTypeToUi,
   statusToBackend,
   statusToUi,
 } from "@/lib/frp/job-status";
@@ -36,6 +39,8 @@ export interface FrpJobSummaryDTO {
   dueDate?: string | null;
   stageStatus?: string;
   priority?: string;
+  /** `JobType` enum name. Null on jobs raised before the field existed. */
+  jobType?: string | null;
   resinCode?: string | null;
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
@@ -43,6 +48,8 @@ export interface FrpJobSummaryDTO {
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
   createdDate?: string;
 }
 
@@ -66,6 +73,12 @@ export interface FrpJobDTO {
   priority?: string;
   /** `WRITE_ONLY`, create only. Resolved through `JobStatusLabel`. */
   stageStatusLabel?: string;
+  /** `READ_ONLY` — furthest milestone that's complete or active, e.g. `"design"`. */
+  currentStageKey?: string | null;
+  /** `READ_ONLY` — id of the current milestone. Present on create. */
+  currentStageId?: number | null;
+  /** `READ_ONLY` — stage tree. Present on `GET /jobs/{id}`; may be absent on create. */
+  stages?: FrpJobStageDTO[];
   resinCode?: string | null;
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
@@ -81,13 +94,42 @@ export interface FrpJobDTO {
   /** Free working notes, saved through the normal job update. Distinct from
    *  the short `alert` flag; print-only text stays in `jobCard`. */
   notes?: string | null;
+  /** What the job is, in prose. Distinct from notes. */
+  description?: string | null;
+  /** `JobType` enum name. Null on jobs raised before the field existed. */
+  jobType?: string | null;
+  /** Currency for the payment totalled from `measurement`, e.g. `INR`. Sent on
+   *  create and update; returned by `GET /jobs/{id}` off the payment it was
+   *  stored on. Absent from the list view, which does not load payments. */
+  currency?: string | null;
   /** `READ_ONLY` here — written via `PUT /jobs/{id}/job-card`. */
   jobCard?: FrpJobCardPayload | null;
   createdDate?: string;
   lastModifiedDate?: string;
   /** `READ_ONLY`, detail view only (`GET /jobs/{id}`) — resolved `customerId` row. */
   customer?: FrpCustomerDTO | null;
-  /** `READ_ONLY`, detail view only — every contact on file for `customer`. */
+  /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
+  payments?: FrpJobPaymentDTO[];
+  /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
+   *  `/jobs/{id}/inventory`. */
+  inventory?: FrpInventoryDTO[];
+}
+
+/** `InventoryDTO` — one material line on a job, nested on `JobDTO` in the
+ *  detail view and addressable directly through `/jobs/{id}/inventory`. */
+export interface FrpInventoryDTO {
+  id?: number;
+  /** `READ_ONLY` — taken from the path, not the body. */
+  jobId?: number;
+  category?: string | null;
+  profileType?: string | null;
+  size?: string | null;
+  materialGrade?: string | null;
+  quantity?: number | null;
+  description?: string | null;
+  /** `READ_ONLY` — resolved from the authenticated user by Spring Data auditing. */
+  createdBy?: number | null;
+  createdDate?: string;
 }
 
 /** `CustomerDTO` — nested on `JobDTO` in the detail view. */
@@ -196,7 +238,9 @@ export interface FrpJobCardPayload {
   documentsRequired?: boolean;
   sampleRequired?: boolean;
   coiRequired?: boolean;
+  /** @deprecated Payment lives on `job_payment`; kept to read older cards. */
   paymentReceived?: boolean | null;
+  /** @deprecated Payment lives on `job_payment`; kept to read older cards. */
   paymentDueDate?: string;
   /** Not on the backend `Job` entity — carried in the card so it round-trips. */
   dateRaised?: string;
@@ -206,29 +250,6 @@ export interface FrpJobCardPayload {
   qaCompleted?: boolean;
   manualInstructions?: string;
 }
-
-/**
- * `DrawingStageDTO` — one line of the drawing checklist.
- *
- * The backend returns all five whether ticked or not, and owns the label, so
- * the client no longer keeps its own copy of the list.
- */
-export interface FrpDrawingStageDTO {
-  stage: FrpDrawingStage;
-  label?: string;
-  completed: boolean;
-  updatedBy?: number | null;
-  updatedAt?: string | null;
-  remarks?: string | null;
-}
-
-/** Pinned by `ck_drawing_stage`; sending anything else is a 400. */
-export type FrpDrawingStage =
-  | "MEASUREMENTS_TAKEN"
-  | "DRAWING_CREATED"
-  | "CLIENT_APPROVED"
-  | "ENGINEER_APPROVED"
-  | "REV_A_ISSUED";
 
 /** `JobCountsDTO` — `GET /jobs/counts`. */
 export interface FrpJobCountsDTO {
@@ -265,6 +286,10 @@ export interface FrpJobStageDTO {
   stageName?: string;
   stageType?: "MILESTONE" | "OPERATION";
   status?: "PENDING" | "IN_PROGRESS" | "COMPLETE" | "SKIPPED" | "BLOCKED";
+  /** Whether this stage requires a document / an email before it completes.
+   *  Seeded from the stage template default, editable per job. */
+  docRequired?: boolean;
+  emailRequired?: boolean;
   sortOrder?: number;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -273,13 +298,179 @@ export interface FrpJobStageDTO {
   assignedTeam?: string | null;
   percentComplete?: number | null;
   children?: FrpJobStageDTO[];
+  /** Documents uploaded against this stage — populated server-side on every
+   *  `GET /jobs/{id}/stages` and stage PUT/scan response. */
+  documents?: FrpJobDocumentDTO[];
 }
 
 export interface FrpJobStageUpdateRequest {
   status?: FrpJobStageDTO["status"];
   percentComplete?: number;
   notes?: string;
+  /** Toggle whether this stage requires a document. Editable per stage. */
+  docRequired?: boolean;
   assignedTeam?: string;
+}
+
+/** Document category — mirrors backend `DocumentType` (milestone-derived). */
+export type FrpDocumentType = "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
+
+/** Review status on a job document — mirrors backend `Status`. */
+export type FrpDocumentStatus = "ACTIVE" | "ACCEPTED" | "REJECTED";
+
+/** OCR/LLM pipeline — mirrors backend `DocumentExtractionStatus`. */
+export type FrpDocumentExtractionStatus =
+  | "NOT_APPLICABLE"
+  | "PENDING"
+  | "READY"
+  | "FAILED"
+  | "SKIPPED";
+
+/** SharePoint bytes — mirrors backend `DocumentStorageStatus`. */
+export type FrpDocumentStorageStatus =
+  | "NOT_APPLICABLE"
+  | "PENDING"
+  | "STORED"
+  | "FAILED";
+
+export type FrpDocumentSort = "RECENT" | "ALL";
+
+/** `JobDocumentDTO` — a document attached to a job / stage. */
+export interface FrpJobDocumentDTO {
+  id?: number;
+  jobId?: number;
+  jobStageId?: number;
+  documentName?: string;
+  documentType?: FrpDocumentType;
+  milestoneStageId?: number;
+  milestoneStageKey?: string;
+  milestoneStageName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  documentData?: Record<string, unknown> | null;
+  editedDocumentData?: Record<string, unknown> | null;
+  remarks?: string | null;
+  documentVersion?: number;
+  status?: FrpDocumentStatus;
+  extractionStatus?: FrpDocumentExtractionStatus;
+  /** SharePoint upload — PENDING until the async worker stores or fails. */
+  storageStatus?: FrpDocumentStorageStatus;
+  uploadedBy?: number;
+  uploadedAt?: string;
+  modifiedBy?: number;
+  modifiedAt?: string;
+}
+
+/** One row in `PoComparisonDTO.fields` (Field / Quote / This PO). */
+export interface FrpPoComparisonFieldDTO {
+  /** `Order`, `Item 1`…, or `Totals`. */
+  group?: string;
+  field?: string;
+  quote?: string;
+  thisPo?: string;
+  variance?: boolean;
+  /** `SOURCE_CODE` | `DESCRIPTION` | `POSITION` | `UNMATCHED` — line items only. */
+  matchedBy?: string;
+  quoteLineIndex?: number | null;
+  poLineIndex?: number | null;
+}
+
+/** `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only. */
+export interface FrpPoComparisonDTO {
+  jobId?: number;
+  documentId?: number;
+  documentType?: FrpDocumentType;
+  documentName?: string;
+  status?: FrpDocumentStatus;
+  documentVersion?: number;
+  versionDate?: string;
+  latest?: boolean;
+  /** e.g. `v3 · 2026-08-05 (latest)` */
+  versionLabel?: string;
+  editable?: boolean;
+  conclusion?: string;
+  notes?: string | null;
+  needsReview?: boolean;
+  fields?: FrpPoComparisonFieldDTO[];
+  jobData?: Record<string, unknown> | null;
+  extractedData?: Record<string, unknown> | null;
+  documentData?: Record<string, unknown> | null;
+  editedDocumentData?: Record<string, unknown> | null;
+}
+
+export type FrpPaymentKind = "DEPOSIT" | "PROGRESS" | "FINAL";
+export type FrpPaymentStatus = "DUE" | "RECEIVED" | "OVERDUE" | "WRITTEN_OFF";
+
+/** `JobPaymentDTO` — nested on `GET /jobs/{id}` and returned by payment PUT. */
+export interface FrpJobPaymentDTO {
+  id?: number;
+  jobId?: number;
+  quoteNumber?: string;
+  amount?: number;
+  currency?: string;
+  kind?: FrpPaymentKind;
+  status?: FrpPaymentStatus;
+  dueDate?: string;
+  receivedAt?: string;
+  reference?: string;
+  recordedBy?: number;
+}
+
+/**
+ * `PUT /jobs/{id}/payment` — null fields are left unchanged.
+ * `paid: true` → RECEIVED, `paid: false` → DUE.
+ * `estimatedDate` maps to `job_payment.due_date` (`yyyy-MM-dd`).
+ */
+export interface FrpJobPaymentUpdateRequest {
+  paid?: boolean;
+  estimatedDate?: string;
+}
+
+/** `PUT /documents/{id}` — only non-null fields are applied. */
+export interface FrpJobDocumentUpdateRequest {
+  documentName?: string;
+  remarks?: string | null;
+  status?: FrpDocumentStatus;
+  documentData?: Record<string, unknown> | null;
+  editedDocumentData?: Record<string, unknown> | null;
+}
+
+/** One line on `POST /jobs/{jobId}/documents/po`. */
+export interface FrpManualPoLineItemRequest {
+  sourceCode?: string;
+  description?: string;
+  quantity?: number;
+  /** Per-unit price. Server stores it as `unitPrice`. */
+  price?: number;
+  /** Left off so the server derives `quantity × price`. */
+  lineTotal?: number;
+}
+
+/**
+ * `POST /jobs/{jobId}/documents/po` — hand-keyed PO, no file / OCR / LLM.
+ * Stage must resolve to a production milestone.
+ */
+export interface FrpManualPoRequest {
+  jobStageId: number;
+  documentName?: string;
+  orderNo?: string;
+  /** `yyyy-MM-dd` */
+  orderDate?: string;
+  /** `yyyy-MM-dd` */
+  expectedDate?: string;
+  buyerName?: string;
+  supplierName?: string;
+  quoteNumber?: string;
+  currency?: string;
+  remarks?: string;
+  lineItems?: FrpManualPoLineItemRequest[];
+}
+
+/** `GET /documents/{id}/download` — short-lived signed SharePoint URL. */
+export interface FrpDocumentDownloadDTO {
+  id?: number;
+  downloadUrl?: string;
+  expiresAt?: string;
 }
 
 /**
@@ -331,6 +522,22 @@ function userIdToBackend(id?: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Prefer FINAL; otherwise the first row — same rule as backend `pickJobPayment`. */
+function pickJobPayment(
+  payments?: FrpJobPaymentDTO[] | null
+): FrpJobPaymentDTO | undefined {
+  if (!payments?.length) return undefined;
+  return payments.find((p) => p.kind === "FINAL") ?? payments[0];
+}
+
+function paymentReceivedFromStatus(
+  status?: FrpPaymentStatus
+): boolean | null {
+  if (status === "RECEIVED") return true;
+  if (status == null) return null;
+  return false;
+}
+
 /* ------------------------------------------------------------- DTO → UI */
 
 /** List row. `jobCard` is absent by design, so print details stay empty. */
@@ -349,6 +556,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     resinType: resinToUi(dto.resinCode),
     status: statusToUi(dto.stageStatus),
     priority: priorityToUi(dto.priority),
+    jobType: jobTypeToUi(dto.jobType),
     alert: null,
     notes: dto.notes ?? null,
     ownerName: dto.ownerName ?? null,
@@ -363,6 +571,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
     percentComplete: dto.percentComplete ?? null,
+    currentStageKey: dto.currentStageKey ?? null,
   };
 }
 
@@ -420,6 +629,7 @@ export function schedulingLogisticsToBackend(
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
   const spec = card?.productSpec;
+  const payment = pickJobPayment(dto.payments);
   // The job card carries its own snapshot of contact details for print, but a
   // freshly created job has an empty card - fall back to the customer's first
   // contact (and then the company itself) so the job screen isn't blank until
@@ -481,8 +691,12 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       programHistory: card?.programHistory ?? [],
       additionalNotes: card?.additionalNotes,
       jobCardNotes: card?.notes || dto.notes || undefined,
-      paymentReceived: card?.paymentReceived ?? null,
-      paymentDueDate: card?.paymentDueDate,
+      jobType: jobTypeToUi(dto.jobType) ?? undefined,
+      paymentReceived:
+        payment != null
+          ? paymentReceivedFromStatus(payment.status)
+          : card?.paymentReceived ?? null,
+      paymentDueDate: payment?.dueDate ?? card?.paymentDueDate,
     },
   };
 
@@ -504,9 +718,17 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
+    description: dto.description ?? null,
+    jobType: jobTypeToUi(dto.jobType),
     ownerName: dto.ownerName ?? null,
     orderNumber: dto.orderNumber ?? null,
     measurement: dto.measurement ?? null,
+    // `currency` is the field; `payload.currency` is where this client used to
+    // put it, and still where jobs created before the switch carry it. Reading
+    // both means an existing job's currency survives the change.
+    currency:
+      dto.currency ??
+      (typeof dto.payload?.currency === "string" ? dto.payload.currency : null),
     schedulingLogistics: schedulingLogisticsToUi(dto.schedulingLogistics),
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
@@ -519,6 +741,43 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     createdAt: dto.createdDate,
     quoteNumber: dto.quoteNumber ?? null,
     origin: dto.origin,
+    currentStageKey: dto.currentStageKey ?? null,
+    inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  };
+}
+
+function inventoryLineToUi(line: FrpInventoryDTO): JobInventoryLine {
+  return {
+    id: line.id,
+    category: line.category ?? null,
+    profileType: line.profileType ?? null,
+    size: line.size ?? null,
+    materialGrade: line.materialGrade ?? null,
+    quantity: inventoryQuantityToUi(line.quantity),
+    description: line.description ?? null,
+  };
+}
+
+/** Integer quantity as stored by `InventoryDTO.quantity`; blanks become null. */
+function inventoryQuantityToUi(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.trunc(value);
+}
+
+/**
+ * UI row → `InventoryDTO` write body. `category` and `profileType` are required
+ * on create; empty optional strings are sent as `""` so a single-line PUT can
+ * clear them (`null` on that endpoint means "leave the stored value").
+ */
+export function uiInventoryLineToDto(line: JobInventoryLine): FrpInventoryDTO {
+  return {
+    ...(line.id != null ? { id: line.id } : {}),
+    category: line.category?.trim() || undefined,
+    profileType: line.profileType?.trim() || undefined,
+    size: line.size?.trim() ?? "",
+    materialGrade: line.materialGrade?.trim() ?? "",
+    quantity: inventoryQuantityToUi(line.quantity) ?? 0,
+    description: line.description?.trim() ?? "",
   };
 }
 
@@ -557,7 +816,15 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
+    description: job.description?.trim() || undefined,
+    jobType: jobTypeToBackend(job.jobType) ?? undefined,
     schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
+    measurement: job.measurement ?? undefined,
+    // Its own field, not smuggled inside `payload`. `payload` is the raw body a
+    // job was raised from; a currency picked in a dropdown is not that, and the
+    // backend never read it from there — every manual job silently fell back to
+    // AUD however the dropdown was set.
+    currency: job.currency ?? undefined,
   };
 }
 
@@ -590,6 +857,13 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     estimatedHours: job.estimatedHours ?? undefined,
     alert: job.alert ?? undefined,
     notes: job.notes ?? undefined,
+    description: job.description?.trim() || undefined,
+    jobType: jobTypeToBackend(job.jobType) ?? undefined,
+    // Line items are editable here, so the currency they are totalled in has to
+    // be too. Omitting it leaves the payment's existing currency alone rather
+    // than resetting it, so a partial update cannot silently change the money.
+    measurement: job.measurement ?? undefined,
+    currency: job.currency ?? undefined,
   };
 }
 
@@ -641,8 +915,6 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     documentsRequired: extras?.documentsRequired,
     sampleRequired: extras?.sampleRequired,
     coiRequired: extras?.coiRequired,
-    paymentReceived: extras?.paymentReceived ?? null,
-    paymentDueDate: extras?.paymentDueDate,
     dateRaised: job.date || undefined,
     quoteValidUntil: job.quoteValidUntil,
     manufacturingRequired: job.manufacturingRequired,

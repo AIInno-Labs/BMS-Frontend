@@ -7,50 +7,68 @@ import {
   CircleCheckBig,
   CircleDollarSign,
   MessageSquare,
-  ClipboardList,
   Download,
   Loader2,
   History,
   Mail,
   Package,
-  Pencil,
   Phone,
   Plus,
   Settings,
   StickyNote,
   User,
+  X,
 } from "lucide-react";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
 import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
+import { WidgetCard } from "@/components/JobWidgetCard";
+import { EditModal, ModalField } from "@/components/JobEditModal";
+import { JobStatusCard } from "@/components/JobStatusCard";
+import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
-  DEFAULT_REQUIRED_INVENTORY,
-  ensureWorkflowExtras,
-  JOB_TYPE_OPTIONS,
-} from "@/lib/jobWorkflowExtras";
+  deleteJobDocument,
+  deleteJobInventoryLine,
+  downloadJobDocument,
+  listJobDocuments,
+  listJobStages,
+  saveJobInventory,
+  updateJobInventoryLine,
+  updateJobPayment,
+  uploadJobDocument,
+} from "@/lib/frp/api";
+import { ensureWorkflowExtras, JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import {
   normalizeJobFiles,
   sortJobFiles,
   type JobFileRecord,
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
-import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type {
-  FrpDrawingStage,
-  FrpDrawingStageDTO,
-  JobUpdateAuditAction,
+import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
+import { formatShortDate, jobPriorities } from "@/lib/mockData";
+import {
+  uiInventoryLineToDto,
+  type FrpJobDocumentDTO,
+  type FrpJobStageDTO,
+  type JobUpdateAuditAction,
 } from "@/lib/frp/job-mapper";
-import { listDrawingStages, setDrawingStage } from "@/lib/frp/api";
-import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
+import type {
+  Job,
+  JobInventoryLine,
+  JobPriority,
+  JobWorkflowExtras,
+} from "@/lib/types";
 import {
   getAssignableWorkers,
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
+import { isCancelledJob } from "@/lib/frp/job-status";
 
 interface JobWorkflowDashboardProps {
   job: Job;
@@ -66,6 +84,8 @@ interface JobWorkflowDashboardProps {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => Promise<void>;
+  /** Refetch the job after a stage change so the page reflects the new status. */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -73,73 +93,184 @@ interface JobWorkflowDashboardProps {
  * values its CHECK constraint accepts, so the client keeping a parallel copy
  * could only ever drift from it.
  */
-const DRAWING_STAGE_COUNT = 5;
 
 type JobFile = JobFileRecord;
 
-function defaultDemoFiles(job: Job): JobFile[] {
-  const pd = ensurePrintDetails(job);
-  const files: JobFile[] = [
-    {
-      name: "Job specification.pdf",
-      category: "Specification",
-      time: "Attached",
-      uploadedAt: Date.now() - 2 * 86_400_000,
-    },
-    {
-      name: "Assembly drawing rev-A.pdf",
-      category: "Drawing",
-      time: "3d ago",
-      uploadedAt: Date.now() - 3 * 86_400_000,
-    },
-    {
-      name: "Client approval sign-off.pdf",
-      category: "Approval",
-      time: "1w ago",
-      uploadedAt: Date.now() - 7 * 86_400_000,
-    },
-  ];
+const SHAREPOINT_POLL_INTERVAL_MS = 10_000;
+const SHAREPOINT_PENDING_TIMEOUT_MS = 90_000;
+const SHAREPOINT_FAILED_HINT =
+  "SharePoint did not store this file. Delete it and upload again.";
 
-  if (pd.purchaseOrderNo) {
-    files.unshift({
-      name: `PO-${pd.purchaseOrderNo}.pdf`,
-      category: "Purchase Order",
-      time: "Attached",
-      uploadedAt: Date.now() - 4 * 86_400_000,
-    });
-  }
-
-  return files;
+function formatDocUploadedAt(iso?: string): { time: string; uploadedAt?: number } {
+  if (!iso) return { time: "Uploaded" };
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return { time: iso.slice(0, 10) };
+  return { time: formatShortDate(iso.slice(0, 10)), uploadedAt: ms };
 }
 
-function loadFiles(job: Job): JobFile[] {
-  const defaults = defaultDemoFiles(job);
-  const defaultNames = new Set(defaults.map((file) => file.name));
-  const raw = window.localStorage.getItem(`frp-files-${job.id}`);
-
-  if (!raw) return normalizeJobFiles(defaults);
-
-  try {
-    const parsed = JSON.parse(raw) as JobFile[];
-    if (!Array.isArray(parsed) || !parsed.length) return normalizeJobFiles(defaults);
-
-    const extras = parsed.filter((file) => !defaultNames.has(file.name));
-    return normalizeJobFiles([...defaults, ...extras]);
-  } catch {
-    return normalizeJobFiles(defaults);
+function documentTypeLabel(doc: FrpJobDocumentDTO): string {
+  if (doc.milestoneStageName?.trim()) return doc.milestoneStageName.trim();
+  switch (doc.documentType) {
+    case "DRAWING":
+      return "Drawing";
+    case "PRODUCTION":
+      return "Production";
+    case "QC":
+      return "QC";
+    default:
+      return "Other";
   }
 }
 
-function downloadDemoFile(fileName: string) {
-  const blob = new Blob([`Demo export placeholder for ${fileName}`], {
-    type: "application/pdf",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
+function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
+  const when = formatDocUploadedAt(doc.uploadedAt);
+  return {
+    name: poDocumentDisplayName(doc, undefined, "Untitled"),
+    category: documentTypeLabel(doc),
+    time: when.time,
+    uploadedAt: when.uploadedAt,
+    documentId: doc.id,
+    documentType: doc.documentType,
+    isManualEntry: isManualPoDocument(doc),
+    reviewStatus: doc.status,
+    storageStatus: doc.storageStatus,
+    remarks: doc.remarks ?? null,
+  };
+}
+
+type InventoryDraftLine = JobInventoryLine & { localKey: string };
+
+function newInventoryKey(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptyInventoryLine(): InventoryDraftLine {
+  return {
+    category: "",
+    profileType: "",
+    size: "",
+    materialGrade: "",
+    quantity: null,
+    description: "",
+    localKey: newInventoryKey(),
+  };
+}
+
+function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
+  return lines.map((line) => ({
+    ...line,
+    localKey: line.id != null ? `saved-${line.id}` : newInventoryKey(),
+  }));
+}
+
+function inventoryField(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function inventoryLinesEqual(a: JobInventoryLine, b: JobInventoryLine): boolean {
+  return (
+    inventoryField(a.category) === inventoryField(b.category) &&
+    inventoryField(a.profileType) === inventoryField(b.profileType) &&
+    inventoryField(a.size) === inventoryField(b.size) &&
+    inventoryField(a.materialGrade) === inventoryField(b.materialGrade) &&
+    inventoryField(a.description) === inventoryField(b.description) &&
+    (a.quantity ?? 0) === (b.quantity ?? 0)
+  );
+}
+
+function isInventoryLineIncomplete(item: JobInventoryLine): boolean {
+  return !item.category?.trim() || !item.profileType?.trim();
+}
+
+const INVENTORY_TABLE_HEADERS = [
+  "Category",
+  "Profile",
+  "Size",
+  "Grade",
+  "Qty",
+  "Description",
+] as const;
+
+function inventoryCell(value: string | number | null | undefined): string {
+  if (value == null) return "—";
+  const text = String(value).trim();
+  return text || "—";
+}
+
+function isBlankInventoryLine(item: JobInventoryLine): boolean {
+  return (
+    !item.category?.trim() &&
+    !item.profileType?.trim() &&
+    !item.size?.trim() &&
+    !item.materialGrade?.trim() &&
+    !item.description?.trim() &&
+    item.quantity == null
+  );
+}
+
+function parseInventoryQuantity(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.trunc(n));
+}
+
+function patchInventoryLine(
+  lines: InventoryDraftLine[],
+  localKey: string,
+  patch: Partial<JobInventoryLine>
+): InventoryDraftLine[] {
+  return lines.map((row) =>
+    row.localKey === localKey ? { ...row, ...patch } : row
+  );
+}
+
+/** A `measurement` row's display fields — raw Quotient `selected_items` shape.
+ *  `job.measurement` starts as the quote's own selected_items for a
+ *  quote-derived job (set at creation, QuotientEventProcessor.createJobIfAbsent)
+ *  and gets overwritten with the approved PO's line items once one lands
+ *  (JobDocumentServiceImpl.applyApprovedPoToJob) — one evolving field, so
+ *  reading it directly always shows the current authoritative item list. */
+/** Matches PoManualEntryFields.tsx's CURRENCY_OPTIONS. Falls back to the
+ *  raw ISO code for anything not in this list. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  AUD: "A$",
+  USD: "US$",
+  NZD: "NZ$",
+  GBP: "£",
+  EUR: "€",
+  INR: "₹",
+  SAR: "SAR",
+  AED: "AED",
+  CAD: "C$",
+};
+
+function orderItemFields(item: Record<string, unknown>): {
+  code: string;
+  name: string;
+  qty: string;
+  price: string;
+} {
+  const str = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  // sourceCode: manual/PO-entered rows (lib/poLineItems.ts). item_code/itemCode:
+  // Quotient's own selected_items shape.
+  const priceRaw = item.unit_price ?? item.unitPrice ?? item.price;
+  return {
+    code: str(item.sourceCode ?? item.item_code ?? item.itemCode),
+    name: str(item.heading ?? item.description),
+    qty: str(item.quantity),
+    price: typeof priceRaw === "number" ? priceRaw.toFixed(2) : str(priceRaw),
+  };
+}
+
+/** Top-level milestones only (same set Status Control offers), excluding draft. */
+function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
+  return stages
+    .filter((m) => m.stageKey !== "draft" && m.id != null)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 export function JobWorkflowDashboard({
@@ -152,25 +283,42 @@ export function JobWorkflowDashboard({
   onPrint,
   onCancelJob,
   onSavePatch,
+  onJobChanged,
 }: JobWorkflowDashboardProps) {
+  const cancelled = isCancelledJob(job.status);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const orderItems = job.measurement ?? [];
+
   const [showJobModal, setShowJobModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
+  /** Document shown in the in-app PDF/image preview modal. */
+  const [previewFile, setPreviewFile] = useState<JobFileRecord | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+  const pendingSharePointSeenAt = useRef<Map<number, number>>(new Map());
+  const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [failedFile, setFailedFile] = useState<JobFile | null>(null);
+  const [failedFileBusy, setFailedFileBusy] = useState(false);
+  const [versionsFocus, setVersionsFocus] = useState<{
+    documentId: number;
+    tab: "po" | "drawing";
+  } | null>(null);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
-  const [drawingStages, setDrawingStages] = useState<FrpDrawingStageDTO[]>([]);
-  const [drawingError, setDrawingError] = useState<string | null>(null);
-  const [drawingBusy, setDrawingBusy] = useState<FrpDrawingStage | null>(null);
-  const [fileUploadDraft, setFileUploadDraft] = useState({
-    fileName: "",
-    category: "Specification",
-  });
+  const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
+  const [fileUploadDraft, setFileUploadDraft] = useState<{
+    file: File | null;
+    milestoneId: number | "";
+  }>({ file: null, milestoneId: "" });
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileUploadError, setFileUploadError] = useState<string | null>(null);
   const [customerDraft, setCustomerDraft] = useState({
     clientName: job.clientName,
     clientContactName: job.clientContactName ?? "",
@@ -182,21 +330,24 @@ export function JobWorkflowDashboard({
     status: job.status,
     dueDate: job.dueDate ?? "",
     priority: job.priority,
-    manualInstructions: job.manualInstructions ?? "",
+    description: job.description ?? job.manualInstructions ?? "",
     assignedWorkerId: job.assignedWorkerId ?? "",
     raisedBy: pd.raisedBy ?? "",
-    jobType: extras.jobType ?? JOB_TYPE_OPTIONS[0],
+    jobType: job.jobType ?? extras.jobType ?? "",
     projectedStartDate: extras.projectedStartDate ?? "",
   });
-  const [inventoryDraft, setInventoryDraft] = useState<RequiredInventoryItem[]>(
-    () => extras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
+  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftLine[]>(
+    () => toInventoryDraft(job.inventory ?? [])
   );
+  const [inventoryBusy, setInventoryBusy] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const assignableWorkers = getAssignableWorkers();
 
   useEffect(() => {
-    setFiles(loadFiles(job));
     const savedSort = window.localStorage.getItem(`frp-files-sort-${job.id}`);
     if (
       savedSort === "recents" ||
@@ -209,47 +360,44 @@ export function JobWorkflowDashboard({
   }, [job.id]);
 
   useEffect(() => {
-    window.localStorage.setItem(`frp-files-${job.id}`, JSON.stringify(files));
-  }, [job.id, files]);
+    let cancelled = false;
+    async function loadProjectDocuments() {
+      if (!job.dbId) {
+        setFiles([]);
+        setMilestones([]);
+        return;
+      }
+      try {
+        const [docs, stages] = await Promise.all([
+          listJobDocuments(job.dbId, { sort: "ALL" }),
+          listJobStages(job.dbId),
+        ]);
+        if (cancelled) return;
+        const nextMilestones = asMilestones(stages);
+        setMilestones(nextMilestones);
+        setFiles(normalizeJobFiles(docs.map(docToFileRecord)));
+        setFileUploadDraft((prev) => {
+          if (prev.milestoneId !== "" && nextMilestones.some((m) => m.id === prev.milestoneId)) {
+            return prev;
+          }
+          return { ...prev, milestoneId: nextMilestones[0]?.id ?? "" };
+        });
+      } catch {
+        if (!cancelled) {
+          setFiles([]);
+          setMilestones([]);
+        }
+      }
+    }
+    void loadProjectDocuments();
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId, documentsRefreshKey]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
   }, [job.id, fileSort]);
-
-  // The checklist lives on the server. Keyed on dbId because the API
-  // addresses jobs by their database id, not the job number.
-  //
-  // The fetch itself is cached per key in a ref, not just guarded by
-  // `cancelled`: React Strict Mode (dev only) mounts every component twice,
-  // and a plain `cancelled` flag only suppresses which invocation's result
-  // gets applied — the first invocation still fires its own GET, and since
-  // it gets cancelled almost immediately, a naive "skip the second mount"
-  // guard would mean nobody ever applies the result. Sharing one promise per
-  // key means both mounts attach to the same in-flight request instead.
-  const drawingStagesFetchRef = useRef<{
-    key: string;
-    promise: Promise<FrpDrawingStageDTO[]>;
-  } | null>(null);
-  useEffect(() => {
-    if (!job.dbId) return;
-    let mounted = true;
-    const key = job.dbId;
-    if (drawingStagesFetchRef.current?.key !== key) {
-      drawingStagesFetchRef.current = { key, promise: listDrawingStages(job.dbId) };
-    }
-    drawingStagesFetchRef.current.promise
-      .then((stages) => {
-        if (mounted) setDrawingStages(stages);
-      })
-      .catch((e) => {
-        if (mounted) {
-          setDrawingError(e instanceof Error ? e.message : "Could not load the drawing checklist");
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [job.dbId]);
 
   useEffect(() => {
     const nextPd = ensurePrintDetails(job);
@@ -265,22 +413,17 @@ export function JobWorkflowDashboard({
       status: job.status,
       dueDate: job.dueDate ?? "",
       priority: job.priority,
-      manualInstructions: job.manualInstructions ?? "",
+      description: job.description ?? job.manualInstructions ?? "",
       assignedWorkerId: job.assignedWorkerId ?? "",
       raisedBy: nextPd.raisedBy ?? "",
-      jobType: nextExtras.jobType ?? JOB_TYPE_OPTIONS[0],
+      jobType: job.jobType ?? nextExtras.jobType ?? "",
       projectedStartDate: nextExtras.projectedStartDate ?? "",
     });
-    setInventoryDraft(
-      nextExtras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
-    );
+    if (!showInventoryModal) {
+      setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+    }
     setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
-  }, [job]);
-
-  const drawingDoneCount = useMemo(
-    () => drawingStages.filter((s) => s.completed).length,
-    [drawingStages]
-  );
+  }, [job, showInventoryModal]);
 
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
@@ -290,66 +433,327 @@ export function JobWorkflowDashboard({
   // The synthesised "job created" chat line is gone: the thread now shows real
   // messages only. That event already lives in the audit trail (JOB_CREATED),
   // which is where a system event belongs.
+  const filesWithSharePointTimeout = useMemo(() => {
+    if (sharePointTimedOutIds.size === 0) return sortedFiles;
+    return sortedFiles.map((file) =>
+      file.documentId != null &&
+      sharePointTimedOutIds.has(file.documentId) &&
+      file.storageStatus === "PENDING"
+        ? { ...file, storageStatus: "FAILED" as const, remarks: SHAREPOINT_FAILED_HINT }
+        : file
+    );
+  }, [sortedFiles, sharePointTimedOutIds]);
 
-  const handleDrawingToggle = async (stage: FrpDrawingStage, checked: boolean) => {
-    if (!job.dbId || drawingBusy) return;
-    setDrawingBusy(stage);
-    setDrawingError(null);
-    try {
-      // The server returns the whole checklist, so state is replaced rather
-      // than patched - no chance of the other four going stale.
-      const next = await setDrawingStage(job.dbId, stage, checked);
-      setDrawingStages(next);
+  const displayFiles = useMemo(() => {
+    if (!fileUploading || !fileUploadDraft.file) return filesWithSharePointTimeout;
+    const optimistic: JobFile = {
+      name: fileUploadDraft.file.name,
+      category: "Uploading",
+      time: "just now",
+      uploadedAt: Date.now(),
+      storageStatus: "PENDING",
+    };
+    return [
+      optimistic,
+      ...filesWithSharePointTimeout.filter((f) => f.name !== optimistic.name),
+    ];
+  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout]);
 
-      const done = next.filter((s) => s.completed).length;
-      const by = (k: FrpDrawingStage) => next.find((s) => s.stage === k)?.completed;
-
-      if (done >= DRAWING_STAGE_COUNT) {
-        await onSavePatch({ status: "Ready to Manufacture" });
-      } else if (by("ENGINEER_APPROVED") && by("CLIENT_APPROVED")) {
-        await onSavePatch({ status: "Awaiting Manager Approval" });
+  useEffect(() => {
+    const now = Date.now();
+    const seen = pendingSharePointSeenAt.current;
+    const pendingIds = new Set<number>();
+    for (const file of files) {
+      if (file.storageStatus === "PENDING" && file.documentId != null) {
+        pendingIds.add(file.documentId);
+        if (!seen.has(file.documentId)) seen.set(file.documentId, now);
       }
-    } catch (e) {
-      // The tick is not applied locally first, so a failure leaves the boxes
-      // showing what the server actually holds rather than a lie.
-      setDrawingError(e instanceof Error ? e.message : "Could not save that tick");
-    } finally {
-      setDrawingBusy(null);
     }
-  };
+    for (const id of [...seen.keys()]) {
+      if (!pendingIds.has(id)) seen.delete(id);
+    }
+    setSharePointTimedOutIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (pendingIds.has(id)) next.add(id);
+      }
+      if (next.size === prev.size) {
+        let same = true;
+        for (const id of prev) {
+          if (!next.has(id)) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [files]);
+
+  const hasPendingSharePoint = files.some(
+    (f) =>
+      f.storageStatus === "PENDING" &&
+      (f.documentId == null || !sharePointTimedOutIds.has(f.documentId))
+  );
+
+  useEffect(() => {
+    if (!job.dbId || !hasPendingSharePoint) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      const timedOut: number[] = [];
+      let stillWaiting = false;
+      for (const [id, startedAt] of pendingSharePointSeenAt.current) {
+        if (now - startedAt >= SHAREPOINT_PENDING_TIMEOUT_MS) {
+          timedOut.push(id);
+        } else {
+          stillWaiting = true;
+        }
+      }
+      if (timedOut.length > 0) {
+        setSharePointTimedOutIds((prev) => {
+          const next = new Set(prev);
+          let added = false;
+          for (const id of timedOut) {
+            if (!next.has(id)) {
+              next.add(id);
+              added = true;
+            }
+          }
+          return added ? next : prev;
+        });
+      }
+      if (stillWaiting) {
+        setDocumentsRefreshKey((k) => k + 1);
+      }
+    }, SHAREPOINT_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [job.dbId, hasPendingSharePoint]);
 
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
 
-  const savePaymentExtras = (
-    nextExtras: JobWorkflowExtras,
-    auditDetail: string
-  ) => {
-    void onSavePatch(
-      {
-        printDetails: {
-          ...pd,
-          workflowExtras: nextExtras,
-        },
-      },
-      { audit: "payment_updated", auditDetail }
-    );
+  const openFileUploadModal = () => {
+    setFileUploadError(null);
+    setFileUploadDraft({
+      file: null,
+      milestoneId: milestones[0]?.id ?? "",
+    });
+    setShowFileModal(true);
+  };
+
+  const openDocumentVersions = (input: {
+    documentId?: number;
+    documentType?: FrpJobDocumentDTO["documentType"];
+  }) => {
+    if (input.documentId == null) return;
+    const tab =
+      input.documentType === "DRAWING"
+        ? "drawing"
+        : input.documentType === "PRODUCTION"
+          ? "po"
+          : null;
+    if (!tab) return;
+    setVersionsFocus({ documentId: input.documentId, tab });
+    window.requestAnimationFrame(() => {
+      document.getElementById("job-document-versions")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const handleOpenProjectFile = (file: JobFileRecord) => {
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      if (file.storageStatus === "FAILED") setFailedFile(file);
+      return;
+    }
+    openDocumentVersions({
+      documentId: file.documentId,
+      documentType: file.documentType,
+    });
+  };
+
+  const handleFailedSharePointFile = (file: JobFileRecord) => {
+    setFailedFile(file);
+  };
+
+  const handleDeleteFailedSharePointFile = async () => {
+    if (failedFile?.documentId == null) return;
+    setFailedFileBusy(true);
+    try {
+      await deleteJobDocument(failedFile.documentId);
+      setFailedFile(null);
+      setDocumentsRefreshKey((k) => k + 1);
+      if (!cancelled) openFileUploadModal();
+    } catch {
+      // Leave the dialog open so the user can retry or close.
+    } finally {
+      setFailedFileBusy(false);
+    }
+  };
+
+  const handleDownloadFile = async (file: JobFileRecord) => {
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      return;
+    }
+    if (
+      (file.documentType === "PRODUCTION" || file.documentType === "DRAWING") &&
+      file.documentId != null
+    ) {
+      handleOpenProjectFile(file);
+      return;
+    }
+    if (file.documentId == null) return;
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
+  /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
+   *  the file itself (unlike `handleDownloadFile`, which redirects those
+   *  document types to Document Versions instead). */
+  const handleDownloadVersionFile = async (file: JobFileRecord) => {
+    if (file.documentId == null) return;
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      return;
+    }
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
+  const handleUploadProjectDocument = async () => {
+    if (!job.dbId || !fileUploadDraft.file || fileUploadDraft.milestoneId === "") return;
+    setFileUploading(true);
+    setFileUploadError(null);
+    try {
+      await uploadJobDocument(job.dbId, {
+        jobStageId: fileUploadDraft.milestoneId,
+        file: fileUploadDraft.file,
+        documentName: fileUploadDraft.file.name,
+      });
+      setShowFileModal(false);
+      setFileUploadDraft({ file: null, milestoneId: milestones[0]?.id ?? "" });
+      setDocumentsRefreshKey((k) => k + 1);
+    } catch (e) {
+      setFileUploadError(e instanceof Error ? e.message : "Could not upload document");
+    } finally {
+      setFileUploading(false);
+    }
+  };
+
+  const savePayment = async (body: { paid?: boolean; estimatedDate?: string }) => {
+    if (!job.dbId) return;
+    setPaymentBusy(true);
+    setPaymentError(null);
+    try {
+      await updateJobPayment(job.dbId, body);
+      await onJobChanged?.();
+    } catch (e) {
+      setPaymentError(e instanceof Error ? e.message : "Could not update payment");
+    } finally {
+      setPaymentBusy(false);
+    }
   };
 
   const handlePaymentReceivedChange = (value: boolean) => {
-    savePaymentExtras(
-      { ...extras, paymentReceived: value },
-      `Payment received: ${value ? "Yes" : "No"}`
-    );
+    void savePayment({ paid: value });
   };
 
   const handlePaymentDueDateChange = (date: string) => {
-    savePaymentExtras(
-      { ...extras, paymentDueDate: date },
-      date
-        ? `Estimated payment due date: ${formatShortDate(date)}`
-        : "Estimated payment due date cleared"
+    if (!date) return;
+    void savePayment({ estimatedDate: date });
+  };
+
+  const openInventoryEditor = () => {
+    const current = toInventoryDraft(job.inventory ?? []);
+    setInventoryDraft(current.length === 0 ? [emptyInventoryLine()] : current);
+    setInventoryError(null);
+    setShowInventoryModal(true);
+  };
+
+  const closeInventoryEditor = () => {
+    if (inventoryBusy) return;
+    setShowInventoryModal(false);
+    setInventoryError(null);
+    setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+  };
+
+  const addInventoryLine = () => {
+    setInventoryDraft((prev) => [...prev, emptyInventoryLine()]);
+  };
+
+  const removeInventoryLine = (localKey: string) => {
+    setInventoryDraft((prev) => prev.filter((row) => row.localKey !== localKey));
+    setInventoryError(null);
+  };
+
+  const saveInventory = async () => {
+    if (!job.dbId) return;
+    const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
+    if (filled.some(isInventoryLineIncomplete)) {
+      setInventoryError(
+        "Each inventory line needs a category and a profile type."
+      );
+      return;
+    }
+
+    const original = job.inventory ?? [];
+    const originalById = new Map(
+      original
+        .filter((line) => line.id != null)
+        .map((line) => [line.id as number, line])
     );
+    const keptIds = new Set(
+      filled.filter((line) => line.id != null).map((line) => line.id as number)
+    );
+    const toDelete = [...originalById.keys()].filter((id) => !keptIds.has(id));
+    const toUpdate = filled.filter((line) => {
+      if (line.id == null) return false;
+      const previous = originalById.get(line.id);
+      return !previous || !inventoryLinesEqual(line, previous);
+    });
+    const toCreate = filled.filter((line) => line.id == null);
+
+    setInventoryBusy(true);
+    setInventoryError(null);
+    try {
+      await Promise.all([
+        ...toDelete.map((id) => deleteJobInventoryLine(job.dbId!, id)),
+        ...toUpdate.map((line) =>
+          updateJobInventoryLine(job.dbId!, line.id!, uiInventoryLineToDto(line))
+        ),
+      ]);
+      if (toCreate.length > 0) {
+        await saveJobInventory(
+          job.dbId,
+          toCreate.map((line) => {
+            const dto = uiInventoryLineToDto(line);
+            delete dto.id;
+            return dto;
+          })
+        );
+      }
+      await onJobChanged?.();
+      setShowInventoryModal(false);
+    } catch (e) {
+      setInventoryError(
+        e instanceof Error ? e.message : "Could not save inventory"
+      );
+    } finally {
+      setInventoryBusy(false);
+    }
   };
 
   const jobCardNotesDirty = jobCardNotesDraft !== (extras.jobCardNotes ?? "");
@@ -409,7 +813,7 @@ export function JobWorkflowDashboard({
         </div>
       </div>
 
-      <JobTimelineAnalytics job={job} drawingDoneCount={drawingDoneCount} />
+      <JobTimelineAnalytics job={job} />
 
       {!chatDrawerOpen && (
         <button
@@ -440,34 +844,46 @@ export function JobWorkflowDashboard({
         pd={pd}
         isSaving={isSaving}
         onSavePatch={onSavePatch}
-        files={sortedFiles}
+        files={displayFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
-        onUploadFile={() => setShowFileModal(true)}
-        onDownloadFile={downloadDemoFile}
+        onUploadFile={cancelled ? () => undefined : openFileUploadModal}
+        onDownloadFile={handleDownloadFile}
+        onPreviewFile={(file) => setPreviewFile(file)}
+        onOpenFile={handleOpenProjectFile}
+        onDownloadVersionFile={handleDownloadVersionFile}
+        onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
+        onFailedFile={handleFailedSharePointFile}
       />
 
       <div className="mt-4 space-y-4">
-      <section className="grid gap-4 lg:grid-cols-3">
-        <WidgetCard title="Customer Details" icon={User} onEdit={() => setShowCustomerModal(true)}>
+      <section className="grid gap-4 lg:grid-cols-2">
+        <WidgetCard title="Customer Details" icon={User} onEdit={cancelled ? undefined : () => setShowCustomerModal(true)}>
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
         </WidgetCard>
 
-        <WidgetCard title="Job Details" icon={Settings} onEdit={() => setShowJobModal(true)}>
+        <WidgetCard
+          title="Job Details"
+          icon={Settings}
+          onEdit={cancelled ? undefined : () => setShowJobModal(true)}
+        >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
             Assigned: {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
           </p>
-          <p className="text-sm text-slate-600">
-            {job.manualInstructions?.trim() || "No description provided."}
+          <p className="whitespace-pre-wrap text-sm text-slate-600">
+            {job.description?.trim() ||
+              job.manualInstructions?.trim() ||
+              "No description provided."}
           </p>
           <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
             {job.priority}
           </span>
           <p className="text-sm text-slate-500">
-            Type: {extras.jobType} · Stage: {job.status}
+            Type: {job.jobType || extras.jobType || "—"} · Stage:{" "}
+            {cancelled ? "Cancelled" : job.status}
           </p>
           <p className="text-sm text-slate-500">
             Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
@@ -476,101 +892,138 @@ export function JobWorkflowDashboard({
               : ""}
           </p>
           <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
+          {orderItems.length > 0 && (
+            <p className="text-sm text-slate-500">Order Items: {orderItems.length}</p>
+          )}
         </WidgetCard>
 
-        <WidgetCard title="Drawing" icon={ClipboardList}>
-          <div className="space-y-2">
-            {drawingStages.map((item) => (
-              <label
-                key={item.stage}
-                title={
-                  item.completed && item.updatedAt
-                    ? `Ticked ${formatCreatedDate(item.updatedAt)}`
-                    : undefined
+        <JobStatusCard
+          job={job}
+          onJobChanged={onJobChanged}
+          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+          onOpenDocument={(doc) =>
+            openDocumentVersions({ documentId: doc.id, documentType: doc.documentType })
+          }
+          className="lg:col-span-2"
+        />
+
+        <JobDocumentRevisionsCard
+          job={job}
+          refreshKey={documentsRefreshKey}
+          focusDocument={versionsFocus}
+          onJobChanged={onJobChanged}
+          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+          className="lg:col-span-2"
+        />
+
+        <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
+          <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
+            <label className="mt-2 inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
+                disabled={isSaving || cancelled}
+                onChange={(e) =>
+                  void onSavePatch({
+                    status: e.target.checked ? "In Fabrication" : "Pending",
+                  })
                 }
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
-              >
-                <input
-                  type="checkbox"
-                  checked={item.completed}
-                  disabled={drawingBusy !== null}
-                  onChange={(e) => void handleDrawingToggle(item.stage, e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                {item.label ?? item.stage}
-              </label>
-            ))}
-            {drawingError && (
-              <p className="col-span-full text-xs text-red-600">{drawingError}</p>
-            )}
-          </div>
-        </WidgetCard>
+                className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+              />
+              Ready to Manufacture
+            </label>
+          </WidgetCard>
 
-        <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
-          <label className="mt-2 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-              disabled={isSaving}
-              onChange={(e) =>
-                void onSavePatch({
-                  status: e.target.checked ? "In Fabrication" : "Pending",
-                })
-              }
-              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-            />
-            Ready to Manufacture
-          </label>
-        </WidgetCard>
-
-        <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
-          <div className="space-y-1.5">
-            {inventoryDraft.map((item) => (
-              <p key={item.label} className="text-sm text-slate-700">
-                {item.label} · Qty {item.qty}
+          <WidgetCard title="Payment Status" icon={CircleDollarSign}>
+            {paymentError ? (
+              <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {paymentError}
               </p>
-            ))}
-          </div>
-        </WidgetCard>
+            ) : null}
+            <fieldset className="mt-2 space-y-2">
+              <legend className="text-sm text-slate-700">Payment received</legend>
+              <div className="flex flex-wrap gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`payment-received-${job.id}`}
+                    checked={extras.paymentReceived === true}
+                    disabled={isSaving || paymentBusy || cancelled || !job.dbId}
+                    onChange={() => handlePaymentReceivedChange(true)}
+                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                  />
+                  Yes
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`payment-received-${job.id}`}
+                    checked={extras.paymentReceived === false}
+                    disabled={isSaving || paymentBusy || cancelled || !job.dbId}
+                    onChange={() => handlePaymentReceivedChange(false)}
+                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                  />
+                  No
+                </label>
+              </div>
+            </fieldset>
+            <label className="mt-3 block text-sm text-slate-700">
+              <span className="mb-1 block">Estimated due date for payment</span>
+              <input
+                type="date"
+                value={extras.paymentDueDate ?? ""}
+                disabled={isSaving || paymentBusy || cancelled || !job.dbId}
+                onChange={(e) => handlePaymentDueDateChange(e.target.value)}
+                className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
+              />
+            </label>
+          </WidgetCard>
+        </div>
 
-        <WidgetCard title="Payment Status" icon={CircleDollarSign}>
-          <fieldset className="mt-2 space-y-2">
-            <legend className="text-sm text-slate-700">Payment received</legend>
-            <div className="flex flex-wrap gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === true}
-                  disabled={isSaving}
-                  onChange={() => handlePaymentReceivedChange(true)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                Yes
-              </label>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === false}
-                  disabled={isSaving}
-                  onChange={() => handlePaymentReceivedChange(false)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                />
-                No
-              </label>
+        <WidgetCard
+          title="Inventory"
+          icon={Package}
+          onEdit={cancelled ? undefined : openInventoryEditor}
+          className="lg:col-span-2"
+        >
+          {(job.inventory ?? []).length === 0 ? (
+            <p className="text-sm text-slate-400">No inventory lines yet.</p>
+          ) : (
+            <div className="-mx-1 overflow-x-auto">
+              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {INVENTORY_TABLE_HEADERS.map((header) => (
+                      <th key={header} className="px-2 py-2 font-semibold">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(job.inventory ?? []).map((item, index) => (
+                    <tr
+                      key={item.id ?? index}
+                      className="border-b border-[#E5E7EB] last:border-0"
+                    >
+                      <td className="px-2 py-2 font-medium text-slate-800">
+                        {inventoryCell(item.category)}
+                      </td>
+                      <td className="px-2 py-2">{inventoryCell(item.profileType)}</td>
+                      <td className="px-2 py-2">{inventoryCell(item.size)}</td>
+                      <td className="px-2 py-2">{inventoryCell(item.materialGrade)}</td>
+                      <td className="px-2 py-2 tabular-nums">
+                        {inventoryCell(item.quantity)}
+                      </td>
+                      <td className="px-2 py-2 text-slate-600">
+                        {inventoryCell(item.description)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </fieldset>
-          <label className="mt-3 block text-sm text-slate-700">
-            <span className="mb-1 block">Estimated due date for payment</span>
-            <input
-              type="date"
-              value={extras.paymentDueDate ?? ""}
-              disabled={isSaving}
-              onChange={(e) => handlePaymentDueDateChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
-            />
-          </label>
+          )}
         </WidgetCard>
 
       </section>
@@ -585,7 +1038,7 @@ export function JobWorkflowDashboard({
             type="button"
             className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={saveJobCardNotes}
-            disabled={isSaving || !jobCardNotesDirty}
+            disabled={isSaving || cancelled || !jobCardNotesDirty}
           >
             {isSaving ? "Saving…" : "Save notes"}
           </button>
@@ -629,6 +1082,22 @@ export function JobWorkflowDashboard({
         </p>
       )}
       </div>
+
+      <ConfirmDialog
+        open={failedFile != null}
+        title="Upload failed"
+        description={SHAREPOINT_FAILED_HINT}
+        confirmLabel="Delete file"
+        cancelLabel="Close"
+        tone="danger"
+        busy={failedFileBusy}
+        onClose={() => {
+          if (!failedFileBusy) setFailedFile(null);
+        }}
+        onConfirm={() => {
+          void handleDeleteFailedSharePointFile();
+        }}
+      />
 
       <ConfirmDialog
         open={showCancelConfirm}
@@ -707,8 +1176,8 @@ export function JobWorkflowDashboard({
           <label className="block text-sm font-medium text-slate-700">
             Description
             <textarea
-              value={jobDraft.manualInstructions}
-              onChange={(e) => setJobDraft((p) => ({ ...p, manualInstructions: e.target.value }))}
+              value={jobDraft.description}
+              onChange={(e) => setJobDraft((p) => ({ ...p, description: e.target.value }))}
               rows={3}
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
@@ -742,6 +1211,7 @@ export function JobWorkflowDashboard({
               onChange={(e) => setJobDraft((p) => ({ ...p, jobType: e.target.value }))}
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
+              <option value="">Not set</option>
               {JOB_TYPE_OPTIONS.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -785,6 +1255,41 @@ export function JobWorkflowDashboard({
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
           </label>
+          {orderItems.length > 0 && (
+            <div className="rounded-lg border border-[#E5E7EB] bg-slate-50/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Order Items
+              </p>
+              <div className="mt-2 max-h-40 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase text-slate-400">
+                    <tr>
+                      <th className="pb-1 pr-2 font-medium">Code</th>
+                      <th className="pb-1 pr-2 font-medium">Item</th>
+                      <th className="pb-1 pr-2 font-medium">Qty</th>
+                      <th className="pb-1 font-medium">
+                        Price
+                        {job.currency ? ` (${CURRENCY_SYMBOLS[job.currency] ?? job.currency})` : ""}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderItems.map((item, i) => {
+                      const f = orderItemFields(item);
+                      return (
+                        <tr key={i} className="border-t border-[#E5E7EB]/70">
+                          <td className="py-1 pr-2 font-mono text-slate-600">{f.code}</td>
+                          <td className="py-1 pr-2 text-slate-800">{f.name}</td>
+                          <td className="py-1 pr-2 text-slate-600">{f.qty}</td>
+                          <td className="py-1 text-slate-600">{f.price}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <button
             className="btn-primary w-full"
             onClick={() => {
@@ -794,7 +1299,8 @@ export function JobWorkflowDashboard({
                 status: jobDraft.status,
                 dueDate: jobDraft.dueDate.trim() || null,
                 priority: jobDraft.priority,
-                manualInstructions: jobDraft.manualInstructions,
+                description: jobDraft.description.trim() || null,
+                jobType: jobDraft.jobType.trim() || null,
                 assignedWorkerId: workerId,
                 assignedWorkerName: resolveWorkerNameFromId(workerId),
                 printDetails: {
@@ -802,7 +1308,7 @@ export function JobWorkflowDashboard({
                   raisedBy: jobDraft.raisedBy,
                   workflowExtras: {
                     ...ensureWorkflowExtras(pd.workflowExtras, job),
-                    jobType: jobDraft.jobType,
+                    jobType: jobDraft.jobType.trim() || undefined,
                     projectedStartDate: jobDraft.projectedStartDate,
                   },
                 },
@@ -817,16 +1323,15 @@ export function JobWorkflowDashboard({
 
       <EditModal
         open={showInventoryModal}
-        title="Required Inventory"
-        onClose={() => setShowInventoryModal(false)}
+        title="Add Inventory"
+        onClose={closeInventoryEditor}
         headerAction={
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
+            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
             aria-label="Add inventory item"
-            onClick={() =>
-              setInventoryDraft((prev) => [...prev, { label: "", qty: "" }])
-            }
+            disabled={inventoryBusy}
+            onClick={addInventoryLine}
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             Add
@@ -834,162 +1339,196 @@ export function JobWorkflowDashboard({
         }
       >
         <div className="space-y-3">
-          {inventoryDraft.map((item, index) => (
-            <div key={`inv-${index}`} className="space-y-2">
-              {!item.label.trim() ? (
-                <>
-                  <ModalField
-                    label="Description"
-                    value={item.label}
-                    onChange={(label) =>
-                      setInventoryDraft((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, label } : row
-                        )
-                      )
-                    }
-                    placeholder="e.g. Profiles | Channel | 254x70 | IsoFR"
-                  />
-                  <ModalField
-                    label="Quantity"
-                    value={item.qty}
-                    onChange={(qty) =>
-                      setInventoryDraft((prev) =>
-                        prev.map((row, i) => (i === index ? { ...row, qty } : row))
-                      )
-                    }
-                    type="number"
-                  />
-                </>
-              ) : (
+          {inventoryError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {inventoryError}
+            </p>
+          ) : null}
+          <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+            {inventoryDraft.map((item, index) => (
+              <div key={item.localKey} className="space-y-3">
+                {item.id != null || inventoryDraft.length > 1 ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-[#111827]">
+                      {inventoryDraft.length > 1 ? `Line ${index + 1}` : "Item"}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="Remove inventory line"
+                      disabled={inventoryBusy}
+                      className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                      onClick={() => removeInventoryLine(item.localKey)}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                ) : null}
                 <ModalField
-                  label={item.label}
-                  value={item.qty}
-                  onChange={(qty) =>
+                  label="Category"
+                  value={item.category ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. Fixings"
+                  onChange={(category) =>
                     setInventoryDraft((prev) =>
-                      prev.map((row, i) => (i === index ? { ...row, qty } : row))
+                      patchInventoryLine(prev, item.localKey, { category })
                     )
                   }
-                  type="number"
                 />
-              )}
-            </div>
-          ))}
+                <ModalField
+                  label="Profile type"
+                  value={item.profileType ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. Clip"
+                  onChange={(profileType) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { profileType })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Size"
+                  value={item.size ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. M8"
+                  onChange={(size) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { size })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Material grade"
+                  value={item.materialGrade ?? ""}
+                  disabled={inventoryBusy}
+                  placeholder="e.g. 316"
+                  onChange={(materialGrade) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { materialGrade })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Quantity"
+                  value={item.quantity != null ? String(item.quantity) : ""}
+                  disabled={inventoryBusy}
+                  type="number"
+                  onChange={(qty) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, {
+                        quantity: parseInventoryQuantity(qty),
+                      })
+                    )
+                  }
+                />
+                <ModalField
+                  label="Description"
+                  value={item.description ?? ""}
+                  disabled={inventoryBusy}
+                  multiline
+                  placeholder="Optional notes"
+                  onChange={(description) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, { description })
+                    )
+                  }
+                />
+              </div>
+            ))}
+          </div>
           <button
             className="btn-primary w-full"
-            disabled={isSaving}
-            onClick={() =>
-              void onSavePatch({
-                printDetails: {
-                  ...pd,
-                  workflowExtras: {
-                    ...extras,
-                    requiredInventory: inventoryDraft.filter(
-                      (item) => item.label.trim() || item.qty.trim()
-                    ),
-                  },
-                },
-              }).then(() => setShowInventoryModal(false))
-            }
+            disabled={inventoryBusy || !job.dbId}
+            onClick={() => void saveInventory()}
           >
-            {isSaving ? "Saving…" : "Save inventory"}
+            {inventoryBusy ? "Saving…" : "Save"}
           </button>
         </div>
       </EditModal>
 
-      <EditModal open={showFileModal} title="Upload File" onClose={() => setShowFileModal(false)}>
+      <EditModal
+        open={showFileModal}
+        title="Upload File"
+        onClose={() => {
+          if (fileUploading) return;
+          setShowFileModal(false);
+        }}
+      >
         <div className="space-y-3">
+          {!job.dbId ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              This job is not linked to the backend yet — documents cannot be uploaded.
+            </p>
+          ) : null}
           <label className="block text-sm font-medium text-slate-700">
             Select File
             <input
               type="file"
+              disabled={!job.dbId || fileUploading}
               onChange={(e) =>
                 setFileUploadDraft((prev) => ({
                   ...prev,
-                  fileName: e.target.files?.[0]?.name ?? "",
+                  file: e.target.files?.[0] ?? null,
                 }))
               }
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
+              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700 disabled:opacity-60"
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
-            Select Category
+            Milestone
             <select
-              value={fileUploadDraft.category}
-              onChange={(e) => setFileUploadDraft((prev) => ({ ...prev, category: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+              value={fileUploadDraft.milestoneId === "" ? "" : String(fileUploadDraft.milestoneId)}
+              disabled={!job.dbId || fileUploading || milestones.length === 0}
+              onChange={(e) =>
+                setFileUploadDraft((prev) => ({
+                  ...prev,
+                  milestoneId: e.target.value ? Number(e.target.value) : "",
+                }))
+              }
+              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm disabled:opacity-60"
             >
-              <option value="Specification">Specification</option>
-              <option value="Drawing">Drawing</option>
-              <option value="Purchase Order">Purchase Order</option>
-              <option value="QA Document">QA Document</option>
-              <option value="Delivery">Delivery</option>
-              <option value="Other">Other</option>
+              {milestones.length === 0 ? (
+                <option value="">No milestones available</option>
+              ) : (
+                milestones.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
+                  </option>
+                ))
+              )}
             </select>
           </label>
+          {fileUploadError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {fileUploadError}
+            </p>
+          ) : null}
           <button
-            className="btn-primary w-full"
-            onClick={() => {
-              if (!fileUploadDraft.fileName.trim()) return;
-              setFiles((prev) =>
-                normalizeJobFiles([
-                  {
-                    name: fileUploadDraft.fileName,
-                    category: fileUploadDraft.category,
-                    time: "just now",
-                    uploadedAt: Date.now(),
-                  },
-                  ...prev,
-                ])
-              );
-              setFileUploadDraft({ fileName: "", category: "Specification" });
-              setShowFileModal(false);
-            }}
+            className="btn-primary inline-flex w-full items-center justify-center gap-2"
+            disabled={
+              fileUploading ||
+              !job.dbId ||
+              !fileUploadDraft.file ||
+              fileUploadDraft.milestoneId === ""
+            }
+            onClick={() => void handleUploadProjectDocument()}
           >
-            Save File
+            {fileUploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+              </>
+            ) : (
+              "Upload document"
+            )}
           </button>
         </div>
       </EditModal>
-    </div>
-  );
-}
 
-function WidgetCard({
-  title,
-  icon: Icon,
-  children,
-  onEdit,
-  headerAction,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  onEdit?: () => void;
-  headerAction?: React.ReactNode;
-}) {
-  return (
-    <article className="group app-card-interactive p-4 sm:p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#111827]">
-          <Icon className="h-4 w-4 shrink-0 text-[#F97316]" />
-          <span className="truncate">{title}</span>
-        </p>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {headerAction}
-          {onEdit && (
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 hover:text-[#111827] group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
-              onClick={onEdit}
-              aria-label={`Edit ${title}`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="space-y-1 text-sm text-slate-700">{children}</div>
-    </article>
+      <DocumentPreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onDownload={(file) => void handleDownloadVersionFile(file)}
+      />
+    </div>
   );
 }
 
@@ -1013,65 +1552,3 @@ function CustomerRow({
   );
 }
 
-function ModalField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block text-sm font-medium text-slate-700">
-      {label}
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300"
-      />
-    </label>
-  );
-}
-
-function EditModal({
-  open,
-  title,
-  onClose,
-  children,
-  headerAction,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  headerAction?: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl p-5">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="min-w-0 truncate text-lg font-semibold text-[#111827]">{title}</h3>
-          <div className="flex shrink-0 items-center gap-2">
-            {headerAction}
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1 text-xs text-slate-600 hover:border-orange-200"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}

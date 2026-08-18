@@ -76,10 +76,24 @@ const BACKEND_SET = new Set<string>(BACKEND_JOB_STATUSES);
 
 /** Backend value → UI label. Unknown input reads as `Pending`. */
 export function statusToUi(value?: string | null): LegacyJobStatus {
-  if (value && BACKEND_SET.has(value)) {
-    return STATUS_TO_LABEL[value as BackendJobStatus];
+  if (!value) return "Pending";
+  const trimmed = value.trim();
+  if (BACKEND_SET.has(trimmed)) {
+    return STATUS_TO_LABEL[trimmed as BackendJobStatus];
+  }
+  const asEnum = trimmed.toUpperCase().replace(/\s+/g, "_");
+  if (BACKEND_SET.has(asEnum)) {
+    return STATUS_TO_LABEL[asEnum as BackendJobStatus];
+  }
+  if (trimmed in LABEL_TO_STATUS) {
+    return trimmed as LegacyJobStatus;
   }
   return "Pending";
+}
+
+/** Terminal cancel — the job must not be edited. */
+export function isCancelledJob(status?: string | null): boolean {
+  return statusToUi(status) === "Cancelled";
 }
 
 /**
@@ -181,3 +195,62 @@ export function resinToBackend(value?: ResinType | string | null): string {
 /* ------------------------------------------------------------------ origin */
 
 export type JobOrigin = "QUOTE" | "FACTORY";
+
+/* ---------------------------------------------------------------- job type */
+
+/** Exactly the backend `JobType` enum (`ck_job_type`). */
+export const BACKEND_JOB_TYPES = [
+  "STANDARD_FABRICATION",
+  "CUSTOM_STRUCTURE",
+  "GRATING_SUPPLY",
+  "HANDRAIL_LADDER",
+  "REPAIR_REFIT",
+] as const;
+
+export type BackendJobType = (typeof BACKEND_JOB_TYPES)[number];
+
+export const JOB_TYPE_LABELS = [
+  "Standard fabrication",
+  "Custom structure",
+  "Grating supply",
+  "Handrail / ladder",
+  "Repair / refit",
+] as const;
+
+export type JobTypeLabel = (typeof JOB_TYPE_LABELS)[number];
+
+const JOB_TYPE_TO_LABEL: Record<BackendJobType, JobTypeLabel> = {
+  STANDARD_FABRICATION: "Standard fabrication",
+  CUSTOM_STRUCTURE: "Custom structure",
+  GRATING_SUPPLY: "Grating supply",
+  HANDRAIL_LADDER: "Handrail / ladder",
+  REPAIR_REFIT: "Repair / refit",
+};
+
+const LABEL_TO_JOB_TYPE = Object.fromEntries(
+  Object.entries(JOB_TYPE_TO_LABEL).map(([code, label]) => [label, code])
+) as Record<JobTypeLabel, BackendJobType>;
+
+const BACKEND_JOB_TYPE_SET = new Set<string>(BACKEND_JOB_TYPES);
+
+/** Backend enum → display label. Null when the job predates the field. */
+export function jobTypeToUi(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (BACKEND_JOB_TYPE_SET.has(trimmed)) {
+    return JOB_TYPE_TO_LABEL[trimmed as BackendJobType];
+  }
+  if (trimmed in LABEL_TO_JOB_TYPE) return trimmed;
+  return null;
+}
+
+/** Display label or enum name → backend enum. Null when unset or unknown. */
+export function jobTypeToBackend(value?: string | null): BackendJobType | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (BACKEND_JOB_TYPE_SET.has(trimmed)) return trimmed as BackendJobType;
+  if (trimmed in LABEL_TO_JOB_TYPE) {
+    return LABEL_TO_JOB_TYPE[trimmed as JobTypeLabel];
+  }
+  return null;
+}

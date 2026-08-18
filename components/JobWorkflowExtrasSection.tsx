@@ -26,6 +26,7 @@ import {
   SHIPMENT_METHOD_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
+import { isCancelledJob } from "@/lib/frp/job-status";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import type { Job, JobCardPrintDetails, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
@@ -42,7 +43,16 @@ interface JobWorkflowExtrasSectionProps {
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
   onUploadFile: () => void;
-  onDownloadFile: (fileName: string) => void;
+  onDownloadFile: (file: JobFileRecord) => void;
+  onOpenFile?: (file: JobFileRecord) => void;
+  /** PDF/image thumbnail click — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
+  /** Detail-panel "Download" for versioned PO/drawing docs. */
+  onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** Called after a document is soft-deleted, so the parent can refetch the file list. */
+  onDeletedFile?: () => void;
+  /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
+  onFailedFile?: (file: JobFileRecord) => void;
 }
 
 function addDaysIso(days: number): string {
@@ -61,7 +71,13 @@ export function JobWorkflowExtrasSection({
   onFileSortChange,
   onUploadFile,
   onDownloadFile,
+  onOpenFile,
+  onPreviewFile,
+  onDownloadVersionFile,
+  onDeletedFile,
+  onFailedFile,
 }: JobWorkflowExtrasSectionProps) {
+  const cancelled = isCancelledJob(job.status);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const workers = getAssignableWorkers();
 
@@ -239,7 +255,7 @@ export function JobWorkflowExtrasSection({
                   type="checkbox"
                   checked={Boolean(extras[key])}
                   onChange={(e) => void patchRequirements(key, e.target.checked)}
-                  disabled={isSaving}
+                  disabled={isSaving || cancelled}
                   className="h-4 w-4 rounded border-slate-300 text-orange-600"
                 />
                 {label}
@@ -247,7 +263,10 @@ export function JobWorkflowExtrasSection({
             ))}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Job type: <span className="font-medium text-slate-700">{extras.jobType}</span>
+            Job type:{" "}
+            <span className="font-medium text-slate-700">
+              {job.jobType || extras.jobType || "—"}
+            </span>
             {extras.projectedStartDate ? (
               <>
                 {" "}
@@ -260,7 +279,7 @@ export function JobWorkflowExtrasSection({
         <WidgetCard
           title="Scheduling & logistics"
           icon={Truck}
-          onEdit={() => setShowLogisticsModal(true)}
+          onEdit={cancelled ? undefined : () => setShowLogisticsModal(true)}
         >
           <Row label="Production status" value={extras.productionStatus || "—"} />
           <Row label="Responsible" value={extras.responsibleParty || "—"} />
@@ -276,7 +295,7 @@ export function JobWorkflowExtrasSection({
         <WidgetCard
           title="Materials & specifications"
           icon={ClipboardList}
-          onEdit={() => setShowMaterialsModal(true)}
+          onEdit={cancelled ? undefined : () => setShowMaterialsModal(true)}
         >
           <p className="line-clamp-3 text-sm text-slate-600">
             {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No materials list."}
@@ -297,8 +316,13 @@ export function JobWorkflowExtrasSection({
           files={files}
           fileSort={fileSort}
           onFileSortChange={onFileSortChange}
-          onUpload={onUploadFile}
+          onUpload={cancelled ? undefined : onUploadFile}
           onDownload={onDownloadFile}
+          onOpenFile={onOpenFile}
+          onPreviewFile={onPreviewFile}
+          onDownloadVersionFile={onDownloadVersionFile}
+          onDeleted={onDeletedFile}
+          onFailedFile={onFailedFile}
         />
       </section>
 
@@ -665,6 +689,14 @@ function EditModal({
   children: React.ReactNode;
   wide?: boolean;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">

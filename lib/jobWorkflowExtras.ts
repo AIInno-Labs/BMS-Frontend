@@ -1,18 +1,8 @@
-import type {
-  Job,
-  JobMaterialRow,
-  JobWorkflowExtras,
-  RequiredInventoryItem,
-} from "@/lib/types";
+import type { Job, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
+import { JOB_TYPE_LABELS } from "@/lib/frp/job-status";
 import { formatCreatedDate } from "@/lib/mockData";
 
-export const JOB_TYPE_OPTIONS = [
-  "Standard fabrication",
-  "Custom structure",
-  "Grating supply",
-  "Handrail / ladder",
-  "Repair / refit",
-] as const;
+export const JOB_TYPE_OPTIONS = JOB_TYPE_LABELS;
 
 export const PRODUCTION_STATUS_OPTIONS = [
   "Pending",
@@ -31,12 +21,6 @@ export const SHIPMENT_METHOD_OPTIONS = [
   "Freight forwarder",
   "To be confirmed",
 ] as const;
-
-export const DEFAULT_REQUIRED_INVENTORY: RequiredInventoryItem[] = [
-  { label: "Profiles | Channel | 254x70 | IsoFR", qty: "48" },
-  { label: "Stanchions | Square Tube | 50x6 | VEFR", qty: "6" },
-  { label: "Profiles | Round Tube | 32 Fluted | VEFR", qty: "6" },
-];
 
 export const DEFAULT_MATERIAL_ROWS: JobMaterialRow[] = [
   { material: "Top Cap", qty: "", availability: "In stock" },
@@ -76,7 +60,7 @@ export function ensureWorkflowExtras(
     documentsRequired: raw?.documentsRequired ?? false,
     sampleRequired: raw?.sampleRequired ?? false,
     coiRequired: raw?.coiRequired ?? false,
-    jobType: raw?.jobType ?? JOB_TYPE_OPTIONS[0],
+    jobType: raw?.jobType ?? job.jobType ?? undefined,
     projectedStartDate: raw?.projectedStartDate ?? "",
     productionStatus: raw?.productionStatus ?? PRODUCTION_STATUS_OPTIONS[0],
     responsibleParty: raw?.responsibleParty ?? job.assignedWorkerName ?? "",
@@ -96,10 +80,6 @@ export function ensureWorkflowExtras(
     additionalNotes: raw?.additionalNotes ?? "",
     resinMatQty: raw?.resinMatQty ?? "48",
     fiberRollQty: raw?.fiberRollQty ?? "6",
-    requiredInventory:
-      raw?.requiredInventory && raw.requiredInventory.length > 0
-        ? raw.requiredInventory.map((item) => ({ ...item }))
-        : DEFAULT_REQUIRED_INVENTORY.map((item) => ({ ...item })),
     paymentReceived: raw?.paymentReceived ?? null,
     paymentDueDate: raw?.paymentDueDate ?? "",
     jobCardNotes: raw?.jobCardNotes ?? "",

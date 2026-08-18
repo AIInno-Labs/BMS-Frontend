@@ -195,7 +195,7 @@ export function JobDetailsView({
         </div>
       </section>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-4">
           <section className="rounded-[14px] border border-[#E2E8F0] bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-[#0F172A]">Job Details</h2>
@@ -219,10 +219,17 @@ export function JobDetailsView({
                   Description
                 </dt>
                 <dd className="mt-0.5 leading-relaxed text-slate-700">
-                  {job.manualInstructions?.trim() ||
+                  {job.description?.trim() ||
+                    job.manualInstructions?.trim() ||
                     job.alert ||
                     "No description provided."}
                 </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Job type
+                </dt>
+                <dd className="mt-0.5 text-[#0F172A]">{job.jobType || "—"}</dd>
               </div>
               <div>
                 <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">

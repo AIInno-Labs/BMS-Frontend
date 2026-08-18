@@ -13,6 +13,10 @@ type ConfirmDialogProps = {
   /** Destructive styling for cancel/delete actions. */
   tone?: "danger" | "default";
   busy?: boolean;
+  /** Shown inside the dialog when the last confirm attempt failed — the
+   *  dialog stays open on failure, so this is where the reason has to live;
+   *  a banner elsewhere on the page sits behind the modal and goes unseen. */
+  error?: string | null;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
 };
@@ -26,9 +30,10 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Confirm",
-  cancelLabel = "Keep editing",
+  cancelLabel = "Cancel",
   tone = "default",
   busy = false,
+  error = null,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -107,6 +112,11 @@ export function ConfirmDialog({
             <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
+        {error ? (
+          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        ) : null}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"

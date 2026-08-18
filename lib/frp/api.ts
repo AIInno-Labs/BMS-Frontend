@@ -19,17 +19,25 @@ import {
   type NotificationSummaryDTO,
 } from "@/lib/frp/types";
 import type {
-  FrpDrawingStageDTO,
-  FrpDrawingStage,
+  FrpDocumentDownloadDTO,
+  FrpDocumentSort,
+  FrpDocumentType,
   FrpJobAuditHistoryDTO,
   FrpJobCardPayload,
   FrpJobContactDetailsDTO,
   FrpJobCountsDTO,
+  FrpJobDocumentDTO,
+  FrpJobDocumentUpdateRequest,
   FrpJobDTO,
+  FrpInventoryDTO,
+  FrpJobPaymentDTO,
+  FrpJobPaymentUpdateRequest,
   FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
   FrpJobSummaryDTO,
+  FrpManualPoRequest,
+  FrpPoComparisonDTO,
 } from "@/lib/frp/job-mapper";
 import {
   STATUS_TARGET_STAGE,
@@ -185,7 +193,13 @@ async function frpFetch<T>(
 ): Promise<T> {
   const useAuth = opts?.auth !== false;
   const headers = new Headers(init.headers);
-  if (!headers.has("Content-Type") && init.body) {
+  // FormData bodies must keep the browser-generated multipart boundary —
+  // setting Content-Type ourselves would drop it and break the upload.
+  if (
+    !headers.has("Content-Type") &&
+    init.body &&
+    !(init.body instanceof FormData)
+  ) {
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
@@ -647,6 +661,20 @@ export async function saveSchedulingLogistics(
 }
 
 /**
+ * `PUT /jobs/{id}/payment` — mark received (or not) and/or set estimated due date.
+ * Null fields are left unchanged. Prefers the FINAL payment when several exist.
+ */
+export async function updateJobPayment(
+  dbId: string | number,
+  body: FrpJobPaymentUpdateRequest
+): Promise<FrpJobPaymentDTO> {
+  return frpFetch<FrpJobPaymentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/payment`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/**
  * `GET /jobs/{id}/job-card` — fetches the card and records a
  * `JOB_CARD_DOWNLOADED` audit row against the caller. Call this when the user
  * downloads/prints the card so the pull is tracked; the returned DTO is the
@@ -677,36 +705,6 @@ export async function listJobAudit(
   );
 }
 
-/* ------------------------------------------------------- drawing stages */
-
-/** `GET /jobs/{id}/drawing-stages` — all five, ticked or not. */
-export async function listDrawingStages(
-  dbId: string | number
-): Promise<FrpDrawingStageDTO[]> {
-  return frpFetch<FrpDrawingStageDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/drawing-stages`
-  );
-}
-
-/**
- * Tick or untick one stage.
- *
- * Returns the whole checklist, so the caller replaces its state wholesale
- * rather than patching one entry and risking a stale view of the other four.
- */
-export async function setDrawingStage(
-  dbId: string | number,
-  stage: FrpDrawingStage,
-  completed: boolean,
-  remarks?: string
-): Promise<FrpDrawingStageDTO[]> {
-  const q = new URLSearchParams({ completed: String(completed) });
-  if (remarks) q.set("remarks", remarks);
-  return frpFetch<FrpDrawingStageDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/drawing-stages/${stage}?${q}`,
-    { method: "PUT" }
-  );
-}
 
 /* ---------------------------------------------------------------- stages */
 
@@ -742,6 +740,163 @@ export async function scanJobStage(
   );
 }
 
+/* -------------------------------------------------------------- documents */
+
+/** `GET /jobs/{id}/documents` — soft-deleted excluded. */
+export async function listJobDocuments(
+  dbId: string | number,
+  params?: {
+    type?: FrpDocumentType;
+    editedBy?: number;
+    sort?: FrpDocumentSort;
+  }
+): Promise<FrpJobDocumentDTO[]> {
+  const q = new URLSearchParams();
+  if (params?.type) q.set("type", params.type);
+  if (params?.editedBy != null) q.set("editedBy", String(params.editedBy));
+  if (params?.sort) q.set("sort", params.sort);
+  const qs = q.toString();
+  return frpFetch<FrpJobDocumentDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents${qs ? `?${qs}` : ""}`
+  );
+}
+
+/** `POST /jobs/{id}/documents` — multipart upload, one file per call. */
+export async function uploadJobDocument(
+  dbId: string | number,
+  params: {
+    jobStageId: number;
+    file: File;
+    documentName?: string;
+    remarks?: string;
+  }
+): Promise<FrpJobDocumentDTO> {
+  const form = new FormData();
+  form.set("jobStageId", String(params.jobStageId));
+  form.set("file", params.file);
+  if (params.documentName) form.set("documentName", params.documentName);
+  if (params.remarks) form.set("remarks", params.remarks);
+
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
+    { method: "POST", body: form }
+  );
+}
+
+/**
+ * `POST /jobs/{jobId}/documents/po` — hand-keyed purchase order (JSON, no file).
+ * No OCR / LLM; the server writes `documentData` in the extractor's keys with
+ * `extractionStatus=SKIPPED` so compare treats it like an extracted PO.
+ */
+export async function createManualPoDocument(
+  dbId: string | number,
+  body: FrpManualPoRequest
+): Promise<FrpJobDocumentDTO> {
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents/po`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+}
+
+/**
+ * `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only.
+ * Compares extracted / edited PO data against the job quote.
+ */
+export async function compareJobDocument(
+  dbId: string | number,
+  documentId: number
+): Promise<FrpPoComparisonDTO> {
+  return frpFetch<FrpPoComparisonDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents/${documentId}/compare`
+  );
+}
+
+/** `PUT /documents/{id}` — partial update (status, remarks, editedDocumentData, …). */
+export async function updateJobDocument(
+  id: number,
+  body: FrpJobDocumentUpdateRequest
+): Promise<FrpJobDocumentDTO> {
+  return frpFetch<FrpJobDocumentDTO>(`/documents/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `GET /documents/{id}/download` — short-lived signed SharePoint URL. */
+export async function downloadJobDocument(
+  id: number
+): Promise<FrpDocumentDownloadDTO> {
+  return frpFetch<FrpDocumentDownloadDTO>(`/documents/${id}/download`);
+}
+
+/** `DELETE /documents/{id}`. */
+export async function deleteJobDocument(id: number): Promise<void> {
+  await frpFetch<void>(`/documents/${id}`, { method: "DELETE" });
+}
+
+/**
+ * `GET /jobs/{id}/inventory` — material lines for the job. Also returned
+ * inline on `GET /jobs/{id}` (`Job.inventory`); call this only when the list
+ * needs to be refreshed on its own, without refetching the whole job.
+ */
+export async function listJobInventory(
+  dbId: string | number
+): Promise<FrpInventoryDTO[]> {
+  return frpFetch<FrpInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/inventory`
+  );
+}
+
+/** `POST /jobs/{id}/inventory` — add one material line. */
+export async function addJobInventory(
+  dbId: string | number,
+  body: FrpInventoryDTO
+): Promise<FrpInventoryDTO> {
+  return frpFetch<FrpInventoryDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/inventory`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/inventory` — save the inventory table in one call. A line
+ * WITH an id has only its quantity applied; a line WITHOUT one is created in
+ * full. Nothing is deleted — a line the payload omits is left alone, so
+ * remove a persisted line with {@link deleteJobInventoryLine} instead.
+ */
+export async function saveJobInventory(
+  dbId: string | number,
+  body: FrpInventoryDTO[]
+): Promise<FrpInventoryDTO[]> {
+  return frpFetch<FrpInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/inventory`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/** `PUT /jobs/{id}/inventory/{lineId}` — update one material line. */
+export async function updateJobInventoryLine(
+  dbId: string | number,
+  lineId: number,
+  body: FrpInventoryDTO
+): Promise<FrpInventoryDTO> {
+  return frpFetch<FrpInventoryDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/inventory/${lineId}`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/** `DELETE /jobs/{id}/inventory/{lineId}`. */
+export async function deleteJobInventoryLine(
+  dbId: string | number,
+  lineId: number
+): Promise<void> {
+  await frpFetch<void>(
+    `/jobs/${encodeURIComponent(String(dbId))}/inventory/${lineId}`,
+    { method: "DELETE" }
+  );
+}
+
 /**
  * Move a job to a target status.
  *
@@ -773,13 +928,23 @@ export async function advanceJobStatus(
   await updateJobStage(dbId, match.id, { status: plan.status });
 }
 
+/** Backend `QuoteStatus` enum — mirrors `Enum/QuoteStatus.java`. */
+export type FrpQuoteStatus =
+  | "AWAITING_ACCEPTANCE"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "EXPIRED"
+  | "COMPLETED";
+
 export async function listQuotes(
   page = 0,
-  size = 100
+  size = 100,
+  filters?: { status?: FrpQuoteStatus; company?: string }
 ): Promise<PageResponse<Record<string, unknown>>> {
-  return frpFetch<PageResponse<Record<string, unknown>>>(
-    `/quotes?page=${page}&size=${size}`
-  );
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.company) params.set("company", filters.company);
+  return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes?${params}`);
 }
 
 /** Null when no quote exists with that number in the caller's organization. */

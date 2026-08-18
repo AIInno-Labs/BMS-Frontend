@@ -48,6 +48,8 @@ import {
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
 import { FrpApiError } from "@/lib/frp/types";
+import { isCancelledJob } from "@/lib/frp/job-status";
+import { JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import type {
   Job,
   JobPriority,
@@ -126,6 +128,7 @@ export function JobCard({ jobId }: JobCardProps) {
   useEffect(() => {
     if (editFromUrlApplied.current) return;
     if (searchParams.get("edit") !== "1" || !isManager || isWorker || !sourceJob) return;
+    if (isCancelledJob(sourceJob.status)) return;
     editFromUrlApplied.current = true;
     const base = { ...sourceJob, printDetails: ensurePrintDetails(sourceJob) };
     setDraft(base);
@@ -400,6 +403,7 @@ export function JobCard({ jobId }: JobCardProps) {
   ];
 
   const startEditing = () => {
+    if (isCancelledJob(job.status)) return;
     setSaveSuccess(false);
     const base = { ...job, printDetails: ensurePrintDetails(job) };
     setDraft(base);
@@ -496,6 +500,21 @@ export function JobCard({ jobId }: JobCardProps) {
     }
   };
 
+  // A stage change (from Status Control) can move the job's status/percent, so
+  // re-pull the job detail to keep the page's badge, timeline, and % in sync.
+  // Plain function (not a hook) — it sits after the component's early returns
+  // and is only ever called imperatively.
+  const handleJobChanged = async () => {
+    try {
+      const fresh = await loadJobDetail(jobId);
+      setJob(fresh);
+      if (!isEditing) setDraft(fresh);
+      setAuditRefreshKey((k) => k + 1);
+    } catch {
+      /* keep current data; Status Control already reflects the stage change */
+    }
+  };
+
   return (
     <main
       className={`min-h-screen overflow-x-hidden bg-slate-50 print:min-h-0 print:overflow-visible print:bg-white ${isWorker ? "worker-ui" : ""}`}
@@ -532,6 +551,12 @@ export function JobCard({ jobId }: JobCardProps) {
         </div>
       )}
 
+      {!isEditing && isCancelledJob(display.status) && (
+        <p className="no-print mx-auto mb-4 max-w-6xl rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 sm:px-6">
+          This job is cancelled and cannot be edited.
+        </p>
+      )}
+
       {!isEditing && (
         <JobWorkflowDashboard
           job={display}
@@ -543,6 +568,7 @@ export function JobCard({ jobId }: JobCardProps) {
           onPrint={handlePrint}
           onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
+          onJobChanged={handleJobChanged}
         />
       )}
 
@@ -650,7 +676,8 @@ export function JobCard({ jobId }: JobCardProps) {
                       <button
                         type="button"
                         onClick={startEditing}
-                        className="btn-secondary min-h-[48px] w-full flex-1 justify-center"
+                        disabled={isCancelledJob(job.status)}
+                        className="btn-secondary min-h-[48px] w-full flex-1 justify-center disabled:opacity-50"
                       >
                         <Pencil className="h-5 w-5" aria-hidden />
                         Edit details
@@ -790,6 +817,29 @@ export function JobCard({ jobId }: JobCardProps) {
                 ) : (
                   <p className="text-base font-semibold text-slate-900">
                     {formatShortDate(display.date)}
+                  </p>
+                )}
+              </FieldBlock>
+
+              <FieldBlock label="Job type" icon={Wrench}>
+                {isEditing && isManager ? (
+                  <select
+                    value={draft.jobType ?? ""}
+                    onChange={(e) =>
+                      patchDraft({ jobType: e.target.value.trim() || null })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Not set</option>
+                    {JOB_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-base font-semibold text-slate-900">
+                    {display.jobType || "—"}
                   </p>
                 )}
               </FieldBlock>
@@ -996,6 +1046,30 @@ export function JobCard({ jobId }: JobCardProps) {
                 )}
               </div>
             )}
+
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <StickyNote className="h-4 w-4" aria-hidden />
+                Description
+              </h2>
+              {isEditing && isManager ? (
+                <textarea
+                  value={draft.description ?? ""}
+                  onChange={(e) =>
+                    patchDraft({ description: e.target.value || null })
+                  }
+                  rows={3}
+                  className={`${inputClass} mt-2 min-h-[80px] resize-y`}
+                  placeholder="What this job is, in prose…"
+                />
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
+                  {display.description?.trim() ||
+                    display.manualInstructions ||
+                    "—"}
+                </p>
+              )}
+            </section>
 
             <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
               <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">

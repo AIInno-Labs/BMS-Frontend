@@ -6,58 +6,48 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
   factoryStatusLabel,
   isFactoryComplete,
-  journeyOutcomeLabel,
   progressLabel,
 } from "@/lib/quotes/labels";
 import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuotientQuote } from "@/lib/quotient/quote-types";
+import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate } from "@/lib/mockData";
 import { getQuote } from "@/lib/frp/api";
 import { useAuth } from "@/context/AuthContext";
 import { FIELD_KEYS } from "@/lib/frp/access";
 
 /**
- * The Spring Boot `/quotes/{quoteNumber}` endpoint returns `QuotationDTO`
- * (backend-owned field names, not the full Quotient-shaped record this page
- * was originally designed against) — normalized here against the actual DTO
- * shape rather than assumed field names.
+ * Maps `GET /quotes/{quoteNumber}` onto the page model.
+ * Header + quote_for come from `payload`; totals from `paymentDetails`;
+ * accepted / declined / viewed / customer questions from `events[]`.
+ * Journey badges still use top-level `status` / `lastEvent` because
+ * `payload.quote_status` can lag behind the latest event.
  */
 function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
-  const journeyRaw = String(
-    raw.journeyStatus ?? raw.journey_outcome ?? ""
-  ).toLowerCase();
-  const journey_outcome: QuotientQuote["journey_outcome"] =
-    journeyRaw === "accepted" ||
-    journeyRaw === "declined" ||
-    journeyRaw === "completed"
-      ? journeyRaw
-      : "open";
+  const journey_outcome = journeyOutcomeFromStatus(raw.status);
 
   const fromDetails = (raw.fromDetails ?? {}) as Record<string, unknown>;
-  const quoteFor = (raw.quoteFor ?? raw.quote_for ?? {}) as Record<
+  const payload = (raw.payload ?? {}) as Record<string, unknown>;
+  const payment = (raw.paymentDetails ?? raw.payment_details ?? {}) as Record<
     string,
     unknown
   >;
-  const payload = (raw.payload ?? {}) as Record<string, unknown>;
-  // `payload.selected_items` (real Quotient shape: item_code, discount,
-  // tax_rate, cost_price etc.) is only present on the single-quote read.
-  // `measurement` is the backend's own flat DB projection (description/
-  // quantity/unitPrice/total) — used as a fallback for seeded rows that
-  // never got a real payload.
-  const selectedItems = Array.isArray(payload.selected_items)
-    ? (payload.selected_items as Record<string, unknown>[])
-    : null;
-  const lineItems =
-    selectedItems ??
-    (Array.isArray(raw.measurement)
-      ? (raw.measurement as Record<string, unknown>[])
-      : []);
+  const quoteFor = (payload.quote_for ??
+    raw.quoteFor ??
+    raw.quote_for ??
+    {}) as Record<string, unknown>;
   const rawEvents = (raw.events ?? []) as Record<string, unknown>[];
 
   const str = (v: unknown): string | null =>
     v === null || v === undefined || v === "" ? null : String(v);
-  const num = (v: unknown): number | null =>
-    typeof v === "number" ? v : null;
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim()) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
 
   /** Walks a dotted path (`"accepted.order_number"`) through a plain object. */
   const at = (obj: Record<string, unknown>, path: string): unknown =>
@@ -66,13 +56,63 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
       return (cur as Record<string, unknown>)[key];
     }, obj);
 
+  const eventByCode = (code: string): Record<string, unknown> | null => {
+    const matches = rawEvents.filter(
+      (e) => String(e.eventCode ?? e.event_name ?? "") === code
+    );
+    if (matches.length === 0) return null;
+    const latest = [...matches].sort((a, b) =>
+      String(b.occurredAt ?? "").localeCompare(String(a.occurredAt ?? ""))
+    )[0];
+    return (latest.payload ?? {}) as Record<string, unknown>;
+  };
+  const nested = (
+    evPayload: Record<string, unknown> | null,
+    key: string
+  ): Record<string, unknown> | null => {
+    const value = evPayload?.[key];
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  };
+
+  const acceptedEvent = eventByCode("quote_accepted") ?? eventByCode("quote_completed");
+  const declinedEvent = eventByCode("quote_declined");
+  const viewedEvent = eventByCode("customer_viewed");
+  const acceptedDetails =
+    nested(acceptedEvent, "accepted") ??
+    (raw.lastEvent === "quote_accepted" || raw.lastEvent === "quote_completed"
+      ? ((raw.eventDetails ?? null) as Record<string, unknown> | null)
+      : null);
+  const declinedDetails =
+    nested(declinedEvent, "declined") ??
+    (raw.lastEvent === "quote_declined"
+      ? ((raw.eventDetails ?? null) as Record<string, unknown> | null)
+      : null);
+  const viewedDetails =
+    nested(viewedEvent, "viewed") ??
+    (raw.lastEvent === "customer_viewed"
+      ? ((raw.eventDetails ?? null) as Record<string, unknown> | null)
+      : null);
+
+  const acceptedItems = Array.isArray(acceptedEvent?.selected_items)
+    ? (acceptedEvent!.selected_items as Record<string, unknown>[])
+    : null;
+  const payloadItems = Array.isArray(payload.selected_items)
+    ? (payload.selected_items as Record<string, unknown>[])
+    : null;
+  const measurementItems = Array.isArray(raw.measurement)
+    ? (raw.measurement as Record<string, unknown>[])
+    : [];
+  const lineItems =
+    measurementItems.length > 0
+      ? measurementItems
+      : (payloadItems ?? acceptedItems ?? []);
+
   const contact = str(quoteFor.contact) ?? str(quoteFor.contact_name);
   const [contactFirst, ...contactRest] = contact?.split(/\s+/) ?? [];
   const contactLast = contactRest.join(" ");
 
-  // Real Quotient deliveries nest phone/address as objects; seed.sql's fake
-  // rows don't set them at all. Handle the real (object) shape, falling back
-  // to a flat string in case a future seed/backend change flattens it.
   const phoneRaw = quoteFor.phone;
   const phoneObj =
     phoneRaw && typeof phoneRaw === "object"
@@ -85,64 +125,122 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
   const fullName =
     [nameFirst, nameLast].filter(Boolean).join(" ") || contact;
 
-  // `eventDetails` is the payload slice for whichever event `lastEvent`
-  // names - already unwrapped (IS payload.accepted, not payload.accepted
-  // wrapped in something else). Classify by lastEvent so it only feeds the
-  // section it actually describes.
-  const lastEventCode = String(raw.lastEvent ?? raw.last_event_name ?? "");
-  const eventDetails = (raw.eventDetails ?? null) as Record<
-    string,
-    unknown
-  > | null;
-  const acceptedDetails =
-    eventDetails && (lastEventCode === "quote_accepted" || lastEventCode === "quote_completed")
-      ? eventDetails
-      : null;
-  const declinedDetails =
-    eventDetails && lastEventCode === "quote_declined" ? eventDetails : null;
-  const viewedDetails =
-    eventDetails && lastEventCode === "customer_viewed" ? eventDetails : null;
+  const questionsFromEvents: QuotientQuote["questions"] = rawEvents
+    .filter((e) => String(e.eventCode ?? e.event_name ?? "") === "customer_question")
+    .map((e) => {
+      const q = nested((e.payload ?? {}) as Record<string, unknown>, "question") ?? {};
+      return {
+        id: String(e.id ?? ""),
+        question_when: str(q.when) ?? str(e.occurredAt),
+        question_text: String(q.text ?? "").trim(),
+        asked_by:
+          q.by && typeof q.by === "object"
+            ? (q.by as Record<string, unknown>)
+            : null,
+        created_at: String(e.occurredAt ?? ""),
+      };
+    })
+    .filter((q) => q.question_text)
+    .sort((a, b) =>
+      String(a.question_when ?? a.created_at).localeCompare(
+        String(b.question_when ?? b.created_at)
+      )
+    );
+  const payloadQuestion = nested(payload, "question");
+  const questions: QuotientQuote["questions"] =
+    questionsFromEvents.length > 0
+      ? questionsFromEvents
+      : Array.isArray(raw.questions)
+        ? (raw.questions as QuotientQuote["questions"])
+        : payloadQuestion?.text
+          ? [
+              {
+                id: "payload-question",
+                question_when: str(payloadQuestion.when),
+                question_text: String(payloadQuestion.text),
+                asked_by:
+                  payloadQuestion.by && typeof payloadQuestion.by === "object"
+                    ? (payloadQuestion.by as Record<string, unknown>)
+                    : null,
+                created_at: String(payloadQuestion.when ?? raw.occurredAt ?? ""),
+              },
+            ]
+          : [];
 
   return {
     id: str(raw.id) ?? "",
-    quote_number: String(raw.quoteNumber ?? raw.quote_number ?? ""),
-    title: str(raw.title),
-    quote_status: str(raw.status ?? raw.quote_status),
-    progress: str(raw.progress) ?? str(at(payload, "progress")),
+    quote_number: String(
+      payload.quote_number ?? raw.quoteNumber ?? raw.quote_number ?? ""
+    ),
+    title: str(payload.title) ?? str(raw.title),
+    quote_status: str(raw.status ?? raw.quote_status) ?? str(payload.quote_status),
+    progress: str(payload.progress) ?? str(raw.progress),
     journey_outcome,
     last_event_name: str(raw.lastEvent ?? raw.last_event_name),
     factory_job_status: str(raw.factoryStatus ?? raw.factory_job_status),
     job_id: str(raw.jobId ?? raw.job_id),
-    quote_url: str(raw.quoteUrl ?? raw.quote_url),
+    quote_url: str(payload.quote_url) ?? str(raw.quoteUrl ?? raw.quote_url),
     quote_from:
+      str(payload.from) ??
       str(fromDetails.name) ??
       str(fromDetails.contactName) ??
-      str(fromDetails.businessName) ??
-      str(at(payload, "from")),
+      str(fromDetails.businessName),
+    // Company first. Quotient's `for` and the contact's own name are both
+    // people, and a quote is for the business - so the company answers "who is
+    // this for", with the individual left to the contact fields below.
     quote_for_label:
-      fullName ??
       str(quoteFor.company_name) ??
       str(quoteFor.company) ??
-      str(at(payload, "for")),
-    first_sent: str(at(payload, "first_sent")),
-    valid_until: str(at(payload, "valid_until")) ?? str(raw.validUntil ?? raw.valid_until),
+      str(raw.company) ??
+      str(payload.for) ??
+      fullName,
+    first_sent: str(payload.first_sent),
+    valid_until: str(payload.valid_until) ?? str(raw.validUntil ?? raw.valid_until),
     is_archived: Boolean(
-      raw.archived ?? raw.isArchived ?? raw.is_archived ?? at(payload, "is_archived") ?? false
+      payload.is_archived ?? raw.archived ?? raw.isArchived ?? raw.is_archived ?? false
     ),
-    currency: String(at(payload, "currency") ?? raw.currency ?? "AUD"),
-    amounts_are: str(at(payload, "amounts_are")) ?? str(raw.amountsAre ?? raw.amounts_are),
-    overall_discount: num(at(payload, "overall_discount")),
-    total_includes_tax: num(at(payload, "total_includes_tax")),
-    total_excludes_tax: num(at(payload, "total_excludes_tax")),
-    discount_amount_includes_tax: num(at(payload, "discount_amount_includes_tax")),
-    discount_amount_excludes_tax: num(at(payload, "discount_amount_excludes_tax")),
-    deposit_percent: num(at(payload, "deposit_percent")),
-    deposit_amount_includes_tax: num(at(payload, "deposit_amount_includes_tax")),
-    deposit_amount_excludes_tax: num(at(payload, "deposit_amount_excludes_tax")),
-    item_headings: str(at(payload, "item_headings")) ?? str(raw.itemHeadings ?? raw.item_headings),
-    customer_name: String(raw.company ?? quoteFor.company ?? quoteFor.company_name ?? ""),
+    currency: String(payload.currency ?? payment.currency ?? raw.currency ?? "AUD"),
+    amounts_are:
+      str(payload.amounts_are) ?? str(payment.amountsAre ?? raw.amountsAre ?? raw.amounts_are),
+    overall_discount: num(payment.overallDiscount) ?? num(payload.overall_discount),
+    total_includes_tax:
+      num(payment.totalIncludesTax) ??
+      num(payment.amountAfterTax) ??
+      num(payload.total_includes_tax),
+    total_excludes_tax:
+      num(payment.totalExcludesTax) ??
+      num(payment.amountBeforeTax) ??
+      num(payload.total_excludes_tax),
+    discount_amount_includes_tax:
+      num(payment.discountAmountIncludesTax) ??
+      num(payload.discount_amount_includes_tax),
+    discount_amount_excludes_tax:
+      num(payment.discountAmountExcludesTax) ??
+      num(payload.discount_amount_excludes_tax),
+    deposit_percent: num(payment.depositPercent) ?? num(payload.deposit_percent),
+    deposit_amount_includes_tax:
+      num(payment.depositAmountIncludesTax) ??
+      num(payload.deposit_amount_includes_tax),
+    deposit_amount_excludes_tax:
+      num(payment.depositAmountExcludesTax) ??
+      num(payload.deposit_amount_excludes_tax),
+    tax_amount: num(payment.taxAmount),
+    net_amount: num(payment.netAmount),
+    item_headings:
+      (measurementItems.length
+        ? measurementItems
+            .map((item) => str(item.heading))
+            .filter(Boolean)
+            .join("\n") || null
+        : null) ??
+      str(payload.item_headings) ??
+      str(acceptedEvent?.item_headings) ??
+      str(raw.itemHeadings ?? raw.item_headings),
+    customer_name: String(
+      quoteFor.company_name ?? quoteFor.company ?? payload.for ?? raw.company ?? ""
+    ),
     quote_for_company_name: String(
-      raw.company ?? quoteFor.company ?? quoteFor.company_name ?? ""
+      quoteFor.company_name ?? quoteFor.company ?? payload.for ?? raw.company ?? ""
     ),
     quote_for_name_first: nameFirst,
     quote_for_name_last: nameLast,
@@ -159,19 +257,27 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
     quote_for_country: str(addressObj.country) ?? str(quoteFor.country),
     accepted_order_number:
       str(acceptedDetails?.order_number) ?? str(at(payload, "accepted.order_number")),
-    accepted_comments: str(acceptedDetails?.comments) ?? str(at(payload, "accepted.comments")),
+    accepted_comments:
+      str(acceptedDetails?.comments) ?? str(at(payload, "accepted.comments")),
     accepted_when: str(acceptedDetails?.when) ?? str(at(payload, "accepted.when")),
     accepted_on_behalf:
       (acceptedDetails?.accepted_on_behalf as boolean | null) ??
       (at(payload, "accepted.accepted_on_behalf") as boolean | null) ??
       null,
-    declined_comments: str(declinedDetails?.comments) ?? str(at(payload, "declined.comments")),
+    declined_comments:
+      str(declinedDetails?.comments) ?? str(at(payload, "declined.comments")),
     declined_when: str(declinedDetails?.when) ?? str(at(payload, "declined.when")),
     viewed_when: str(viewedDetails?.when) ?? str(at(payload, "viewed.when")),
     viewed_total_views:
       num(viewedDetails?.total_views) ?? num(at(payload, "viewed.total_views")),
-    last_question_text: str(raw.lastQuestionText),
-    last_question_when: str(raw.lastQuestionWhen),
+    last_question_text:
+      questions[questions.length - 1]?.question_text ??
+      str(payloadQuestion?.text) ??
+      str(raw.lastQuestionText),
+    last_question_when:
+      questions[questions.length - 1]?.question_when ??
+      str(payloadQuestion?.when) ??
+      str(raw.lastQuestionWhen),
     created_at: String(raw.createdDate ?? raw.created_at ?? ""),
     updated_at: String(raw.occurredAt ?? raw.lastModifiedDate ?? raw.updated_at ?? ""),
     line_items: lineItems.map((item, i) => ({
@@ -189,7 +295,7 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
       quantity: num(item.quantity),
       item_total: num(item.total ?? item.item_total ?? item.itemTotal),
     })),
-    questions: Array.isArray(raw.questions) ? (raw.questions as QuotientQuote["questions"]) : [],
+    questions,
     events: rawEvents.map((ev) => ({
       id: String(ev.id ?? ""),
       event_name: String(ev.eventCode ?? ev.event_name ?? ""),
@@ -218,12 +324,12 @@ function Field({
       ? "—"
       : String(value);
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <div className="min-w-0">
+      <p className="break-words text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </p>
       <p
-        className={`mt-0.5 text-sm font-medium text-slate-900 ${mono ? "font-mono" : ""}`}
+        className={`mt-0.5 break-words text-sm font-medium text-slate-900 ${mono ? "font-mono" : ""}`}
       >
         {display}
       </p>
@@ -239,7 +345,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
         {title}
       </h2>
@@ -365,14 +471,8 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             </span>
             <span
               className={`rounded-md px-2 py-1 text-xs font-semibold ${
-                factoryDone ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
-              }`}
-            >
-              journey: {journeyOutcomeLabel(quote.journey_outcome)}
-            </span>
-            <span
-              className={`rounded-md px-2 py-1 text-xs font-semibold ${
-                quote.factory_job_status === "Complete"
+                quote.factory_job_status === "Complete" ||
+                quote.factory_job_status === "COMPLETED"
                   ? "bg-emerald-100 text-emerald-800"
                   : quote.factory_job_status
                     ? "bg-amber-100 text-amber-900"
@@ -392,6 +492,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="from" value={quote.quote_from} />
               <Field label="for" value={quote.quote_for_label} />
+              <Field label="title" value={quote.title} />
               <Field label="first_sent" value={quote.first_sent ? formatCreatedDate(quote.first_sent) : null} />
               <Field label="valid_until" value={quote.valid_until ? formatCreatedDate(quote.valid_until) : null} />
               <Field label="currency" value={quote.currency} />
@@ -427,6 +528,8 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="total_includes_tax" value={quote.total_includes_tax} />
               <Field label="total_excludes_tax" value={quote.total_excludes_tax} />
+              <Field label="tax_amount" value={quote.tax_amount} />
+              <Field label="net_amount" value={quote.net_amount} />
               <Field label="overall_discount" value={quote.overall_discount} />
               <Field label="discount_amount_includes_tax" value={quote.discount_amount_includes_tax} />
               <Field label="discount_amount_excludes_tax" value={quote.discount_amount_excludes_tax} />
@@ -442,20 +545,27 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
               <Field label="when" value={quote.accepted_when ? formatCreatedDate(quote.accepted_when) : null} />
               <Field label="accepted_on_behalf" value={quote.accepted_on_behalf ? "true" : "false"} />
             </div>
-            <Field label="comments" value={quote.accepted_comments} />
+            <div className="mt-3">
+              <Field label="comments" value={quote.accepted_comments} />
+            </div>
           </Section>
 
           <Section title="declined">
-            <Field label="when" value={quote.declined_when ? formatCreatedDate(quote.declined_when) : null} />
-            <Field label="comments" value={quote.declined_comments} />
+            <div className="space-y-3">
+              <Field label="when" value={quote.declined_when ? formatCreatedDate(quote.declined_when) : null} />
+              <Field label="comments" value={quote.declined_comments} />
+            </div>
           </Section>
 
           <Section title="viewed">
-            <Field label="when" value={quote.viewed_when ? formatCreatedDate(quote.viewed_when) : null} />
-            <Field label="total_views" value={quote.viewed_total_views} />
+            <div className="space-y-3">
+              <Field label="when" value={quote.viewed_when ? formatCreatedDate(quote.viewed_when) : null} />
+              <Field label="total_views" value={quote.viewed_total_views} />
+            </div>
           </Section>
         </div>
 
+        <div className="mt-4 space-y-4">
         {quote.item_headings && (
           <Section title="item_headings">
             <pre className="whitespace-pre-wrap font-mono text-sm text-slate-800">
@@ -605,6 +715,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
             </table>
           </div>
         </Section>
+        </div>
       </div>
     </main>
   );

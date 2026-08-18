@@ -1,0 +1,60 @@
+# Vercel production deploy — only after merge (push) to milestone*.
+#
+# Production site: https://bms-frontend-phi.vercel.app/
+# API:             https://frp-684387770054.asia-south1.run.app/api/v1
+#
+# GitHub secrets (Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN       — https://vercel.com/account/tokens
+#   VERCEL_ORG_ID      — .vercel/project.json → orgId   (after `npx vercel link`)
+#   VERCEL_PROJECT_ID  — .vercel/project.json → projectId
+name: Deploy
+
+on:
+  push:
+    branches:
+      - "milestone*"
+  workflow_dispatch:
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  NEXT_PUBLIC_FRP_API_BASE_URL: https://frp-684387770054.asia-south1.run.app/api/v1
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production:
+    name: Production
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'milestone'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Point build at Cloud Run API
+        run: echo "NEXT_PUBLIC_FRP_API_BASE_URL=${NEXT_PUBLIC_FRP_API_BASE_URL}" >> .env.production.local
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy
+        run: |
+          vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+          echo "Production: https://bms-frontend-phi.vercel.app/"
+          echo "API: ${NEXT_PUBLIC_FRP_API_BASE_URL}"

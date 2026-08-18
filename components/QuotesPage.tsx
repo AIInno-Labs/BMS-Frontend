@@ -1,39 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, RefreshCw } from "lucide-react";
+import { MessageCircle, RefreshCw, X } from "lucide-react";
 import {
   factoryStatusLabel,
-  isFactoryComplete,
-  journeyOutcomeLabel,
+  isSystemLogged,
 } from "@/lib/quotes/labels";
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
-import { formatCreatedDate } from "@/lib/mockData";
-import { listQuotes } from "@/lib/frp/api";
+import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
+import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
+import { listQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
 
-function JourneyBadge({ item }: { item: QuoteListItem }) {
-  const complete = isFactoryComplete(
-    item.journey_outcome,
-    item.factory_job_status
-  );
-  const outcome = journeyOutcomeLabel(item.journey_outcome);
-  return (
-    <span
-      className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${
-        complete
-          ? "bg-emerald-100 text-emerald-800"
-          : item.journey_outcome === "declined"
-          ? "bg-red-100 text-red-800"
-          : item.journey_outcome === "accepted"
-          ? "bg-blue-100 text-blue-800"
-          : "bg-slate-100 text-slate-700"
-      }`}
-    >
-      {outcome}
-    </span>
-  );
+const STATUS_OPTIONS: { value: FrpQuoteStatus; label: string }[] = [
+  { value: "AWAITING_ACCEPTANCE", label: "Awaiting acceptance" },
+  { value: "ACCEPTED", label: "Accepted" },
+  { value: "DECLINED", label: "Declined" },
+  { value: "EXPIRED", label: "Expired" },
+  { value: "COMPLETED", label: "Completed" },
+];
+
+function statusLabel(value: string): string {
+  return STATUS_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
+
 
 function SystemLoggedBadge({ logged }: { logged: boolean }) {
   return (
@@ -43,8 +33,8 @@ function SystemLoggedBadge({ logged }: { logged: boolean }) {
       }`}
       title={
         logged
-          ? "Job exists in Jobs tab (JOB-Q-…)"
-          : "Not in Jobs yet — waiting for quote_accepted"
+          ? "Factory job exists (factoryStatus is set)"
+          : "No factory job yet — factoryStatus is null"
       }
     >
       {logged ? "Yes" : "No"}
@@ -62,14 +52,13 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
             {q.quote_number}
           </p>
         </div>
-        <JourneyBadge item={q} />
       </div>
       <p className="mt-2 line-clamp-2 text-sm font-medium text-slate-800">
         {q.title ?? "—"}
       </p>
       <p className="mt-1 text-sm text-slate-600">{q.quote_for_company_name}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <SystemLoggedBadge logged={Boolean(q.factory_job_status)} />
+        <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
         <FactoryBadge item={q} />
         {q.quote_status && (
           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
@@ -78,7 +67,8 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
         )}
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        Updated {formatCreatedDate(q.updated_at)}
+        Created {formatShortDate(q.created_at)}
+        {q.updated_at ? ` · Updated ${formatCreatedDate(q.updated_at)}` : ""}
         {q.last_event_name ? ` · ${q.last_event_name.replace(/_/g, " ")}` : ""}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -102,20 +92,22 @@ function QuoteMobileCard({ q }: { q: QuoteListItem }) {
 }
 
 function FactoryBadge({ item }: { item: QuoteListItem }) {
-  // Gated on factory_job_status, not job_id - QuotationDTO doesn't expose a
-  // job id at all, but factory_status is only ever set (both by the backend
-  // and by seed.sql) when a quote-derived job actually exists, so it's the
-  // reliable signal here.
+  // Gated on factory_job_status rather than job_id. QuotationDTO does expose a
+  // jobId now, but factory_status is what this badge is actually reporting -
+  // where the work is - and it is only ever set once a job exists.
   if (!item.factory_job_status) {
     return <span className="text-xs text-slate-500">—</span>;
   }
   const status = item.factory_job_status ?? "—";
-  const done = status === "Complete" || status === "Cancelled";
+  const done =
+    status === "Complete" ||
+    status === "COMPLETED" ||
+    status === "Cancelled";
   return (
     <span
       className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${
         done
-          ? status === "Complete"
+          ? status === "Complete" || status === "COMPLETED"
             ? "bg-emerald-100 text-emerald-800"
             : "bg-slate-200 text-slate-700"
           : "bg-amber-100 text-amber-900"
@@ -127,29 +119,57 @@ function FactoryBadge({ item }: { item: QuoteListItem }) {
   );
 }
 
+function FilterChip({
+  label,
+  onClear,
+}: {
+  label: string;
+  onClear: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-blue-800">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        className="rounded-full p-0.5 text-blue-500 hover:bg-blue-100 hover:text-blue-800"
+        aria-label={`Remove filter: ${label}`}
+      >
+        <X className="h-3 w-3" aria-hidden />
+      </button>
+    </span>
+  );
+}
+
 export function QuotesPage() {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<FrpQuoteStatus | "">("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const page = await listQuotes(0, 200);
-      const quotes = (page.content ?? []).map((row) => {
+      // Status is filtered server-side (GET /quotes?status=...). Search still
+      // has no server-side support, so page through every result (rather than
+      // capping at some fixed size) so it has the complete table to search —
+      // no magic ceiling to outgrow as the table gets bigger.
+      const PAGE_SIZE = 500;
+      const MAX_PAGES = 500; // safety net against a runaway loop, not a real cap
+      const rows: Record<string, unknown>[] = [];
+      for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
+        const page = await listQuotes(pageNum, PAGE_SIZE, {
+          status: statusFilter || undefined,
+        });
+        rows.push(...(page.content ?? []));
+        if (page.last || (page.content ?? []).length === 0) break;
+      }
+      const quotes = rows.map((row) => {
         const r = row as Record<string, unknown>;
 
-        const journeyRaw = String(
-          r.journeyStatus ?? r.journey_outcome ?? ""
-        ).toLowerCase();
-        const journey_outcome: QuoteListItem["journey_outcome"] =
-          journeyRaw === "accepted" ||
-          journeyRaw === "declined" ||
-          journeyRaw === "completed"
-            ? journeyRaw
-            : "open";
+        const journey_outcome = journeyOutcomeFromStatus(r.status);
 
         return {
           quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
@@ -177,6 +197,11 @@ export function QuotesPage() {
             r.lastEventName ??
             r.last_event_name ??
             null) as string | null,
+          created_at:
+            (r.createdAt as string | null) ??
+            (r.created_at as string | null) ??
+            (r.createdDate as string | null) ??
+            null,
           updated_at: String(
             r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
           ),
@@ -189,14 +214,16 @@ export function QuotesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
 
-  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
-    if (initialLoadStartedRef.current) return;
-    initialLoadStartedRef.current = true;
     void load();
   }, [load]);
+
+  const hasActiveFilters = statusFilter !== "";
+  const clearFilters = () => {
+    setStatusFilter("");
+  };
 
   const filtered = quotes.filter((q) => {
     const hay = `${q.quote_number} ${q.title ?? ""} ${
@@ -221,25 +248,62 @@ export function QuotesPage() {
           </p>
         </header>
 
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search quote #, title, company…"
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          />
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              aria-hidden
-            />
-            Refresh
-          </button>
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search quote #, title, company…"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-64"
+              />
+              <select
+                value={statusFilter}
+                onChange={(e) =>
+                  setStatusFilter(e.target.value as FrpQuoteStatus | "")
+                }
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-44"
+                aria-label="Filter by quote status"
+              >
+                <option value="">All statuses</option>
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                aria-hidden
+              />
+              Refresh
+            </button>
+          </div>
+
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-2">
+              {statusFilter && (
+                <FilterChip
+                  label={`Status: ${statusLabel(statusFilter)}`}
+                  onClear={() => setStatusFilter("")}
+                />
+              )}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -272,17 +336,17 @@ export function QuotesPage() {
 
         <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:block">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <tr>
                   <th className="px-4 py-3">Quote Number</th>
                   <th className="px-4 py-3">Title</th>
-                  <th className="px-4 py-3">Quote For</th>
+                  <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Quote Status</th>
-                  <th className="px-4 py-3">Journey</th>
                   <th className="px-4 py-3">System Logged</th>
-                  <th className="px-4 py-3">Factory Status</th>
+                  <th className="px-4 py-3">Job Status</th>
                   <th className="px-4 py-3">Last Event</th>
+                  <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Updated</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -291,7 +355,7 @@ export function QuotesPage() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="px-4 py-8 text-center text-slate-500"
                     >
                       Loading quotes…
@@ -300,7 +364,7 @@ export function QuotesPage() {
                 ) : filtered.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="px-4 py-8 text-center text-slate-500"
                     >
                       No quotes found. Webhooks populate this list
@@ -326,10 +390,7 @@ export function QuotesPage() {
                         {q.quote_status ?? "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <JourneyBadge item={q} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <SystemLoggedBadge logged={Boolean(q.factory_job_status)} />
+                        <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
                       </td>
                       <td className="px-4 py-3">
                         <FactoryBadge item={q} />
@@ -343,6 +404,9 @@ export function QuotesPage() {
                               )
                               .join(" ")
                           : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatShortDate(q.created_at)}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {formatCreatedDate(q.updated_at)}
@@ -369,14 +433,6 @@ export function QuotesPage() {
                           >
                             View
                           </Link>
-                          {q.job_id && (
-                            <Link
-                              href={`/jobs/${encodeURIComponent(q.job_id)}`}
-                              className="text-sm text-slate-600 hover:text-slate-900"
-                            >
-                              Job
-                            </Link>
-                          )}
                         </div>
                       </td>
                     </tr>
