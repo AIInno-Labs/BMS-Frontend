@@ -11,6 +11,10 @@ import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { listQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
+import { JobsPagination } from "@/components/JobsPagination";
+import { paginateJobs, totalPages } from "@/lib/jobListUtils";
+
+const QUOTES_PAGE_SIZE = 20;
 
 const STATUS_OPTIONS: { value: FrpQuoteStatus; label: string }[] = [
   { value: "AWAITING_ACCEPTANCE", label: "Awaiting acceptance" },
@@ -147,6 +151,7 @@ export function QuotesPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<FrpQuoteStatus | "">("");
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,16 +160,17 @@ export function QuotesPage() {
       // Status is filtered server-side (GET /quotes?status=...). Search still
       // has no server-side support, so page through every result (rather than
       // capping at some fixed size) so it has the complete table to search —
-      // no magic ceiling to outgrow as the table gets bigger.
+      // no magic ceiling to outgrow as the table gets bigger. Pagination below
+      // is applied client-side, over this fully-loaded + searched list.
       const PAGE_SIZE = 500;
       const MAX_PAGES = 500; // safety net against a runaway loop, not a real cap
       const rows: Record<string, unknown>[] = [];
       for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
-        const page = await listQuotes(pageNum, PAGE_SIZE, {
+        const batch = await listQuotes(pageNum, PAGE_SIZE, {
           status: statusFilter || undefined,
         });
-        rows.push(...(page.content ?? []));
-        if (page.last || (page.content ?? []).length === 0) break;
+        rows.push(...(batch.content ?? []));
+        if (batch.last || (batch.content ?? []).length === 0) break;
       }
       const quotes = rows.map((row) => {
         const r = row as Record<string, unknown>;
@@ -220,6 +226,10 @@ export function QuotesPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, search]);
+
   const hasActiveFilters = statusFilter !== "";
   const clearFilters = () => {
     setStatusFilter("");
@@ -231,6 +241,10 @@ export function QuotesPage() {
     } ${q.quote_status ?? ""}`.toLowerCase();
     return hay.includes(search.toLowerCase());
   });
+
+  const pages = totalPages(filtered.length, QUOTES_PAGE_SIZE);
+  const safePage = Math.min(page, pages);
+  const pagedQuotes = paginateJobs(filtered, safePage, QUOTES_PAGE_SIZE);
 
   return (
     <main className="app-mesh-bg min-h-screen overflow-x-hidden">
@@ -330,7 +344,7 @@ export function QuotesPage() {
               No quotes found. Webhooks populate this list automatically.
             </p>
           ) : (
-            filtered.map((q) => <QuoteMobileCard key={q.quote_number} q={q} />)
+            pagedQuotes.map((q) => <QuoteMobileCard key={q.quote_number} q={q} />)
           )}
         </div>
 
@@ -372,7 +386,7 @@ export function QuotesPage() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((q) => (
+                  pagedQuotes.map((q) => (
                     <tr
                       key={q.quote_number}
                       className="border-b border-slate-100 transition-colors hover:bg-slate-50/80"
@@ -442,6 +456,18 @@ export function QuotesPage() {
             </table>
           </div>
         </div>
+
+        {!loading && (
+          <div className="mt-4">
+            <JobsPagination
+              page={safePage}
+              totalPages={pages}
+              pageSize={QUOTES_PAGE_SIZE}
+              totalItems={filtered.length}
+              onPageChange={setPage}
+            />
+          </div>
+        )}
       </div>
     </main>
   );

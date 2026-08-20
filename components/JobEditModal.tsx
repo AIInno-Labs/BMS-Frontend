@@ -60,6 +60,59 @@ export function ModalField({
   );
 }
 
+/**
+ * A catalog-driven select - no free text. What's selectable here is
+ * whatever the org admin has defined in the Inventory catalog
+ * (lib/frp/inventory-catalog-store.ts / /org/inventory), so a job
+ * user can only pick from that list, never type something the admin hasn't
+ * added. If a line's current value predates the catalog (or was set before
+ * the admin added it), it's still shown - as a selected option outside the
+ * list - so it isn't silently blanked, but the only way to change it is to
+ * pick a real catalog option.
+ */
+export function ModalCatalogField({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  /** Options for this field given everything picked upstream. */
+  options: string[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const fieldClass =
+    "mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  const hasStaleValue = value.trim().length > 0 && !options.includes(value);
+
+  return (
+    <label className="block text-sm font-medium text-slate-700">
+      {label}
+      <select
+        value={value}
+        disabled={disabled || (options.length === 0 && !hasStaleValue)}
+        onChange={(e) => onChange(e.target.value)}
+        className={fieldClass}
+      >
+        <option value="" disabled hidden>
+          {`Select ${label}`}
+        </option>
+        {hasStaleValue ? (
+          <option value={value}>{`${value} (not in catalog)`}</option>
+        ) : null}
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function EditModal({
   open,
   title,

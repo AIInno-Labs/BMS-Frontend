@@ -505,7 +505,7 @@ function JobsTable({
   };
   return (
     <div className="hidden min-w-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_20px_rgba(15,23,42,0.06)] lg:block">
-      <div className="max-h-[min(28rem,65vh)] overflow-auto">
+      <div className="overflow-auto">
       <table
         className={`w-full table-fixed border-collapse ${workerMode ? "min-w-lg" : "min-w-[940px]"}`}
       >

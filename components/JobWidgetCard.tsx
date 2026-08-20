@@ -30,7 +30,7 @@ export function WidgetCard({
   return (
     <article
       id={id}
-      className={`group app-card-interactive p-4 sm:p-4${className ? ` ${className}` : ""}`}
+      className={`group app-card-interactive min-w-0 p-4 sm:p-4${className ? ` ${className}` : ""}`}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#111827]">
