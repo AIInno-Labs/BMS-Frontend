@@ -6,11 +6,18 @@ import { Package, Pencil, Plus, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { useAuth } from "@/context/AuthContext";
-import type { InventoryCatalogEntry } from "@/lib/frp/inventory-catalog";
 import {
-  useInventoryCatalog,
+  addMasterInventory,
+  deleteMasterInventory,
+  listMasterInventory,
+  updateMasterInventory,
+} from "@/lib/frp/api";
+import {
+  catalogEntryToMasterBody,
+  masterInventoryToCatalogItem,
+  type InventoryCatalogEntry,
   type InventoryCatalogItem,
-} from "@/lib/frp/inventory-catalog-store";
+} from "@/lib/frp/inventory-catalog";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -43,7 +50,10 @@ function normalized(entry: InventoryCatalogEntry): string {
 export function InventoryCatalogAdminPage() {
   const { loading: authLoading, isAuthenticated, appRole } = useAuth();
   const router = useRouter();
-  const { items, addItem, updateItem, deleteItem } = useInventoryCatalog();
+  const [items, setItems] = useState<InventoryCatalogItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editItem, setEditItem] = useState<InventoryCatalogItem | null>(null);
@@ -55,6 +65,7 @@ export function InventoryCatalogAdminPage() {
   );
   const [categoryFilter, setCategoryFilter] = useState("");
   const [profileTypeFilter, setProfileTypeFilter] = useState("");
+  const [materialFilter, setMaterialFilter] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -67,6 +78,34 @@ export function InventoryCatalogAdminPage() {
     }
   }, [authLoading, isAuthenticated, appRole, router]);
 
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
+    let cancelled = false;
+    async function loadCatalog() {
+      setCatalogLoading(true);
+      try {
+        const rows = await listMasterInventory();
+        if (cancelled) return;
+        setItems(
+          rows.map(masterInventoryToCatalogItem).filter((item) => item.id > 0)
+        );
+        setCatalogError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setItems([]);
+        setCatalogError(
+          e instanceof Error ? e.message : "Could not load inventory catalog"
+        );
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    }
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, isAuthenticated, appRole]);
+
   const categories = useMemo(
     () =>
       [...new Set(items.map((item) => item.productGroup))].sort((a, b) =>
@@ -75,39 +114,64 @@ export function InventoryCatalogAdminPage() {
     [items]
   );
 
-  const profileTypes = useMemo(
+  const scopedByCategory = useMemo(
     () =>
-      [
-        ...new Set(
-          items
-            .filter(
-              (item) => !categoryFilter || item.productGroup === categoryFilter
-            )
-            .map((item) => item.profileType)
-        ),
-      ].sort((a, b) => a.localeCompare(b)),
+      items.filter(
+        (item) => !categoryFilter || item.productGroup === categoryFilter
+      ),
     [items, categoryFilter]
   );
+
+  const profileTypes = useMemo(
+    () =>
+      [...new Set(scopedByCategory.map((item) => item.profileType).filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b)
+      ),
+    [scopedByCategory]
+  );
+
+  const scopedByProfile = useMemo(
+    () =>
+      scopedByCategory.filter(
+        (item) => !profileTypeFilter || item.profileType === profileTypeFilter
+      ),
+    [scopedByCategory, profileTypeFilter]
+  );
+
+  const materials = useMemo(
+    () =>
+      [...new Set(scopedByProfile.map((item) => item.resin).filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b)
+      ),
+    [scopedByProfile]
+  );
+
+  const hasActiveFilter =
+    Boolean(categoryFilter) ||
+    Boolean(profileTypeFilter) ||
+    Boolean(materialFilter);
 
   function handleCategoryFilterChange(value: string) {
     setCategoryFilter(value);
     setProfileTypeFilter("");
+    setMaterialFilter("");
+  }
+
+  function handleProfileTypeFilterChange(value: string) {
+    setProfileTypeFilter(value);
+    setMaterialFilter("");
   }
 
   const sorted = useMemo(
     () =>
-      items
-        .filter(
-          (item) =>
-            (!categoryFilter || item.productGroup === categoryFilter) &&
-            (!profileTypeFilter || item.profileType === profileTypeFilter)
-        )
+      scopedByProfile
+        .filter((item) => !materialFilter || item.resin === materialFilter)
         .sort(
           (a, b) =>
             a.productGroup.localeCompare(b.productGroup) ||
             a.profileType.localeCompare(b.profileType)
         ),
-    [items, categoryFilter, profileTypeFilter]
+    [scopedByProfile, materialFilter]
   );
 
   function openCreate() {
@@ -136,10 +200,10 @@ export function InventoryCatalogAdminPage() {
     setEditItem(null);
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!form.productGroup.trim() || !form.profileType.trim()) {
-      setFormError("Product Group and Desc. 1 are required.");
+      setFormError("Product Group and Attribute 1 are required.");
       return;
     }
     const entry: InventoryCatalogEntry = {
@@ -155,16 +219,32 @@ export function InventoryCatalogAdminPage() {
     );
     if (duplicate) {
       setFormError(
-        "An identical item already exists in the catalog (same Product Group, Desc. 1, Desc. 2, Desc. 3, Resin/Material and Primary Colour)."
+        "An identical item already exists in the catalog (same Product Group, Attribute 1, Attribute 2, Attribute 3, Resin/Material and Primary Colour)."
       );
       return;
     }
-    if (editItem) {
-      updateItem(editItem.id, entry);
-    } else {
-      addItem(entry);
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (editItem) {
+        const updated = masterInventoryToCatalogItem(
+          await updateMasterInventory(editItem.id, catalogEntryToMasterBody(entry))
+        );
+        setItems((prev) =>
+          prev.map((item) => (item.id === editItem.id ? updated : item))
+        );
+      } else {
+        const created = (
+          await addMasterInventory([catalogEntryToMasterBody(entry)])
+        ).map(masterInventoryToCatalogItem);
+        setItems((prev) => [...created, ...prev]);
+      }
+      closeDrawer();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not save catalog item");
+    } finally {
+      setSaving(false);
     }
-    closeDrawer();
   }
 
   if (authLoading || !isAuthenticated || appRole !== "orgadmin") {
@@ -187,8 +267,8 @@ export function InventoryCatalogAdminPage() {
               Inventory
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Add the products your team can choose from when adding
-              inventory to a job.
+              Products your team can choose from when adding inventory to a
+              job. Loaded from the org master inventory catalogue.
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -203,7 +283,13 @@ export function InventoryCatalogAdminPage() {
           </div>
         </div>
 
-        <div className="mb-3 flex items-center gap-2">
+        {catalogError ? (
+          <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {catalogError}
+          </p>
+        ) : null}
+
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-slate-600">
             Product Group
             <select
@@ -221,16 +307,31 @@ export function InventoryCatalogAdminPage() {
             </select>
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-600">
-            Desc. 1
+            Attribute 1
             <select
               className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-sm text-[#111827] outline-none focus:border-orange-300"
               value={profileTypeFilter}
-              onChange={(e) => setProfileTypeFilter(e.target.value)}
+              onChange={(e) => handleProfileTypeFilterChange(e.target.value)}
             >
               <option value="">All</option>
               {profileTypes.map((profileType) => (
                 <option key={profileType} value={profileType}>
                   {profileType}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            Resin / Material
+            <select
+              className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-sm text-[#111827] outline-none focus:border-orange-300"
+              value={materialFilter}
+              onChange={(e) => setMaterialFilter(e.target.value)}
+            >
+              <option value="">All</option>
+              {materials.map((material) => (
+                <option key={material} value={material}>
+                  {material}
                 </option>
               ))}
             </select>
@@ -243,28 +344,36 @@ export function InventoryCatalogAdminPage() {
               <thead className="bg-[#F8FAFC] text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Product Group</th>
-                  <th className="px-4 py-3">Desc. 1</th>
-                  <th className="px-4 py-3">Desc. 2</th>
-                  <th className="px-4 py-3">Desc. 3</th>
+                  <th className="px-4 py-3">Attribute 1</th>
+                  <th className="px-4 py-3">Attribute 2</th>
+                  <th className="px-4 py-3">Attribute 3</th>
                   <th className="px-4 py-3">Resin / Material</th>
                   <th className="px-4 py-3">Primary Colour</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.length === 0 && (
+                {catalogLoading && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
+                      Loading catalog…
+                    </td>
+                  </tr>
+                )}
+                {!catalogLoading && sorted.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-12 text-center">
                       <Package className="mx-auto h-8 w-8 text-slate-300" />
                       <p className="mt-2 text-sm font-medium text-slate-700">
-                        {categoryFilter || profileTypeFilter
+                        {hasActiveFilter
                           ? "No items match this filter"
                           : "No catalog items yet"}
                       </p>
                     </td>
                   </tr>
                 )}
-                {sorted.map((item, idx) => (
+                {!catalogLoading &&
+                  sorted.map((item, idx) => (
                   <tr
                     key={item.id}
                     className={`border-t border-slate-100 ${
@@ -316,7 +425,7 @@ export function InventoryCatalogAdminPage() {
             <button type="button" className="btn-secondary" onClick={closeDrawer}>
               Cancel
             </button>
-            <button type="submit" form="inventory-catalog-form" className="btn-primary">
+            <button type="submit" form="inventory-catalog-form" className="btn-primary" disabled={saving}>
               {editItem ? "Save changes" : "Add item"}
             </button>
           </div>
@@ -338,7 +447,7 @@ export function InventoryCatalogAdminPage() {
             />
           </label>
           <label className={labelClass}>
-            Desc. 1
+            Attribute 1
             <input
               className={inputClass}
               value={form.profileType}
@@ -347,7 +456,7 @@ export function InventoryCatalogAdminPage() {
             />
           </label>
           <label className={labelClass}>
-            Desc. 2
+            Attribute 2
             <input
               className={inputClass}
               value={form.meshSpec}
@@ -356,7 +465,7 @@ export function InventoryCatalogAdminPage() {
             />
           </label>
           <label className={labelClass}>
-            Desc. 3
+            Attribute 3
             <input
               className={inputClass}
               value={form.dimension}
@@ -396,8 +505,11 @@ export function InventoryCatalogAdminPage() {
         confirmLabel="Delete"
         tone="danger"
         onConfirm={() => {
-          if (deleteTarget) deleteItem(deleteTarget.id);
-          setDeleteTarget(null);
+          if (!deleteTarget) return;
+          const id = deleteTarget.id;
+          void deleteMasterInventory(id)
+            .then(() => setItems((prev) => prev.filter((item) => item.id !== id)))
+            .finally(() => setDeleteTarget(null));
         }}
         onClose={() => setDeleteTarget(null)}
       />

@@ -63,6 +63,20 @@ function fromReviewStatus(status: ReviewStatus): FrpDocumentStatus {
   return "ACTIVE";
 }
 
+function hasManualPoOverride(doc: FrpJobDocumentDTO | null | undefined): boolean {
+  return !!(doc?.editedDocumentData && Object.keys(doc.editedDocumentData).length > 0);
+}
+
+/** Approve/Reject stay hidden until extraction is ready or the PO was typed by hand. Already-reviewed docs still show the verdict. */
+function poReviewActionsVisible(doc: FrpJobDocumentDTO | null | undefined): boolean {
+  if (!doc) return false;
+  const review = toReviewStatus(doc.status);
+  if (review === "approved" || review === "rejected") return true;
+  if (doc.extractionStatus === "PENDING") return false;
+  if (doc.extractionStatus === "FAILED" && !hasManualPoOverride(doc)) return false;
+  return true;
+}
+
 function versionOptionLabel(doc: FrpJobDocumentDTO, latestId: number | null): string {
   const ver = doc.documentVersion != null ? `v${doc.documentVersion}` : "v?";
   const name = poDocumentDisplayName(doc, undefined, "Untitled");
@@ -689,10 +703,7 @@ export function JobDocumentRevisionsCard({
       setCompareLoading(false);
       return;
     }
-    const hasManualOverride = !!(
-      selected?.editedDocumentData && Object.keys(selected.editedDocumentData).length > 0
-    );
-    if (selected?.extractionStatus === "FAILED" && !hasManualOverride) {
+    if (selected?.extractionStatus === "FAILED" && !hasManualPoOverride(selected)) {
       setComparison(null);
       setCompareUnavailable(true);
       setCompareLoading(false);
@@ -962,6 +973,7 @@ export function JobDocumentRevisionsCard({
 
   const openReviewModal = (target: DocTab, action: "approved" | "rejected") => {
     if (locked) return;
+    if (target === "po" && !poReviewActionsVisible(selectedPo)) return;
     setReviewModalTarget(target);
     setReviewModalAction(action);
     setReviewRemarkDraft("");
@@ -969,6 +981,7 @@ export function JobDocumentRevisionsCard({
 
   const saveReviewModal = async () => {
     if (!reviewRemarkDraft.trim() || !reviewModalTarget) return;
+    if (reviewModalTarget === "po" && !poReviewActionsVisible(selectedPo)) return;
     const docId =
       reviewModalTarget === "po" ? selectedPo?.id : selectedDrawing?.id;
     if (docId == null) return;
@@ -1352,9 +1365,12 @@ export function JobDocumentRevisionsCard({
                       ) : (
                         <div className="space-y-3">
                           <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                            {selectedPo.extractionStatus === "FAILED" || compareUnavailable
-                              ? "PO extraction failed. You can re-upload the file, or add the order details by hand below."
-                              : "No comparison available for this purchase order yet."}
+                            {selectedPo.extractionStatus === "FAILED"
+                              ? selectedPo.extractionMessage ??
+                                "PO extraction failed. You can re-upload the file, or add the order details by hand below."
+                              : compareUnavailable
+                                ? "PO extraction failed. You can re-upload the file, or add the order details by hand below."
+                                : "No comparison available for this purchase order yet."}
                           </p>
                           {selectedPo.extractionStatus === "FAILED" ? (
                             <button
@@ -1379,7 +1395,7 @@ export function JobDocumentRevisionsCard({
                       }
                       onDownload={openDownload}
                     />
-                    {comparison || selectedPo.status ? (
+                    {poReviewActionsVisible(selectedPo) ? (
                       <ReviewActions
                         status={poReviewStatus}
                         reviewedBy={resolveUserName(selectedPo.modifiedBy)}

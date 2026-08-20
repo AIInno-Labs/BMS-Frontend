@@ -16,6 +16,10 @@ import type {
 } from "@/lib/types";
 import type { JobOrigin } from "@/lib/frp/job-status";
 import {
+  combineCatalogMaterialGrade,
+  combineCatalogSize,
+} from "@/lib/frp/inventory-catalog";
+import {
   priorityToBackend,
   priorityToUi,
   resinToBackend,
@@ -111,25 +115,33 @@ export interface FrpJobDTO {
   /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
   payments?: FrpJobPaymentDTO[];
   /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
-   *  `/jobs/{id}/inventory`. */
-  inventory?: FrpInventoryDTO[];
+   *  `/jobs/{id}/master-inventory`. */
+  inventory?: FrpJobInventoryDTO[];
+  /** `READ_ONLY`, detail view: count of `job_audit_history` rows (job-card version). */
+  auditVersion?: number;
 }
 
-/** `InventoryDTO` — one material line on a job, nested on `JobDTO` in the
- *  detail view and addressable directly through `/jobs/{id}/inventory`. */
-export interface FrpInventoryDTO {
+/** `MasterInventoryDTO` — one row of the org catalogue. */
+export interface FrpMasterInventoryDTO {
   id?: number;
-  /** `READ_ONLY` — taken from the path, not the body. */
-  jobId?: number;
-  category?: string | null;
-  profileType?: string | null;
-  size?: string | null;
-  materialGrade?: string | null;
-  quantity?: number | null;
-  description?: string | null;
-  /** `READ_ONLY` — resolved from the authenticated user by Spring Data auditing. */
+  productGroup?: string;
+  attribute1?: string | null;
+  attribute2?: string | null;
+  attribute3?: string | null;
+  material?: string | null;
+  primaryColour?: string | null;
   createdBy?: number | null;
-  createdDate?: string;
+}
+
+/** `JobInventoryDTO` — a job's use of a master-inventory item. Nested on
+ *  `JobDTO` in the detail view and addressable through
+ *  `/jobs/{id}/master-inventory`. */
+export interface FrpJobInventoryDTO {
+  id?: number;
+  masterInventoryId?: number;
+  quantity?: number | null;
+  /** The referenced catalogue item, populated on read. */
+  master?: FrpMasterInventoryDTO | null;
 }
 
 /** `CustomerDTO` — nested on `JobDTO` in the detail view. */
@@ -353,6 +365,8 @@ export interface FrpJobDocumentDTO {
   documentVersion?: number;
   status?: FrpDocumentStatus;
   extractionStatus?: FrpDocumentExtractionStatus;
+  /** Reason for the current extractionStatus: the failure message on FAILED, null on READY. */
+  extractionMessage?: string | null;
   /** SharePoint upload — PENDING until the async worker stores or fails. */
   storageStatus?: FrpDocumentStorageStatus;
   uploadedBy?: number;
@@ -740,45 +754,33 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     printDetails,
     createdAt: dto.createdDate,
     quoteNumber: dto.quoteNumber ?? null,
-    origin: dto.origin,
-    currentStageKey: dto.currentStageKey ?? null,
-    inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  origin: dto.origin,
+  currentStageKey: dto.currentStageKey ?? null,
+  inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  auditVersion: dto.auditVersion ?? 0,
   };
 }
 
-function inventoryLineToUi(line: FrpInventoryDTO): JobInventoryLine {
+function inventoryLineToUi(line: FrpJobInventoryDTO): JobInventoryLine {
+  const master = line.master;
   return {
     id: line.id,
-    category: line.category ?? null,
-    profileType: line.profileType ?? null,
-    size: line.size ?? null,
-    materialGrade: line.materialGrade ?? null,
+    masterInventoryId: line.masterInventoryId ?? master?.id,
+    category: master?.productGroup ?? null,
+    profileType: master?.attribute1 ?? null,
+    size: combineCatalogSize(master?.attribute2 ?? "", master?.attribute3 ?? ""),
+    materialGrade: combineCatalogMaterialGrade(
+      master?.material ?? "",
+      master?.primaryColour ?? ""
+    ),
     quantity: inventoryQuantityToUi(line.quantity),
-    description: line.description ?? null,
   };
 }
 
-/** Integer quantity as stored by `InventoryDTO.quantity`; blanks become null. */
+/** Integer quantity as stored by `JobInventoryDTO.quantity`; blanks become null. */
 function inventoryQuantityToUi(value: number | null | undefined): number | null {
   if (value == null || !Number.isFinite(value)) return null;
   return Math.trunc(value);
-}
-
-/**
- * UI row → `InventoryDTO` write body. `category` and `profileType` are required
- * on create; empty optional strings are sent as `""` so a single-line PUT can
- * clear them (`null` on that endpoint means "leave the stored value").
- */
-export function uiInventoryLineToDto(line: JobInventoryLine): FrpInventoryDTO {
-  return {
-    ...(line.id != null ? { id: line.id } : {}),
-    category: line.category?.trim() || undefined,
-    profileType: line.profileType?.trim() || undefined,
-    size: line.size?.trim() ?? "",
-    materialGrade: line.materialGrade?.trim() ?? "",
-    quantity: inventoryQuantityToUi(line.quantity) ?? 0,
-    description: line.description?.trim() ?? "",
-  };
 }
 
 /* ------------------------------------------------------------- UI → DTO */

@@ -26,7 +26,8 @@ import type {
   FrpJobDocumentDTO,
   FrpJobDocumentUpdateRequest,
   FrpJobDTO,
-  FrpInventoryDTO,
+  FrpJobInventoryDTO,
+  FrpMasterInventoryDTO,
   FrpJobPaymentDTO,
   FrpJobPaymentUpdateRequest,
   FrpJobSchedulingLogisticsDTO,
@@ -832,64 +833,71 @@ export async function deleteJobDocument(id: number): Promise<void> {
 }
 
 /**
- * `GET /jobs/{id}/inventory` — material lines for the job. Also returned
- * inline on `GET /jobs/{id}` (`Job.inventory`); call this only when the list
- * needs to be refreshed on its own, without refetching the whole job.
+ * `GET /master-inventory` — the org's product catalogue. Job users with
+ * `MASTER_INVENTORY_READ` (granted alongside `INVENTORY_READ`) can list it
+ * so the Add Inventory picker has something to choose from.
+ */
+export async function listMasterInventory(): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory");
+}
+
+/** `POST /master-inventory` — add one or more catalogue items (org admin). */
+export async function addMasterInventory(
+  body: FrpMasterInventoryDTO[]
+): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `PUT /master-inventory/{id}` — edit one catalogue item (org admin). */
+export async function updateMasterInventory(
+  id: number,
+  body: FrpMasterInventoryDTO
+): Promise<FrpMasterInventoryDTO> {
+  return frpFetch<FrpMasterInventoryDTO>(`/master-inventory/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `DELETE /master-inventory/{id}`. */
+export async function deleteMasterInventory(id: number): Promise<void> {
+  await frpFetch<void>(`/master-inventory/${id}`, { method: "DELETE" });
+}
+
+/**
+ * `GET /jobs/{id}/master-inventory` — catalogue items this job consumes.
+ * Also returned inline on `GET /jobs/{id}` (`Job.inventory`); call this only
+ * when the list needs to be refreshed on its own.
  */
 export async function listJobInventory(
   dbId: string | number
-): Promise<FrpInventoryDTO[]> {
-  return frpFetch<FrpInventoryDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory`
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/master-inventory`
   );
 }
 
-/** `POST /jobs/{id}/inventory` — add one material line. */
+/** `POST /jobs/{id}/master-inventory` — attach a catalogue item (upsert by item). */
 export async function addJobInventory(
   dbId: string | number,
-  body: FrpInventoryDTO
-): Promise<FrpInventoryDTO> {
-  return frpFetch<FrpInventoryDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory`,
+  body: { masterInventoryId: number; quantity: number }
+): Promise<FrpJobInventoryDTO> {
+  return frpFetch<FrpJobInventoryDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/master-inventory`,
     { method: "POST", body: JSON.stringify(body) }
   );
 }
 
-/**
- * `PUT /jobs/{id}/inventory` — save the inventory table in one call. A line
- * WITH an id has only its quantity applied; a line WITHOUT one is created in
- * full. Nothing is deleted — a line the payload omits is left alone, so
- * remove a persisted line with {@link deleteJobInventoryLine} instead.
- */
-export async function saveJobInventory(
-  dbId: string | number,
-  body: FrpInventoryDTO[]
-): Promise<FrpInventoryDTO[]> {
-  return frpFetch<FrpInventoryDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory`,
-    { method: "PUT", body: JSON.stringify(body) }
-  );
-}
-
-/** `PUT /jobs/{id}/inventory/{lineId}` — update one material line. */
-export async function updateJobInventoryLine(
-  dbId: string | number,
-  lineId: number,
-  body: FrpInventoryDTO
-): Promise<FrpInventoryDTO> {
-  return frpFetch<FrpInventoryDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory/${lineId}`,
-    { method: "PUT", body: JSON.stringify(body) }
-  );
-}
-
-/** `DELETE /jobs/{id}/inventory/{lineId}`. */
+/** `DELETE /jobs/{id}/master-inventory/{lineId}`. */
 export async function deleteJobInventoryLine(
   dbId: string | number,
   lineId: number
 ): Promise<void> {
   await frpFetch<void>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory/${lineId}`,
+    `/jobs/${encodeURIComponent(String(dbId))}/master-inventory/${lineId}`,
     { method: "DELETE" }
   );
 }

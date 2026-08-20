@@ -152,21 +152,23 @@ export interface Job {
   percentComplete?: number | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
-  /** Material lines for the job (backend `inventory` table). Inline on `GET
-   *  /jobs/{id}`; mutated via `/jobs/{id}/inventory`. */
+  /** Material lines for the job (backend `job_inventory`). Inline on
+   *  `GET /jobs/{id}`; mutated via `/jobs/{id}/master-inventory`. */
   inventory?: JobInventoryLine[];
+  /** Job-card footer version = length of `job_audit_history`. */
+  auditVersion?: number;
 }
 
-/** One row of the job's material/inventory table (`InventoryDTO`). */
+/** One row of the job's material/inventory table (`JobInventoryDTO`). */
 export interface JobInventoryLine {
   id?: number;
+  masterInventoryId?: number;
   category?: string | null;
   profileType?: string | null;
   size?: string | null;
   materialGrade?: string | null;
-  /** Integer; backend `InventoryDTO.quantity` is never negative. */
+  /** Integer; backend `JobInventoryDTO.quantity` is never negative. */
   quantity?: number | null;
-  description?: string | null;
 }
 
 export type ShipmentMethod =

@@ -33,13 +33,12 @@ import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
+  addJobInventory,
   deleteJobDocument,
   deleteJobInventoryLine,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
-  saveJobInventory,
-  updateJobInventoryLine,
   updateJobPayment,
   uploadJobDocument,
 } from "@/lib/frp/api";
@@ -60,13 +59,15 @@ import {
   getCatalogProductGroups,
   getCatalogProfileTypes,
   getCatalogResinOptions,
+  matchingCatalogItems,
+  resolveCatalogItem,
   splitCatalogMaterialGrade,
   splitCatalogSize,
+  type InventoryCatalogEntry,
 } from "@/lib/frp/inventory-catalog";
 import { useInventoryCatalog } from "@/lib/frp/inventory-catalog-store";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
 import {
-  uiInventoryLineToDto,
   type FrpJobDocumentDTO,
   type FrpJobStageDTO,
   type JobUpdateAuditAction,
@@ -167,7 +168,6 @@ function emptyInventoryLine(): InventoryDraftLine {
     size: "",
     materialGrade: "",
     quantity: null,
-    description: "",
     localKey: newInventoryKey(),
   };
 }
@@ -179,23 +179,11 @@ function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
   }));
 }
 
-function inventoryField(value: string | null | undefined): string {
-  return value?.trim() ?? "";
-}
-
-function inventoryLinesEqual(a: JobInventoryLine, b: JobInventoryLine): boolean {
-  return (
-    inventoryField(a.category) === inventoryField(b.category) &&
-    inventoryField(a.profileType) === inventoryField(b.profileType) &&
-    inventoryField(a.size) === inventoryField(b.size) &&
-    inventoryField(a.materialGrade) === inventoryField(b.materialGrade) &&
-    inventoryField(a.description) === inventoryField(b.description) &&
-    (a.quantity ?? 0) === (b.quantity ?? 0)
-  );
-}
-
-function isInventoryLineIncomplete(item: JobInventoryLine): boolean {
-  return !item.category?.trim() || !item.profileType?.trim();
+function isInventoryLineIncomplete(
+  item: JobInventoryLine,
+  catalog: { productGroup: string; profileType: string; meshSpec: string; dimension: string; resin: string; colour: string }[]
+): boolean {
+  return matchingCatalogItems(catalog, item).length !== 1;
 }
 
 /** One-line summary shown for a collapsed draft row - everything worth
@@ -210,13 +198,12 @@ function summarizeInventoryLine(item: JobInventoryLine): string {
 
 const INVENTORY_TABLE_HEADERS = [
   "Product Group",
-  "Desc. 1",
-  "Desc. 2",
-  "Desc. 3",
+  "Attribute 1",
+  "Attribute 2",
+  "Attribute 3",
   "Resin / Material",
   "Primary Colour",
   "Qty",
-  "Description",
 ] as const;
 
 function inventoryCell(value: string | number | null | undefined): string {
@@ -231,7 +218,6 @@ function isBlankInventoryLine(item: JobInventoryLine): boolean {
     !item.profileType?.trim() &&
     !item.size?.trim() &&
     !item.materialGrade?.trim() &&
-    !item.description?.trim() &&
     item.quantity == null
   );
 }
@@ -252,6 +238,100 @@ function patchInventoryLine(
   return lines.map((row) =>
     row.localKey === localKey ? { ...row, ...patch } : row
   );
+}
+
+/** Fill any empty catalog dropdown that has exactly one option. */
+function autoFillInventoryLine(
+  item: InventoryDraftLine,
+  catalog: InventoryCatalogEntry[]
+): InventoryDraftLine {
+  let next: InventoryDraftLine = { ...item };
+  const group = next.category ?? "";
+  const groups = getCatalogProductGroups(catalog);
+  if (!group.trim() && groups.length === 1) {
+    next = {
+      ...next,
+      category: groups[0],
+      profileType: "",
+      size: "",
+      materialGrade: "",
+      masterInventoryId: undefined,
+    };
+  }
+
+  const attr1 = getCatalogProfileTypes(catalog, next.category ?? "");
+  if ((next.category ?? "").trim() && !(next.profileType ?? "").trim() && attr1.length === 1) {
+    next = {
+      ...next,
+      profileType: attr1[0],
+      size: "",
+      materialGrade: "",
+      masterInventoryId: undefined,
+    };
+  }
+
+  const { meshSpec, dimension } = splitCatalogSize(next.size ?? "");
+  const attr2 = getCatalogDesc2Options(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? ""
+  );
+  if (
+    (next.category ?? "").trim() &&
+    (next.profileType ?? "").trim() &&
+    !meshSpec.trim() &&
+    attr2.length === 1
+  ) {
+    next = { ...next, size: attr2[0], materialGrade: "" };
+  }
+
+  const sizeAfterAttr2 = splitCatalogSize(next.size ?? "");
+  const attr3 = getCatalogDesc3Options(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    sizeAfterAttr2.meshSpec
+  );
+  if (
+    (next.category ?? "").trim() &&
+    (next.profileType ?? "").trim() &&
+    !sizeAfterAttr2.dimension.trim() &&
+    attr3.length === 1
+  ) {
+    next = {
+      ...next,
+      size: combineCatalogSize(sizeAfterAttr2.meshSpec, attr3[0]),
+      materialGrade: "",
+    };
+  }
+
+  const { resin } = splitCatalogMaterialGrade(next.materialGrade ?? "");
+  const resins = getCatalogResinOptions(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    next.size ?? ""
+  );
+  if (!resin.trim() && resins.length === 1) {
+    next = { ...next, materialGrade: resins[0] };
+  }
+
+  const grade = splitCatalogMaterialGrade(next.materialGrade ?? "");
+  const colours = getCatalogColourOptions(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    next.size ?? "",
+    grade.resin
+  );
+  if (!grade.colour.trim() && colours.length === 1) {
+    next = {
+      ...next,
+      materialGrade: combineCatalogMaterialGrade(grade.resin, colours[0]),
+    };
+  }
+
+  return next;
 }
 
 /** A `measurement` row's display fields — raw Quotient `selected_items` shape.
@@ -369,7 +449,8 @@ export function JobWorkflowDashboard({
   );
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
-  const { items: inventoryCatalog } = useInventoryCatalog();
+  const { items: inventoryCatalog, loading: catalogLoading, error: catalogError } =
+    useInventoryCatalog();
   /** The one line shown expanded for editing; every other line that already
    *  has a category + profile type collapses to a one-line summary, so
    *  adding a 6th, 7th, 8th... line doesn't mean scrolling past five full
@@ -377,6 +458,33 @@ export function JobWorkflowDashboard({
   const [activeInventoryLine, setActiveInventoryLine] = useState<string | null>(
     null
   );
+  const inventoryCascadeKey = inventoryDraft
+    .map(
+      (line) =>
+        `${line.localKey}|${line.category ?? ""}|${line.profileType ?? ""}|${line.size ?? ""}|${line.materialGrade ?? ""}`
+    )
+    .join(";");
+
+  useEffect(() => {
+    if (!showInventoryModal) return;
+    setInventoryDraft((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        const filled = autoFillInventoryLine(row, inventoryCatalog);
+        if (
+          filled.category !== row.category ||
+          filled.profileType !== row.profileType ||
+          filled.size !== row.size ||
+          filled.materialGrade !== row.materialGrade
+        ) {
+          changed = true;
+          return filled;
+        }
+        return row;
+      });
+      return changed ? next : prev;
+    });
+  }, [showInventoryModal, inventoryCatalog, inventoryCascadeKey]);
   const inventoryLineRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
   const [paymentBusy, setPaymentBusy] = useState(false);
@@ -747,7 +855,8 @@ export function JobWorkflowDashboard({
     const lines = current.length === 0 ? [emptyInventoryLine()] : current;
     setInventoryDraft(lines);
     setActiveInventoryLine(
-      lines.find((line) => isInventoryLineIncomplete(line))?.localKey ?? null
+      lines.find((line) => isInventoryLineIncomplete(line, inventoryCatalog))
+        ?.localKey ?? null
     );
     setInventoryError(null);
     setShowInventoryModal(true);
@@ -775,49 +884,52 @@ export function JobWorkflowDashboard({
   const saveInventory = async () => {
     if (!job.dbId) return;
     const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
-    if (filled.some(isInventoryLineIncomplete)) {
+    if (filled.some((item) => isInventoryLineIncomplete(item, inventoryCatalog))) {
       setInventoryError(
-        "Each inventory line needs a category and a profile type."
+        "Each inventory line must match one catalog item. Finish selecting the product options."
+      );
+      return;
+    }
+
+    const resolved = filled.map((line) => {
+      const match = resolveCatalogItem(inventoryCatalog, line);
+      return {
+        line,
+        masterInventoryId: match!.id,
+        quantity: line.quantity ?? 0,
+      };
+    });
+    const masterIds = resolved.map((row) => row.masterInventoryId);
+    if (new Set(masterIds).size !== masterIds.length) {
+      setInventoryError(
+        "The same catalog item cannot be added twice. Combine the quantities on one line."
       );
       return;
     }
 
     const original = job.inventory ?? [];
-    const originalById = new Map(
-      original
-        .filter((line) => line.id != null)
-        .map((line) => [line.id as number, line])
+    const keptMasters = new Set(masterIds);
+    const toDelete = original.filter(
+      (line) =>
+        line.id != null &&
+        line.masterInventoryId != null &&
+        !keptMasters.has(line.masterInventoryId)
     );
-    const keptIds = new Set(
-      filled.filter((line) => line.id != null).map((line) => line.id as number)
-    );
-    const toDelete = [...originalById.keys()].filter((id) => !keptIds.has(id));
-    const toUpdate = filled.filter((line) => {
-      if (line.id == null) return false;
-      const previous = originalById.get(line.id);
-      return !previous || !inventoryLinesEqual(line, previous);
-    });
-    const toCreate = filled.filter((line) => line.id == null);
 
     setInventoryBusy(true);
     setInventoryError(null);
     try {
-      await Promise.all([
-        ...toDelete.map((id) => deleteJobInventoryLine(job.dbId!, id)),
-        ...toUpdate.map((line) =>
-          updateJobInventoryLine(job.dbId!, line.id!, uiInventoryLineToDto(line))
-        ),
-      ]);
-      if (toCreate.length > 0) {
-        await saveJobInventory(
-          job.dbId,
-          toCreate.map((line) => {
-            const dto = uiInventoryLineToDto(line);
-            delete dto.id;
-            return dto;
+      await Promise.all(
+        toDelete.map((line) => deleteJobInventoryLine(job.dbId!, line.id!))
+      );
+      await Promise.all(
+        resolved.map((row) =>
+          addJobInventory(job.dbId!, {
+            masterInventoryId: row.masterInventoryId,
+            quantity: row.quantity,
           })
-        );
-      }
+        )
+      );
       await onJobChanged?.();
       setShowInventoryModal(false);
     } catch (e) {
@@ -1070,8 +1182,8 @@ export function JobWorkflowDashboard({
               <table className="w-full min-w-[860px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {INVENTORY_TABLE_HEADERS.map((header) => (
-                      <th key={header} className="px-2 py-2 font-semibold">
+                    {INVENTORY_TABLE_HEADERS.map((header, headerIndex) => (
+                      <th key={`${header}-${headerIndex}`} className="px-2 py-2 font-semibold">
                         {header}
                       </th>
                     ))}
@@ -1105,9 +1217,6 @@ export function JobWorkflowDashboard({
                       </td>
                       <td className="px-2 py-2 tabular-nums">
                         {inventoryCell(item.quantity)}
-                      </td>
-                      <td className="px-2 py-2 text-slate-600">
-                        {inventoryCell(item.description)}
                       </td>
                     </tr>
                   ))}
@@ -1416,7 +1525,7 @@ export function JobWorkflowDashboard({
         open={showInventoryModal}
         title="Add Inventory"
         onClose={closeInventoryEditor}
-        panelClassName="max-w-md max-h-[85vh] flex flex-col overflow-hidden"
+        panelClassName="max-w-md max-h-[85vh] flex flex-col overflow-visible"
         headerAction={
           <button
             type="button"
@@ -1431,6 +1540,19 @@ export function JobWorkflowDashboard({
         }
       >
         <div className="flex min-h-0 flex-1 flex-col gap-3">
+          {catalogError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {catalogError}
+            </p>
+          ) : null}
+          {catalogLoading ? (
+            <p className="text-sm text-slate-500">Loading catalog…</p>
+          ) : null}
+          {!catalogLoading && !catalogError && inventoryCatalog.length === 0 ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              No catalog items yet. An org admin can add them under Inventory.
+            </p>
+          ) : null}
           {inventoryError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {inventoryError}
@@ -1440,7 +1562,49 @@ export function JobWorkflowDashboard({
             {inventoryDraft.map((item, index) => {
               const isCollapsed =
                 item.localKey !== activeInventoryLine &&
-                !isInventoryLineIncomplete(item);
+                !isInventoryLineIncomplete(item, inventoryCatalog);
+              const group = item.category ?? "";
+              const attr1 = item.profileType ?? "";
+              const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
+              const { resin } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+              const desc2Options = getCatalogDesc2Options(
+                inventoryCatalog,
+                group,
+                attr1
+              );
+              const desc3Options = getCatalogDesc3Options(
+                inventoryCatalog,
+                group,
+                attr1,
+                meshSpec
+              );
+              const colourOptions = getCatalogColourOptions(
+                inventoryCatalog,
+                group,
+                attr1,
+                item.size ?? "",
+                resin
+              );
+              const resinOptions = getCatalogResinOptions(
+                inventoryCatalog,
+                group,
+                attr1,
+                item.size ?? ""
+              );
+              const groupPicked = group.trim().length > 0;
+              const attr1Picked = attr1.trim().length > 0;
+              const attr2Ready = groupPicked && attr1Picked;
+              const attr2Resolved =
+                attr2Ready &&
+                (desc2Options.length === 0 || meshSpec.trim().length > 0);
+              const attr3Ready = attr2Resolved;
+              const attr3Resolved =
+                attr3Ready &&
+                (desc3Options.length === 0 || dimension.trim().length > 0);
+              const materialReady = attr3Resolved;
+              const colourReady =
+                materialReady &&
+                (resinOptions.length === 0 || resin.trim().length > 0);
 
               if (isCollapsed) {
                 return (
@@ -1493,7 +1657,7 @@ export function JobWorkflowDashboard({
                       {inventoryDraft.length > 1 ? `Line ${index + 1}` : "Item"}
                     </p>
                     <div className="flex items-center gap-1.5">
-                      {!isInventoryLineIncomplete(item) ? (
+                      {!isInventoryLineIncomplete(item, inventoryCatalog) ? (
                         <button
                           type="button"
                           aria-label="Collapse inventory line"
@@ -1528,13 +1692,14 @@ export function JobWorkflowDashboard({
                         profileType: "",
                         size: "",
                         materialGrade: "",
+                        masterInventoryId: undefined,
                       })
                     )
                   }
                 />
                 <ModalCatalogField
                   key={`${item.localKey}-profileType-${item.category}`}
-                  label="Desc. 1"
+                  label="Attribute 1"
                   value={item.profileType ?? ""}
                   options={getCatalogProfileTypes(inventoryCatalog, item.category ?? "")}
                   disabled={inventoryBusy}
@@ -1544,49 +1709,38 @@ export function JobWorkflowDashboard({
                         profileType,
                         size: "",
                         materialGrade: "",
+                        masterInventoryId: undefined,
                       })
                     )
                   }
                 />
                 <ModalCatalogField
                   key={`${item.localKey}-desc2-${item.category}-${item.profileType}`}
-                  label="Desc. 2"
-                  value={splitCatalogSize(item.size ?? "").meshSpec}
-                  options={getCatalogDesc2Options(
-                    inventoryCatalog,
-                    item.category ?? "",
-                    item.profileType ?? ""
-                  )}
+                  label="Attribute 2"
+                  value={meshSpec}
+                  options={desc2Options}
+                  allowBlank={attr2Ready && desc2Options.length === 0}
                   disabled={inventoryBusy}
-                  onChange={(meshSpec) =>
+                  onChange={(nextMeshSpec) =>
                     setInventoryDraft((prev) =>
                       patchInventoryLine(prev, item.localKey, {
-                        size: meshSpec,
+                        size: nextMeshSpec,
                         materialGrade: "",
                       })
                     )
                   }
                 />
                 <ModalCatalogField
-                  key={`${item.localKey}-desc3-${item.category}-${item.profileType}-${
-                    splitCatalogSize(item.size ?? "").meshSpec
-                  }`}
-                  label="Desc. 3"
-                  value={splitCatalogSize(item.size ?? "").dimension}
-                  options={getCatalogDesc3Options(
-                    inventoryCatalog,
-                    item.category ?? "",
-                    item.profileType ?? "",
-                    splitCatalogSize(item.size ?? "").meshSpec
-                  )}
+                  key={`${item.localKey}-desc3-${item.category}-${item.profileType}-${meshSpec}`}
+                  label="Attribute 3"
+                  value={dimension}
+                  options={desc3Options}
+                  allowBlank={attr3Ready && desc3Options.length === 0}
                   disabled={inventoryBusy}
-                  onChange={(dimension) =>
+                  onChange={(nextDimension) =>
                     setInventoryDraft((prev) =>
                       patchInventoryLine(prev, item.localKey, {
-                        size: combineCatalogSize(
-                          splitCatalogSize(item.size ?? "").meshSpec,
-                          dimension
-                        ),
+                        size: combineCatalogSize(meshSpec, nextDimension),
                         materialGrade: "",
                       })
                     )
@@ -1596,12 +1750,8 @@ export function JobWorkflowDashboard({
                   key={`${item.localKey}-grade-${item.category}-${item.profileType}-${item.size}`}
                   label="Resin / Material"
                   value={splitCatalogMaterialGrade(item.materialGrade ?? "").resin}
-                  options={getCatalogResinOptions(
-                    inventoryCatalog,
-                    item.category ?? "",
-                    item.profileType ?? "",
-                    item.size ?? ""
-                  )}
+                  options={resinOptions}
+                  allowBlank={materialReady && resinOptions.length === 0}
                   disabled={inventoryBusy}
                   onChange={(resin) =>
                     setInventoryDraft((prev) =>
@@ -1617,13 +1767,8 @@ export function JobWorkflowDashboard({
                   }`}
                   label="Primary Colour"
                   value={splitCatalogMaterialGrade(item.materialGrade ?? "").colour}
-                  options={getCatalogColourOptions(
-                    inventoryCatalog,
-                    item.category ?? "",
-                    item.profileType ?? "",
-                    item.size ?? "",
-                    splitCatalogMaterialGrade(item.materialGrade ?? "").resin
-                  )}
+                  options={colourOptions}
+                  allowBlank={colourReady && colourOptions.length === 0}
                   disabled={inventoryBusy}
                   onChange={(colour) =>
                     setInventoryDraft((prev) =>
@@ -1646,18 +1791,6 @@ export function JobWorkflowDashboard({
                       patchInventoryLine(prev, item.localKey, {
                         quantity: parseInventoryQuantity(qty),
                       })
-                    )
-                  }
-                />
-                <ModalField
-                  label="Description"
-                  value={item.description ?? ""}
-                  disabled={inventoryBusy}
-                  multiline
-                  placeholder="Optional notes"
-                  onChange={(description) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, { description })
                     )
                   }
                 />

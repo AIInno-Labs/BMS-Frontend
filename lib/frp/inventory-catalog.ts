@@ -1,27 +1,20 @@
 /**
- * Product catalog for the Job Inventory picker: the seed data, plus the
- * shape and cascading lookup logic shared by the org-admin catalog manager
- * (components/org/InventoryCatalogAdminPage.tsx) and the Job page's
- * Inventory modal (components/JobWorkflowDashboard.tsx).
+ * Cascading lookup helpers for the Job Inventory picker and the org-admin
+ * catalog page. Both screens load the live list from `GET /master-inventory`
+ * (`useInventoryCatalog`). The catalogue rows themselves are hardcoded in
+ * `frp/docs/seed.sql`.
  *
- * This is a frontend-only feature, not backed by any API - the `inventory`
- * table has no master item/SKU catalog (see V2__domain_reference_data.sql,
- * which deliberately left it out of scope). An org admin's edits are
- * persisted to this browser's localStorage only (see
- * inventory-catalog-store.ts) - they are not yet shared across devices or
- * other users in the org. Selecting an entry in the Job modal just fills in
- * the same free-text category/profileType/size/materialGrade strings the
- * backend already accepts, so nothing on the server needs to change. When a
- * real catalog endpoint exists, the store module can be swapped for one
- * backed by a fetch without touching the modal or admin page that consume
- * these helpers.
+ * Sheet columns map onto `MasterInventoryDTO` as:
+ *   Product Group → productGroup
+ *   Attribute 1   → attribute1 (profileType)
+ *   Attribute 2   → attribute2 (meshSpec)
+ *   Attribute 3   → attribute3 (dimension)
+ *   Resin         → material
+ *   Colour        → primaryColour
+ *   attribute4 is stored in the DB but omitted from the API and UI for now.
  *
- * The source sheet has 6 columns (Product Group, Desc. 1-3, Resin/Material,
- * Primary Colour) but the backend's `inventory` row only has 4 usable
- * free-text fields (category, profileType, size, materialGrade). So two
- * pairs get folded into one stored string each - Desc.2+Desc.3 into `size`,
- * and Resin+Colour into `materialGrade` - while still being shown as
- * separate dropdowns in the modal (see combine/split helpers below).
+ * The job modal folds Attribute 2+3 into a single `size` string and
+ * Resin+Colour into `materialGrade` so the cascading selects can round-trip.
  */
 
 export interface InventoryCatalogEntry {
@@ -33,147 +26,9 @@ export interface InventoryCatalogEntry {
   colour: string;
 }
 
-export const DEFAULT_INVENTORY_CATALOG: InventoryCatalogEntry[] = [
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1525 x 3050", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1525 x 3050", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1525 x 3660", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4000", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1220 x 3660", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "25mm thick", meshSpec: "38 square mesh", dimension: "1000 x 4083", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "40/20 square mesh", dimension: "1247 x 3687", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "40/20 square mesh", dimension: "1247 x 3687", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "40/20 square mesh", dimension: "1007 x 4007", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "40/20 square mesh", dimension: "1247 x 3687", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "40/20 square mesh", dimension: "1527 x 3800", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "40/12.5 square mesh", dimension: "1247 x 3687", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Grating - Moulded", profileType: "22mm thick", meshSpec: "40/12.5 square mesh", dimension: "1247 x 3687", resin: "IsoFR", colour: "Other" },
-  { productGroup: "Grating - Moulded", profileType: "15mm thick", meshSpec: "38 square mesh", dimension: "3660 x 615", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "730 x 275", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "880 x 275", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "615 x 3050", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "730 x 275", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "880 x 275", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "730 x 275", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "920 x 275", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "Tread", meshSpec: "38 square mesh", dimension: "615 x 3050", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38+3mm thick", meshSpec: "38 square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38+3mm thick", meshSpec: "38 square mesh", dimension: "3660 x 1220", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "25+3mm thick", meshSpec: "38 square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "38+3mm thick", meshSpec: "38 square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38+3mm thick", meshSpec: "38 square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "2250 x 1000", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "38 square mesh", dimension: "3007 x 1000", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "15mm Thick", meshSpec: "50 Square mesh", dimension: "2440 x 1220", resin: "VEFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "15mm Thick", meshSpec: "50 Square mesh", dimension: "2440 x 1220", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "15mm Thick", meshSpec: "38 Square mesh", dimension: "2440 x 1220", resin: "VEFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "15mm Thick", meshSpec: "38 Square mesh", dimension: "2440 x 1220", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "50mm thick", meshSpec: "HLC", dimension: "3660 x 1220", resin: "VEFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "38mm thick", meshSpec: "HLC", dimension: "3660 x 1220", resin: "VEFR", colour: "Dark Grey" },
-  { productGroup: "Grating - Moulded", profileType: "50mm", meshSpec: "50 Square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "50mm", meshSpec: "50 Square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "50mm", meshSpec: "38 Square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Yellow" },
-  { productGroup: "Grating - Moulded", profileType: "50mm", meshSpec: "38 Square mesh", dimension: "3660 x 1220", resin: "IsoFR", colour: "Green" },
-  { productGroup: "Grating - Moulded", profileType: "50mm", meshSpec: "Deck Board", dimension: "5000 x 875", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Nosings", profileType: "3mm", meshSpec: "", dimension: "70 x 30", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Nosings", profileType: "3mm", meshSpec: "", dimension: "70 x 30", resin: "VEFR", colour: "Dark Grey" },
-  { productGroup: "Stanchions", profileType: "Square tube", meshSpec: "50 x 6", dimension: "1300", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Clips", profileType: "P Clamps", meshSpec: "48mm tube", dimension: "1.2 thk", resin: "316 s/s", colour: "Yellow" },
-  { productGroup: "Stanchions", profileType: "3 hole base plates", meshSpec: "For 50mm SHS", dimension: "", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Stanchions", profileType: "90 degree elbows", meshSpec: "48mm", dimension: "", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "101 x 41", dimension: "6.3 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "101 x 41", dimension: "6.3 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "152 x 42", dimension: "6.3 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "152 x 42", dimension: "6.3 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "152 x 42", dimension: "9.5 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "152 x 42", dimension: "9.5 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "204 x 56", dimension: "9.5 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "204 x 56", dimension: "9.5 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "254 x 70", dimension: "12.7 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel", meshSpec: "254 x 70", dimension: "12.7 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Wide Flange Beam", meshSpec: "152", dimension: "6.3 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Wide Flange Beam", meshSpec: "152", dimension: "6.3 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "I Beam", meshSpec: "203 x 102", dimension: "9.5 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "I Beam", meshSpec: "203 x 102", dimension: "9.5 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "50", dimension: "6.3 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "50", dimension: "6.3 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "75", dimension: "9.5 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "75", dimension: "9.5 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "102", dimension: "9.5 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "102", dimension: "9.5 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "152", dimension: "12.7 thk", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Equal Angle", meshSpec: "152", dimension: "12.7 thk", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Strut", meshSpec: "25", dimension: "41", resin: "VEFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Strut", meshSpec: "41", dimension: "41", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Round Tube", meshSpec: "32 Fluted", dimension: "3.5", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Round Tube", meshSpec: "48", dimension: "5", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Round Tube", meshSpec: "38", dimension: "5", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Round Tube", meshSpec: "38", dimension: "5", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "32", dimension: "5", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "44", dimension: "3.15", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "44", dimension: "6", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "50.8", dimension: "3.15", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "50.8", dimension: "6", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "50.8", dimension: "6", resin: "IsoFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "50.8", dimension: "6", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "54", dimension: "5", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "75", dimension: "6", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "75", dimension: "6", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Square tube", meshSpec: "100", dimension: "8", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Rectagular tube", meshSpec: "100 x 50", dimension: "6", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Rectagular tube", meshSpec: "100 x 75", dimension: "6", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Kick plate", meshSpec: "100", dimension: "3", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Flat plate", meshSpec: "170", dimension: "13", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Flat plate", meshSpec: "170", dimension: "13", resin: "VEFR", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Flat Plate", meshSpec: "5", dimension: "1220 x 2440", resin: "VEFR", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Flat Plate", meshSpec: "4 Ungritted", dimension: "1220 x 3660", resin: "Iso", colour: "Yellow" },
-  { productGroup: "Profiles", profileType: "Flat Plate", meshSpec: "4 Ungritted", dimension: "1220 x 3660", resin: "Iso", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Flat Plate", meshSpec: "4 Ungritted", dimension: "1220 x 3660", resin: "Iso", colour: "Light Grey" },
-  { productGroup: "Profiles", profileType: "Flat Plate", meshSpec: "4 Ungritted", dimension: "1220 x 2440", resin: "Iso", colour: "Other" },
-  { productGroup: "Profiles", profileType: "Rectangular tube (9m)", meshSpec: "250 x 100", dimension: "8", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "I Beam (9m)", meshSpec: "304 x 150", dimension: "13", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel (9m)", meshSpec: "86 x 75", dimension: "6", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel (9m)", meshSpec: "203 x 56", dimension: "9", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel (9m)", meshSpec: "145 x 35 3 degree", dimension: "6", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Profiles", profileType: "Channel (9m)", meshSpec: "152 x 42", dimension: "6", resin: "IsoFR", colour: "Dark Grey" },
-  { productGroup: "Intrepid", profileType: "Intrepid gate UDG37", meshSpec: "", dimension: "", resin: "", colour: "" },
-  { productGroup: "Fasteners", profileType: "Intrepid gate brackets", meshSpec: "", dimension: "", resin: "316SS", colour: "" },
-  { productGroup: "Fasteners", profileType: "50mm U bolts", meshSpec: "", dimension: "", resin: "316SS", colour: "" },
-  { productGroup: "Fasteners", profileType: "10mm J bolts", meshSpec: "", dimension: "", resin: "316SS", colour: "" },
-  { productGroup: "Fasteners", profileType: "Kick plate joiner", meshSpec: "", dimension: "Straight", resin: "316SS", colour: "" },
-  { productGroup: "Fasteners", profileType: "Kick plate joiner", meshSpec: "", dimension: "90 degree", resin: "316SS", colour: "" },
-  { productGroup: "Clips", profileType: "MM40", meshSpec: "40 / 20 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "M50", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "M38", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "M25", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "M15", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "Square", meshSpec: "38mm", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "Square", meshSpec: "50mm", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "C50", meshSpec: "50 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "C38", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "C25", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "C15", meshSpec: "38 Sq mesh", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "Compression BTM", meshSpec: "", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "Pultruded", meshSpec: "", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "M38", meshSpec: "", dimension: "Boxed", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "M25", meshSpec: "", dimension: "Boxed", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "W Clip 45", meshSpec: "", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "W clip 54", meshSpec: "", dimension: "", resin: "316 s/s", colour: "" },
-  { productGroup: "Clips", profileType: "W clip 30", meshSpec: "", dimension: "", resin: "316 s/s", colour: "" },
-];
+export interface InventoryCatalogItem extends InventoryCatalogEntry {
+  id: number;
+}
 
 function uniqueInOrder(values: string[]): string[] {
   return [...new Set(values.filter((v) => v.trim().length > 0))];
@@ -223,11 +78,8 @@ export function splitCatalogMaterialGrade(value: string): {
 }
 
 /**
- * The functions below all take `catalog` as their first argument rather
- * than reading DEFAULT_INVENTORY_CATALOG directly, so the same cascading
- * logic works for both the built-in seed list and an org's live,
- * admin-managed list from useInventoryCatalog() (see
- * inventory-catalog-store.ts).
+ * Cascading dropdown options. `catalog` is the live list from
+ * `useInventoryCatalog()` (GET /master-inventory), not a frontend seed file.
  */
 
 export function getCatalogProductGroups(catalog: InventoryCatalogEntry[]): string[] {
@@ -311,4 +163,83 @@ export function getCatalogColourOptions(
       )
       .map((r) => r.colour)
   );
+}
+
+export interface MasterInventoryFields {
+  id?: number;
+  productGroup?: string | null;
+  attribute1?: string | null;
+  attribute2?: string | null;
+  attribute3?: string | null;
+  material?: string | null;
+  primaryColour?: string | null;
+}
+
+export function masterInventoryToCatalogItem(
+  item: MasterInventoryFields
+): InventoryCatalogItem {
+  return {
+    id: item.id ?? 0,
+    productGroup: item.productGroup ?? "",
+    profileType: item.attribute1 ?? "",
+    meshSpec: item.attribute2 ?? "",
+    dimension: item.attribute3 ?? "",
+    resin: item.material ?? "",
+    colour: item.primaryColour ?? "",
+  };
+}
+
+export function catalogEntryToMasterBody(entry: InventoryCatalogEntry): {
+  productGroup: string;
+  attribute1: string;
+  attribute2: string;
+  attribute3: string;
+  material: string;
+  primaryColour: string;
+} {
+  return {
+    productGroup: entry.productGroup,
+    attribute1: entry.profileType,
+    attribute2: entry.meshSpec,
+    attribute3: entry.dimension,
+    material: entry.resin,
+    primaryColour: entry.colour,
+  };
+}
+
+export function matchingCatalogItems(
+  catalog: InventoryCatalogEntry[],
+  line: {
+    category?: string | null;
+    profileType?: string | null;
+    size?: string | null;
+    materialGrade?: string | null;
+  }
+): InventoryCatalogEntry[] {
+  const category = (line.category ?? "").trim();
+  const profileType = (line.profileType ?? "").trim();
+  const { meshSpec, dimension } = splitCatalogSize(line.size ?? "");
+  const { resin, colour } = splitCatalogMaterialGrade(line.materialGrade ?? "");
+  return catalog.filter(
+    (item) =>
+      item.productGroup === category &&
+      item.profileType === profileType &&
+      item.meshSpec === meshSpec &&
+      item.dimension === dimension &&
+      item.resin === resin &&
+      item.colour === colour
+  );
+}
+
+export function resolveCatalogItem(
+  catalog: InventoryCatalogItem[],
+  line: {
+    category?: string | null;
+    profileType?: string | null;
+    size?: string | null;
+    materialGrade?: string | null;
+  }
+): InventoryCatalogItem | null {
+  const matches = matchingCatalogItems(catalog, line);
+  return matches.length === 1 ? (matches[0] as InventoryCatalogItem) : null;
 }

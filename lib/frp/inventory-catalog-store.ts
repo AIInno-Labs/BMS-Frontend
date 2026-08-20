@@ -3,114 +3,75 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import {
-  DEFAULT_INVENTORY_CATALOG,
+  addMasterInventory,
+  deleteMasterInventory,
+  listMasterInventory,
+  updateMasterInventory,
+} from "@/lib/frp/api";
+import {
+  catalogEntryToMasterBody,
+  masterInventoryToCatalogItem,
   type InventoryCatalogEntry,
+  type InventoryCatalogItem,
 } from "@/lib/frp/inventory-catalog";
 
-export interface InventoryCatalogItem extends InventoryCatalogEntry {
-  id: string;
-}
-
-const STORAGE_PREFIX = "frp:inventoryCatalog:";
-/** Fired on the window this tab changed the catalog from, so every open
- *  copy of the Job modal / admin page re-reads localStorage immediately -
- *  the native `storage` event only fires in *other* tabs. */
-const CHANGE_EVENT = "frp-inventory-catalog-changed";
-
-function storageKey(orgId: number | string | null | undefined): string {
-  return `${STORAGE_PREFIX}${orgId ?? "unscoped"}`;
-}
-
-function seedDefaults(): InventoryCatalogItem[] {
-  return DEFAULT_INVENTORY_CATALOG.map((entry, index) => ({
-    ...entry,
-    id: `default-${index}`,
-  }));
-}
-
-function readFromStorage(
-  orgId: number | string | null | undefined
-): InventoryCatalogItem[] {
-  if (typeof window === "undefined") return seedDefaults();
-  try {
-    const raw = window.localStorage.getItem(storageKey(orgId));
-    if (!raw) return seedDefaults();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return seedDefaults();
-    return parsed;
-  } catch {
-    return seedDefaults();
-  }
-}
-
-function writeToStorage(
-  orgId: number | string | null | undefined,
-  items: InventoryCatalogItem[]
-): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(storageKey(orgId), JSON.stringify(items));
-  window.dispatchEvent(new Event(CHANGE_EVENT));
-}
-
-function newItemId(): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
+export type { InventoryCatalogItem };
 
 /**
- * Org-scoped inventory catalog, backed by this browser's localStorage.
- * Starts seeded from DEFAULT_INVENTORY_CATALOG; an org admin's adds/edits/
- * removes on top of that are what components/org/InventoryCatalogAdminPage
- * writes, and what the Job page's Inventory modal reads for its cascading
- * Category/Profile type/Desc. 2/Desc. 3/Material grade/Colour selects.
+ * Org-scoped inventory catalog from GET/POST/PUT/DELETE `/master-inventory`.
+ * Waits for an authenticated session so the first request is not a 401.
  */
 export function useInventoryCatalog() {
-  const { user } = useAuth();
-  const orgId = user?.organization?.id ?? null;
-  const [items, setItems] = useState<InventoryCatalogItem[]>(() =>
-    readFromStorage(orgId)
-  );
+  const { loading: authLoading, isAuthenticated } = useAuth();
+  const [items, setItems] = useState<InventoryCatalogItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await listMasterInventory();
+      setItems(
+        rows.map(masterInventoryToCatalogItem).filter((item) => item.id > 0)
+      );
+      setError(null);
+    } catch (e) {
+      setItems([]);
+      setError(
+        e instanceof Error ? e.message : "Could not load inventory catalog"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setItems(readFromStorage(orgId));
-    const reload = () => setItems(readFromStorage(orgId));
-    window.addEventListener(CHANGE_EVENT, reload);
-    window.addEventListener("storage", reload);
-    return () => {
-      window.removeEventListener(CHANGE_EVENT, reload);
-      window.removeEventListener("storage", reload);
-    };
-  }, [orgId]);
+    if (authLoading || !isAuthenticated) return;
+    void reload();
+  }, [authLoading, isAuthenticated, reload]);
 
-  const addItem = useCallback(
-    (entry: InventoryCatalogEntry) => {
-      const next = [...readFromStorage(orgId), { ...entry, id: newItemId() }];
-      writeToStorage(orgId, next);
-      setItems(next);
-    },
-    [orgId]
-  );
+  const addItem = useCallback(async (entry: InventoryCatalogEntry) => {
+    const created = await addMasterInventory([catalogEntryToMasterBody(entry)]);
+    const mapped = created.map(masterInventoryToCatalogItem);
+    setItems((prev) => [...mapped, ...prev]);
+    return mapped;
+  }, []);
 
   const updateItem = useCallback(
-    (id: string, entry: InventoryCatalogEntry) => {
-      const next = readFromStorage(orgId).map((item) =>
-        item.id === id ? { ...entry, id } : item
+    async (id: number, entry: InventoryCatalogEntry) => {
+      const updated = masterInventoryToCatalogItem(
+        await updateMasterInventory(id, catalogEntryToMasterBody(entry))
       );
-      writeToStorage(orgId, next);
-      setItems(next);
+      setItems((prev) => prev.map((item) => (item.id === id ? updated : item)));
+      return updated;
     },
-    [orgId]
+    []
   );
 
-  const deleteItem = useCallback(
-    (id: string) => {
-      const next = readFromStorage(orgId).filter((item) => item.id !== id);
-      writeToStorage(orgId, next);
-      setItems(next);
-    },
-    [orgId]
-  );
+  const deleteItem = useCallback(async (id: number) => {
+    await deleteMasterInventory(id);
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
 
-  return { items, addItem, updateItem, deleteItem };
+  return { items, loading, error, reload, addItem, updateItem, deleteItem };
 }

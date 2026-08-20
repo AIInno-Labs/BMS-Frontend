@@ -46,6 +46,8 @@ export interface OfficialJobCardData {
   priority: string;
   assignedWorker: string;
   estimatedHours: string;
+  /** Footer version from audit-history length (`GET /jobs/{id}.auditVersion`). */
+  jobCardVersion: number;
 }
 
 export const STANDARD_CLIP_ROWS: JobCardClipRow[] = [
@@ -128,6 +130,12 @@ export function formatJobCardDate(isoDate: string | null | undefined): string {
 function nonempty(value?: string | null): string | undefined {
   const v = (value ?? "").trim();
   return v ? v : undefined;
+}
+
+/** Footer label: audit length 3 → "Job Card 03". */
+export function formatJobCardVersionLabel(version: number | null | undefined): string {
+  const n = Number.isFinite(version) ? Math.max(0, Math.trunc(version as number)) : 0;
+  return `Job Card ${String(n).padStart(2, "0")}`;
 }
 
 export function buildOfficialJobCardData(
@@ -232,6 +240,7 @@ export function buildOfficialJobCardData(
     priority: job.priority,
     assignedWorker: assignedName,
     estimatedHours: job.estimatedHours != null ? `${job.estimatedHours}h` : "",
+    jobCardVersion: job.auditVersion ?? 0,
   };
 }
 

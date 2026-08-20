@@ -2,6 +2,7 @@
 
 import {
   buildOfficialJobCardData,
+  formatJobCardVersionLabel,
   PHOTO_CHECKLIST_ROWS,
   SCOPE_CHECKLIST_ITEMS,
 } from "@/lib/jobCardPrint";
@@ -308,7 +309,7 @@ function OfficialPage1({ data }: { data: OfficialJobCardData }) {
       </div>
 
       <footer className="official-jc-footer official-jc-footer--pinned">
-        <span className="official-jc-footer-left">Job Card 00</span>
+        <span className="official-jc-footer-left">{formatJobCardVersionLabel(data.jobCardVersion)}</span>
         <span className="official-jc-footer-page">Page 1</span>
       </footer>
     </section>
@@ -501,7 +502,7 @@ function OfficialPage2({ data }: { data: OfficialJobCardData }) {
       </div>
 
       <footer className="official-jc-footer official-jc-footer--pinned">
-        <span className="official-jc-footer-left" aria-hidden />
+        <span className="official-jc-footer-left">{formatJobCardVersionLabel(data.jobCardVersion)}</span>
         <span className="official-jc-footer-center">Workshop Schedule_Inventory- NEW</span>
         <span className="official-jc-footer-page">Page 2</span>
       </footer>
