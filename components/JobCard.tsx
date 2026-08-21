@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { notFound, useSearchParams } from "next/navigation";
+import { FrpApiError } from "@/lib/frp/types";
 import {
   ArrowLeft,
   Calendar,
@@ -47,7 +48,6 @@ import {
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
-import { FrpApiError } from "@/lib/frp/types";
 import { isCancelledJob } from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
@@ -96,6 +96,13 @@ export function JobCard({ jobId }: JobCardProps) {
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [detailMissing, setDetailMissing] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    setDetailMissing(false);
+    setDetailLoading(false);
+  }, [jobId]);
 
   useEffect(() => {
     if (!sourceJob || isSaving) return;
@@ -114,9 +121,17 @@ export function JobCard({ jobId }: JobCardProps) {
     if (!hydrated || !jobId) return;
     if (detailFetchedForRef.current === jobId) return;
     detailFetchedForRef.current = jobId;
-    void loadJobDetail(jobId).catch(() => {
-      detailFetchedForRef.current = null;
-    });
+    setDetailLoading(true);
+    void loadJobDetail(jobId)
+      .catch((err) => {
+        detailFetchedForRef.current = null;
+        if (err instanceof FrpApiError && err.status === 404) {
+          setDetailMissing(true);
+        }
+      })
+      .finally(() => {
+        setDetailLoading(false);
+      });
   }, [jobId, hydrated, loadJobDetail]);
 
   useEffect(() => {
@@ -187,11 +202,11 @@ export function JobCard({ jobId }: JobCardProps) {
     };
   }, []);
 
-  if (hydrated && !loading && !sourceJob) {
+  if (hydrated && !loading && detailMissing && !sourceJob) {
     notFound();
   }
 
-  if (loading || !job || !draft) {
+  if (loading || detailLoading || !job || !draft) {
     return (
       <main className="flex min-h-[40vh] items-center justify-center bg-slate-50">
         <p className="text-base text-slate-600">
