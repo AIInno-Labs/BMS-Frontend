@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MessageCircle, RefreshCw, X } from "lucide-react";
 import {
@@ -12,9 +12,8 @@ import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { listQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
 import { JobsPagination } from "@/components/JobsPagination";
-import { paginateJobs, totalPages } from "@/lib/jobListUtils";
 
-const QUOTES_PAGE_SIZE = 20;
+const QUOTES_PAGE_SIZE = 10;
 
 const STATUS_OPTIONS: { value: FrpQuoteStatus; label: string }[] = [
   { value: "AWAITING_ACCEPTANCE", label: "Awaiting acceptance" },
@@ -123,6 +122,48 @@ function FactoryBadge({ item }: { item: QuoteListItem }) {
   );
 }
 
+/** Backend row (raw JSON, mixed camelCase/snake_case) → the UI's `QuoteListItem`. */
+function mapQuoteRow(row: Record<string, unknown>): QuoteListItem {
+  const r = row;
+  const journey_outcome = journeyOutcomeFromStatus(r.status);
+
+  return {
+    quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
+    title: (r.title as string | null) ?? null,
+    quote_for_company_name: String(
+      r.company ?? r.customerName ?? r.quote_for_company_name ?? ""
+    ),
+    quote_status: (r.status ?? r.quoteStatus ?? r.quote_status ?? null) as
+      | string
+      | null,
+    progress: (r.progress as string | null) ?? null,
+    journey_outcome,
+    factory_job_status: (r.factoryStatus ??
+      r.factoryJobStatus ??
+      r.factory_job_status ??
+      null) as string | null,
+    job_id: (r.jobId ?? r.job_id ?? null) as string | null,
+    total_includes_tax:
+      (r.totalIncludesTax as number | null) ??
+      (r.total_includes_tax as number | null) ??
+      null,
+    currency: String(r.currency ?? "AUD"),
+    last_event_name: (r.lastEvent ??
+      r.lastEventName ??
+      r.last_event_name ??
+      null) as string | null,
+    created_at:
+      (r.createdAt as string | null) ??
+      (r.created_at as string | null) ??
+      (r.createdDate as string | null) ??
+      null,
+    updated_at: String(
+      r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
+    ),
+    question_count: Number(r.questionCount ?? r.question_count ?? 0),
+  } satisfies QuoteListItem;
+}
+
 function FilterChip({
   label,
   onClear,
@@ -146,105 +187,64 @@ function FilterChip({
 }
 
 export function QuotesPage() {
-  const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<FrpQuoteStatus | "">("");
   const [page, setPage] = useState(1);
+  // Bumped by the Refresh button to force the effect below to re-run.
+  const [reloadToken, setReloadToken] = useState(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Status is filtered server-side (GET /quotes?status=...). Search still
-      // has no server-side support, so page through every result (rather than
-      // capping at some fixed size) so it has the complete table to search —
-      // no magic ceiling to outgrow as the table gets bigger. Pagination below
-      // is applied client-side, over this fully-loaded + searched list.
-      const PAGE_SIZE = 500;
-      const MAX_PAGES = 500; // safety net against a runaway loop, not a real cap
-      const rows: Record<string, unknown>[] = [];
-      for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
-        const batch = await listQuotes(pageNum, PAGE_SIZE, {
-          status: statusFilter || undefined,
-        });
-        rows.push(...(batch.content ?? []));
-        if (batch.last || (batch.content ?? []).length === 0) break;
-      }
-      const quotes = rows.map((row) => {
-        const r = row as Record<string, unknown>;
-
-        const journey_outcome = journeyOutcomeFromStatus(r.status);
-
-        return {
-          quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
-          title: (r.title as string | null) ?? null,
-          quote_for_company_name: String(
-            r.company ?? r.customerName ?? r.quote_for_company_name ?? ""
-          ),
-          quote_status: (r.status ??
-            r.quoteStatus ??
-            r.quote_status ??
-            null) as string | null,
-          progress: (r.progress as string | null) ?? null,
-          journey_outcome,
-          factory_job_status: (r.factoryStatus ??
-            r.factoryJobStatus ??
-            r.factory_job_status ??
-            null) as string | null,
-          job_id: (r.jobId ?? r.job_id ?? null) as string | null,
-          total_includes_tax:
-            (r.totalIncludesTax as number | null) ??
-            (r.total_includes_tax as number | null) ??
-            null,
-          currency: String(r.currency ?? "AUD"),
-          last_event_name: (r.lastEvent ??
-            r.lastEventName ??
-            r.last_event_name ??
-            null) as string | null,
-          created_at:
-            (r.createdAt as string | null) ??
-            (r.created_at as string | null) ??
-            (r.createdDate as string | null) ??
-            null,
-          updated_at: String(
-            r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
-          ),
-          question_count: Number(r.questionCount ?? r.question_count ?? 0),
-        } satisfies QuoteListItem;
-      });
-      setQuotes(quotes);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load quotes");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
+  // Pagination is real, backend-driven — one GET /quotes?page=&size=10&status=
+  // request per page/status change, showing exactly what the backend returns.
+  const [pageRows, setPageRows] = useState<QuoteListItem[]>([]);
+  const [pageTotalItems, setPageTotalItems] = useState(0);
+  const [pageTotalPages, setPageTotalPages] = useState(1);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    setPageLoading(true);
+    setPageError(null);
+
+    listQuotes(page - 1, QUOTES_PAGE_SIZE, { status: statusFilter || undefined })
+      .then((res) => {
+        if (cancelled) return;
+        setPageRows((res.content ?? []).map((row) => mapQuoteRow(row as Record<string, unknown>)));
+        setPageTotalItems(res.totalElements ?? 0);
+        const total = Math.max(1, res.totalPages ?? 1);
+        setPageTotalPages(total);
+        if (page > total) setPage(total);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setPageError(e instanceof Error ? e.message : "Could not load quotes");
+        setPageRows([]);
+        setPageTotalItems(0);
+        setPageTotalPages(1);
+      })
+      .finally(() => {
+        if (!cancelled) setPageLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [statusFilter, page, reloadToken]);
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, search]);
+  }, [statusFilter]);
 
   const hasActiveFilters = statusFilter !== "";
   const clearFilters = () => {
     setStatusFilter("");
   };
 
-  const filtered = quotes.filter((q) => {
-    const hay = `${q.quote_number} ${q.title ?? ""} ${
-      q.quote_for_company_name
-    } ${q.quote_status ?? ""}`.toLowerCase();
-    return hay.includes(search.toLowerCase());
-  });
-
-  const pages = totalPages(filtered.length, QUOTES_PAGE_SIZE);
-  const safePage = Math.min(page, pages);
-  const pagedQuotes = paginateJobs(filtered, safePage, QUOTES_PAGE_SIZE);
+  const loading = pageLoading;
+  const error = pageError;
+  const pagedQuotes = pageRows;
+  const pages = pageTotalPages;
+  const safePage = page;
+  const totalItems = pageTotalItems;
 
   return (
     <main className="app-mesh-bg min-h-screen overflow-x-hidden">
@@ -265,13 +265,6 @@ export function QuotesPage() {
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search quote #, title, company…"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-64"
-              />
               <select
                 value={statusFilter}
                 onChange={(e) =>
@@ -290,7 +283,7 @@ export function QuotesPage() {
             </div>
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => setReloadToken((t) => t + 1)}
               className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
             >
               <RefreshCw
@@ -339,7 +332,7 @@ export function QuotesPage() {
             <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
               Loading quotes…
             </p>
-          ) : filtered.length === 0 ? (
+          ) : totalItems === 0 ? (
             <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
               No quotes found. Webhooks populate this list automatically.
             </p>
@@ -375,7 +368,7 @@ export function QuotesPage() {
                       Loading quotes…
                     </td>
                   </tr>
-                ) : filtered.length === 0 ? (
+                ) : totalItems === 0 ? (
                   <tr>
                     <td
                       colSpan={11}
@@ -463,7 +456,7 @@ export function QuotesPage() {
               page={safePage}
               totalPages={pages}
               pageSize={QUOTES_PAGE_SIZE}
-              totalItems={filtered.length}
+              totalItems={totalItems}
               onPageChange={setPage}
             />
           </div>
