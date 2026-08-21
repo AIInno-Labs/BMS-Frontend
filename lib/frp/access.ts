@@ -15,6 +15,8 @@ export const ACCESS_KEYS = {
   JOBS_UPDATE: "JOBS_UPDATE",
   QUOTES_VIEW: "QUOTES_VIEW",
   ANALYTICS_VIEW: "ANALYTICS_VIEW",
+  QUOTIENT_VIEW: "QUOTIENT_VIEW",
+  SECURITY_VIEW: "SECURITY_VIEW",
 } as const;
 
 export type AccessKey = (typeof ACCESS_KEYS)[keyof typeof ACCESS_KEYS];
@@ -28,6 +30,8 @@ export const MENU_CODES = {
   JOBS: "MENU_JOBS",
   QUOTES: "MENU_QUOTES",
   ANALYTICS: "MENU_ANALYTICS",
+  QUOTIENT: "MENU_QUOTIENT",
+  SECURITY: "MENU_SECURITY",
 } as const;
 
 /**
@@ -39,6 +43,7 @@ export const MENU_CODES = {
 export const FIELD_CODES = {
   JOB_RATE: "FIELD_JOB_RATE",
   HARDWARE: "FIELD_HARDWARE",
+  SECURITY_MFA: "FIELD_SECURITY_MFA",
 } as const;
 
 /**
@@ -48,6 +53,7 @@ export const FIELD_CODES = {
 export const FIELD_KEYS = {
   RATE: "rate",
   HARDWARE: "HARDWARE",
+  MFA: "mfa",
 } as const;
 
 export type FieldKey = (typeof FIELD_KEYS)[keyof typeof FIELD_KEYS] | string;
@@ -69,6 +75,7 @@ type FieldPrivilegeBinding = {
 export const FIELD_PRIVILEGE_MAP: Map<string, FieldPrivilegeBinding> = new Map([
   [FIELD_KEYS.RATE, { read: FIELD_CODES.JOB_RATE }],
   [FIELD_KEYS.HARDWARE, { read: FIELD_CODES.HARDWARE }],
+  [FIELD_KEYS.MFA, { read: FIELD_CODES.SECURITY_MFA }],
 ]);
 
 /**
@@ -95,6 +102,11 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
       ACCESS_KEYS.ANALYTICS_VIEW,
       [MENU_CODES.ANALYTICS, MENU_CODES.DASHBOARD, "JOB_READ"],
     ],
+    // No ACTION equivalent for these two — MENU_QUOTIENT/MENU_SECURITY must be
+    // assigned explicitly by Org Admin (see CreateRoleDrawer) for a custom role
+    // to see them; there's no ACTION fallback to fail open on like the keys above.
+    [ACCESS_KEYS.QUOTIENT_VIEW, MENU_CODES.QUOTIENT],
+    [ACCESS_KEYS.SECURITY_VIEW, MENU_CODES.SECURITY],
   ]);
 
 export function getPrivileges(user: UserDTO | null | undefined): string[] {

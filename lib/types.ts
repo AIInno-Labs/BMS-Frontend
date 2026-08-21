@@ -1,4 +1,5 @@
 import type { AnyJobStatus } from "@/lib/jobStatus";
+import type { ProjectRequirementKind } from "@/lib/frp/project-requirements";
 
 /**
  * Widened during the DEL-01 status-model migration.
@@ -44,9 +45,6 @@ export interface JobMaterialRow {
 
 /** Extended job-card fields (serialized in pack_dimensions JSON). */
 export interface JobWorkflowExtras {
-  documentsRequired?: boolean;
-  sampleRequired?: boolean;
-  coiRequired?: boolean;
   jobType?: string;
   projectedStartDate?: string;
   productionStatus?: string;
@@ -152,21 +150,32 @@ export interface Job {
   percentComplete?: number | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
-  /** Material lines for the job (backend `inventory` table). Inline on `GET
-   *  /jobs/{id}`; mutated via `/jobs/{id}/inventory`. */
+  /** Material lines for the job (backend `job_inventory`). Inline on
+   *  `GET /jobs/{id}`; mutated via `/jobs/{id}/job-inventory`. */
   inventory?: JobInventoryLine[];
+  /** Documents / sample / COI flags — backend `job_project_requirements`. */
+  requirements?: JobProjectRequirement[];
 }
 
-/** One row of the job's material/inventory table (`InventoryDTO`). */
+/** One project requirement row — `kind` mirrors backend `ProjectRequirement`. */
+export interface JobProjectRequirement {
+  kind: ProjectRequirementKind;
+  label: string;
+  /** `null` = not decided yet; distinct from an explicit `false`. */
+  isRequired: boolean | null;
+  remarks?: string | null;
+}
+
+/** One row of the job's material/inventory table (`JobInventoryDTO`). */
 export interface JobInventoryLine {
   id?: number;
+  masterInventoryId?: number;
   category?: string | null;
   profileType?: string | null;
   size?: string | null;
   materialGrade?: string | null;
-  /** Integer; backend `InventoryDTO.quantity` is never negative. */
+  /** Integer; backend `JobInventoryDTO.quantity` is never negative. */
   quantity?: number | null;
-  description?: string | null;
 }
 
 export type ShipmentMethod =

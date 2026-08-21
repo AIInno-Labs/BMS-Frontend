@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  ChevronUp,
   CircleCheckBig,
   CircleDollarSign,
   MessageSquare,
@@ -27,18 +28,16 @@ import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
 import { WidgetCard } from "@/components/JobWidgetCard";
-import { EditModal, ModalField } from "@/components/JobEditModal";
+import { EditModal, ModalCatalogField, ModalField } from "@/components/JobEditModal";
 import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
   deleteJobDocument,
-  deleteJobInventoryLine,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
-  saveJobInventory,
-  updateJobInventoryLine,
+  replaceJobInventory,
   updateJobPayment,
   uploadJobDocument,
 } from "@/lib/frp/api";
@@ -50,9 +49,24 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
+import {
+  combineCatalogMaterialGrade,
+  combineCatalogSize,
+  getCatalogColourOptions,
+  getCatalogDesc2Options,
+  getCatalogDesc3Options,
+  getCatalogProductGroups,
+  getCatalogProfileTypes,
+  getCatalogResinOptions,
+  matchingCatalogItems,
+  resolveCatalogItem,
+  splitCatalogMaterialGrade,
+  splitCatalogSize,
+  type InventoryCatalogEntry,
+} from "@/lib/frp/inventory-catalog";
+import { useInventoryCatalog } from "@/lib/frp/inventory-catalog-store";
 import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
 import {
-  uiInventoryLineToDto,
   type FrpJobDocumentDTO,
   type FrpJobStageDTO,
   type JobUpdateAuditAction,
@@ -69,6 +83,10 @@ import {
   resolveWorkerNameFromId,
 } from "@/lib/workers";
 import { isCancelledJob } from "@/lib/frp/job-status";
+import {
+  CASH_PAYMENT_BLOCK_MESSAGE,
+  isJobLockedForCashPayment,
+} from "@/lib/frp/job-cash-payment-gate";
 
 interface JobWorkflowDashboardProps {
   job: Job;
@@ -152,8 +170,7 @@ function emptyInventoryLine(): InventoryDraftLine {
     profileType: "",
     size: "",
     materialGrade: "",
-    quantity: null,
-    description: "",
+    quantity: 1,
     localKey: newInventoryKey(),
   };
 }
@@ -165,32 +182,47 @@ function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
   }));
 }
 
-function inventoryField(value: string | null | undefined): string {
-  return value?.trim() ?? "";
+function isInventoryLineIncomplete(
+  item: JobInventoryLine,
+  catalog: { productGroup: string; profileType: string; meshSpec: string; dimension: string; resin: string; colour: string }[]
+): boolean {
+  if (!isValidInventoryQuantity(item.quantity)) return true;
+  return matchingCatalogItems(catalog, item).length !== 1;
 }
 
-function inventoryLinesEqual(a: JobInventoryLine, b: JobInventoryLine): boolean {
-  return (
-    inventoryField(a.category) === inventoryField(b.category) &&
-    inventoryField(a.profileType) === inventoryField(b.profileType) &&
-    inventoryField(a.size) === inventoryField(b.size) &&
-    inventoryField(a.materialGrade) === inventoryField(b.materialGrade) &&
-    inventoryField(a.description) === inventoryField(b.description) &&
-    (a.quantity ?? 0) === (b.quantity ?? 0)
-  );
+/** Short label for an inventory row in the add/edit modal — product identity,
+ *  not "Line 1". Falls back to resin/material, then placeholders while empty. */
+function inventoryLineTitle(item: JobInventoryLine): string {
+  const group = item.category?.trim();
+  const profile = item.profileType?.trim();
+  if (group && profile) return `${group} · ${profile}`;
+  if (group) return group;
+  if (profile) return profile;
+  const { resin } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+  if (resin) return resin;
+  if (isBlankInventoryLine(item)) return "New item";
+  return "Select product";
 }
 
-function isInventoryLineIncomplete(item: JobInventoryLine): boolean {
-  return !item.category?.trim() || !item.profileType?.trim();
+/** One-line summary shown for a collapsed draft row — everything worth
+ *  seeing at a glance without expanding it back out. */
+function summarizeInventoryLine(item: JobInventoryLine): string {
+  const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
+  const { resin, colour } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+  const details = [meshSpec, dimension, resin, colour].filter(Boolean).join(" · ");
+  const qty =
+    item.quantity != null && item.quantity >= 1 ? `Qty ${item.quantity}` : null;
+  return [details, qty].filter(Boolean).join(" — ");
 }
 
 const INVENTORY_TABLE_HEADERS = [
-  "Category",
-  "Profile",
-  "Size",
-  "Grade",
+  "Product Group",
+  "Attribute 1",
+  "Attribute 2",
+  "Attribute 3",
+  "Resin / Material",
+  "Primary Colour",
   "Qty",
-  "Description",
 ] as const;
 
 function inventoryCell(value: string | number | null | undefined): string {
@@ -204,10 +236,12 @@ function isBlankInventoryLine(item: JobInventoryLine): boolean {
     !item.category?.trim() &&
     !item.profileType?.trim() &&
     !item.size?.trim() &&
-    !item.materialGrade?.trim() &&
-    !item.description?.trim() &&
-    item.quantity == null
+    !item.materialGrade?.trim()
   );
+}
+
+function isValidInventoryQuantity(qty: number | null | undefined): boolean {
+  return qty != null && qty >= 1;
 }
 
 function parseInventoryQuantity(raw: string): number | null {
@@ -215,7 +249,7 @@ function parseInventoryQuantity(raw: string): number | null {
   if (!trimmed) return null;
   const n = Number(trimmed);
   if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.trunc(n));
+  return Math.trunc(n);
 }
 
 function patchInventoryLine(
@@ -226,6 +260,100 @@ function patchInventoryLine(
   return lines.map((row) =>
     row.localKey === localKey ? { ...row, ...patch } : row
   );
+}
+
+/** Fill any empty catalog dropdown that has exactly one option. */
+function autoFillInventoryLine(
+  item: InventoryDraftLine,
+  catalog: InventoryCatalogEntry[]
+): InventoryDraftLine {
+  let next: InventoryDraftLine = { ...item };
+  const group = next.category ?? "";
+  const groups = getCatalogProductGroups(catalog);
+  if (!group.trim() && groups.length === 1) {
+    next = {
+      ...next,
+      category: groups[0],
+      profileType: "",
+      size: "",
+      materialGrade: "",
+      masterInventoryId: undefined,
+    };
+  }
+
+  const attr1 = getCatalogProfileTypes(catalog, next.category ?? "");
+  if ((next.category ?? "").trim() && !(next.profileType ?? "").trim() && attr1.length === 1) {
+    next = {
+      ...next,
+      profileType: attr1[0],
+      size: "",
+      materialGrade: "",
+      masterInventoryId: undefined,
+    };
+  }
+
+  const { meshSpec, dimension } = splitCatalogSize(next.size ?? "");
+  const attr2 = getCatalogDesc2Options(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? ""
+  );
+  if (
+    (next.category ?? "").trim() &&
+    (next.profileType ?? "").trim() &&
+    !meshSpec.trim() &&
+    attr2.length === 1
+  ) {
+    next = { ...next, size: attr2[0], materialGrade: "" };
+  }
+
+  const sizeAfterAttr2 = splitCatalogSize(next.size ?? "");
+  const attr3 = getCatalogDesc3Options(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    sizeAfterAttr2.meshSpec
+  );
+  if (
+    (next.category ?? "").trim() &&
+    (next.profileType ?? "").trim() &&
+    !sizeAfterAttr2.dimension.trim() &&
+    attr3.length === 1
+  ) {
+    next = {
+      ...next,
+      size: combineCatalogSize(sizeAfterAttr2.meshSpec, attr3[0]),
+      materialGrade: "",
+    };
+  }
+
+  const { resin } = splitCatalogMaterialGrade(next.materialGrade ?? "");
+  const resins = getCatalogResinOptions(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    next.size ?? ""
+  );
+  if (!resin.trim() && resins.length === 1) {
+    next = { ...next, materialGrade: resins[0] };
+  }
+
+  const grade = splitCatalogMaterialGrade(next.materialGrade ?? "");
+  const colours = getCatalogColourOptions(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    next.size ?? "",
+    grade.resin
+  );
+  if (!grade.colour.trim() && colours.length === 1) {
+    next = {
+      ...next,
+      materialGrade: combineCatalogMaterialGrade(grade.resin, colours[0]),
+    };
+  }
+
+  return next;
 }
 
 /** A `measurement` row's display fields — raw Quotient `selected_items` shape.
@@ -286,6 +414,8 @@ export function JobWorkflowDashboard({
   onJobChanged,
 }: JobWorkflowDashboardProps) {
   const cancelled = isCancelledJob(job.status);
+  const cashPaymentLocked = isJobLockedForCashPayment(job);
+  const editsBlocked = cancelled || cashPaymentLocked;
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.measurement ?? [];
@@ -343,6 +473,43 @@ export function JobWorkflowDashboard({
   );
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const { items: inventoryCatalog, loading: catalogLoading, error: catalogError } =
+    useInventoryCatalog();
+  /** The one line shown expanded for editing; every other line that already
+   *  has a category + profile type collapses to a one-line summary, so
+   *  adding a 6th, 7th, 8th... line doesn't mean scrolling past five full
+   *  field stacks to reach it. */
+  const [activeInventoryLine, setActiveInventoryLine] = useState<string | null>(
+    null
+  );
+  const inventoryCascadeKey = inventoryDraft
+    .map(
+      (line) =>
+        `${line.localKey}|${line.category ?? ""}|${line.profileType ?? ""}|${line.size ?? ""}|${line.materialGrade ?? ""}`
+    )
+    .join(";");
+
+  useEffect(() => {
+    if (!showInventoryModal) return;
+    setInventoryDraft((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        const filled = autoFillInventoryLine(row, inventoryCatalog);
+        if (
+          filled.category !== row.category ||
+          filled.profileType !== row.profileType ||
+          filled.size !== row.size ||
+          filled.materialGrade !== row.materialGrade
+        ) {
+          changed = true;
+          return filled;
+        }
+        return row;
+      });
+      return changed ? next : prev;
+    });
+  }, [showInventoryModal, inventoryCatalog, inventoryCascadeKey]);
+  const inventoryLineRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -439,6 +606,13 @@ export function JobWorkflowDashboard({
     }
     setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
   }, [job, showInventoryModal]);
+
+  useEffect(() => {
+    if (!activeInventoryLine) return;
+    inventoryLineRefs.current
+      .get(activeInventoryLine)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeInventoryLine]);
 
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
@@ -609,7 +783,7 @@ export function JobWorkflowDashboard({
       await deleteJobDocument(failedFile.documentId);
       setFailedFile(null);
       setDocumentsRefreshKey((k) => k + 1);
-      if (!cancelled) openFileUploadModal();
+      if (!editsBlocked) openFileUploadModal();
     } catch {
       // Leave the dialog open so the user can retry or close.
     } finally {
@@ -702,7 +876,12 @@ export function JobWorkflowDashboard({
 
   const openInventoryEditor = () => {
     const current = toInventoryDraft(job.inventory ?? []);
-    setInventoryDraft(current.length === 0 ? [emptyInventoryLine()] : current);
+    const lines = current.length === 0 ? [emptyInventoryLine()] : current;
+    setInventoryDraft(lines);
+    setActiveInventoryLine(
+      lines.find((line) => isInventoryLineIncomplete(line, inventoryCatalog))
+        ?.localKey ?? null
+    );
     setInventoryError(null);
     setShowInventoryModal(true);
   };
@@ -715,60 +894,77 @@ export function JobWorkflowDashboard({
   };
 
   const addInventoryLine = () => {
-    setInventoryDraft((prev) => [...prev, emptyInventoryLine()]);
+    const line = emptyInventoryLine();
+    setInventoryDraft((prev) => [...prev, line]);
+    setActiveInventoryLine(line.localKey);
   };
 
   const removeInventoryLine = (localKey: string) => {
     setInventoryDraft((prev) => prev.filter((row) => row.localKey !== localKey));
     setInventoryError(null);
+    setActiveInventoryLine((prev) => (prev === localKey ? null : prev));
   };
 
   const saveInventory = async () => {
     if (!job.dbId) return;
     const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
-    if (filled.some(isInventoryLineIncomplete)) {
+
+    const qtyInvalid = filled.find(
+      (item) => !isValidInventoryQuantity(item.quantity)
+    );
+    if (qtyInvalid) {
+      setActiveInventoryLine(qtyInvalid.localKey);
+      setInventoryError("Quantity must be at least 1.");
+      return;
+    }
+
+    const unmatched = filled.find(
+      (item) => matchingCatalogItems(inventoryCatalog, item).length !== 1
+    );
+    if (unmatched) {
+      setActiveInventoryLine(unmatched.localKey);
       setInventoryError(
-        "Each inventory line needs a category and a profile type."
+        "Each inventory line must match one catalog item. Finish the dropdowns on the highlighted line."
+      );
+      return;
+    }
+
+    const resolved = filled.map((line) => {
+      const match = resolveCatalogItem(inventoryCatalog, line);
+      return {
+        masterInventoryId: match!.id,
+        quantity: line.quantity!,
+      };
+    });
+    const masterIds = resolved.map((row) => row.masterInventoryId);
+    if (new Set(masterIds).size !== masterIds.length) {
+      setInventoryError(
+        "The same catalog item cannot be added twice. Combine the quantities on one line."
       );
       return;
     }
 
     const original = job.inventory ?? [];
-    const originalById = new Map(
-      original
-        .filter((line) => line.id != null)
-        .map((line) => [line.id as number, line])
-    );
-    const keptIds = new Set(
-      filled.filter((line) => line.id != null).map((line) => line.id as number)
-    );
-    const toDelete = [...originalById.keys()].filter((id) => !keptIds.has(id));
-    const toUpdate = filled.filter((line) => {
-      if (line.id == null) return false;
-      const previous = originalById.get(line.id);
-      return !previous || !inventoryLinesEqual(line, previous);
-    });
-    const toCreate = filled.filter((line) => line.id == null);
+    const originalByMaster = new Map<number, number>();
+    for (const line of original) {
+      if (line.masterInventoryId != null) {
+        originalByMaster.set(line.masterInventoryId, line.quantity ?? 0);
+      }
+    }
+    const unchanged =
+      originalByMaster.size === resolved.length &&
+      resolved.every(
+        (row) => originalByMaster.get(row.masterInventoryId) === row.quantity
+      );
+    if (unchanged) {
+      setShowInventoryModal(false);
+      return;
+    }
 
     setInventoryBusy(true);
     setInventoryError(null);
     try {
-      await Promise.all([
-        ...toDelete.map((id) => deleteJobInventoryLine(job.dbId!, id)),
-        ...toUpdate.map((line) =>
-          updateJobInventoryLine(job.dbId!, line.id!, uiInventoryLineToDto(line))
-        ),
-      ]);
-      if (toCreate.length > 0) {
-        await saveJobInventory(
-          job.dbId,
-          toCreate.map((line) => {
-            const dto = uiInventoryLineToDto(line);
-            delete dto.id;
-            return dto;
-          })
-        );
-      }
+      await replaceJobInventory(job.dbId, resolved);
       await onJobChanged?.();
       setShowInventoryModal(false);
     } catch (e) {
@@ -839,6 +1035,15 @@ export function JobWorkflowDashboard({
 
       <JobTimelineAnalytics job={job} />
 
+      {cashPaymentLocked && !cancelled ? (
+        <p
+          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
+          role="status"
+        >
+          {CASH_PAYMENT_BLOCK_MESSAGE}
+        </p>
+      ) : null}
+
       {!chatDrawerOpen && (
         <button
           type="button"
@@ -872,10 +1077,11 @@ export function JobWorkflowDashboard({
         pd={pd}
         isSaving={isSaving}
         onSavePatch={onSavePatch}
+        onJobChanged={onJobChanged}
         files={displayFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
-        onUploadFile={cancelled ? () => undefined : openFileUploadModal}
+        onUploadFile={editsBlocked ? () => undefined : openFileUploadModal}
         onDownloadFile={handleDownloadFile}
         onPreviewFile={(file) => setPreviewFile(file)}
         onOpenFile={handleOpenProjectFile}
@@ -886,7 +1092,7 @@ export function JobWorkflowDashboard({
 
       <div className="mt-4 space-y-4">
       <section className="grid gap-4 lg:grid-cols-2">
-        <WidgetCard title="Customer Details" icon={User} onEdit={cancelled ? undefined : () => setShowCustomerModal(true)}>
+        <WidgetCard title="Customer Details" icon={User} onEdit={editsBlocked ? undefined : () => setShowCustomerModal(true)}>
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
@@ -895,7 +1101,7 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Job Details"
           icon={Settings}
-          onEdit={cancelled ? undefined : () => setShowJobModal(true)}
+          onEdit={editsBlocked ? undefined : () => setShowJobModal(true)}
         >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
@@ -950,7 +1156,7 @@ export function JobWorkflowDashboard({
               <input
                 type="checkbox"
                 checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-                disabled={isSaving || cancelled}
+                disabled={isSaving || editsBlocked}
                 onChange={(e) =>
                   void onSavePatch({
                     status: e.target.checked ? "In Fabrication" : "Pending",
@@ -1011,18 +1217,18 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Inventory"
           icon={Package}
-          onEdit={cancelled ? undefined : openInventoryEditor}
+          onEdit={editsBlocked ? undefined : openInventoryEditor}
           className="lg:col-span-2"
         >
           {(job.inventory ?? []).length === 0 ? (
             <p className="text-sm text-slate-400">No inventory lines yet.</p>
           ) : (
             <div className="-mx-1 overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[860px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {INVENTORY_TABLE_HEADERS.map((header) => (
-                      <th key={header} className="px-2 py-2 font-semibold">
+                    {INVENTORY_TABLE_HEADERS.map((header, headerIndex) => (
+                      <th key={`${header}-${headerIndex}`} className="px-2 py-2 font-semibold">
                         {header}
                       </th>
                     ))}
@@ -1038,13 +1244,24 @@ export function JobWorkflowDashboard({
                         {inventoryCell(item.category)}
                       </td>
                       <td className="px-2 py-2">{inventoryCell(item.profileType)}</td>
-                      <td className="px-2 py-2">{inventoryCell(item.size)}</td>
-                      <td className="px-2 py-2">{inventoryCell(item.materialGrade)}</td>
+                      <td className="px-2 py-2">
+                        {inventoryCell(splitCatalogSize(item.size ?? "").meshSpec)}
+                      </td>
+                      <td className="px-2 py-2">
+                        {inventoryCell(splitCatalogSize(item.size ?? "").dimension)}
+                      </td>
+                      <td className="px-2 py-2">
+                        {inventoryCell(
+                          splitCatalogMaterialGrade(item.materialGrade ?? "").resin
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        {inventoryCell(
+                          splitCatalogMaterialGrade(item.materialGrade ?? "").colour
+                        )}
+                      </td>
                       <td className="px-2 py-2 tabular-nums">
                         {inventoryCell(item.quantity)}
-                      </td>
-                      <td className="px-2 py-2 text-slate-600">
-                        {inventoryCell(item.description)}
                       </td>
                     </tr>
                   ))}
@@ -1066,7 +1283,7 @@ export function JobWorkflowDashboard({
             type="button"
             className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={saveJobCardNotes}
-            disabled={isSaving || cancelled || !jobCardNotesDirty}
+            disabled={isSaving || editsBlocked || !jobCardNotesDirty}
           >
             {isSaving ? "Saving…" : "Save notes"}
           </button>
@@ -1353,6 +1570,7 @@ export function JobWorkflowDashboard({
         open={showInventoryModal}
         title="Add Inventory"
         onClose={closeInventoryEditor}
+        panelClassName="max-w-md max-h-[85vh] flex flex-col overflow-visible"
         headerAction={
           <button
             type="button"
@@ -1366,72 +1584,245 @@ export function JobWorkflowDashboard({
           </button>
         }
       >
-        <div className="space-y-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          {catalogError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {catalogError}
+            </p>
+          ) : null}
+          {catalogLoading ? (
+            <p className="text-sm text-slate-500">Loading catalog…</p>
+          ) : null}
+          {!catalogLoading && !catalogError && inventoryCatalog.length === 0 ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              No catalog items yet. An org admin can add them under Inventory.
+            </p>
+          ) : null}
           {inventoryError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {inventoryError}
             </p>
           ) : null}
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-            {inventoryDraft.map((item, index) => (
-              <div key={item.localKey} className="space-y-3">
-                {item.id != null || inventoryDraft.length > 1 ? (
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-[#111827]">
-                      {inventoryDraft.length > 1 ? `Line ${index + 1}` : "Item"}
-                    </p>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            {inventoryDraft.map((item, index) => {
+              const isCollapsed =
+                item.localKey !== activeInventoryLine &&
+                !isInventoryLineIncomplete(item, inventoryCatalog);
+              const group = item.category ?? "";
+              const attr1 = item.profileType ?? "";
+              const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
+              const { resin } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+              const desc2Options = getCatalogDesc2Options(
+                inventoryCatalog,
+                group,
+                attr1
+              );
+              const desc3Options = getCatalogDesc3Options(
+                inventoryCatalog,
+                group,
+                attr1,
+                meshSpec
+              );
+              const colourOptions = getCatalogColourOptions(
+                inventoryCatalog,
+                group,
+                attr1,
+                item.size ?? "",
+                resin
+              );
+              const resinOptions = getCatalogResinOptions(
+                inventoryCatalog,
+                group,
+                attr1,
+                item.size ?? ""
+              );
+              const groupPicked = group.trim().length > 0;
+              const attr1Picked = attr1.trim().length > 0;
+              const attr2Ready = groupPicked && attr1Picked;
+              const attr2Resolved =
+                attr2Ready &&
+                (desc2Options.length === 0 || meshSpec.trim().length > 0);
+              const attr3Ready = attr2Resolved;
+              const attr3Resolved =
+                attr3Ready &&
+                (desc3Options.length === 0 || dimension.trim().length > 0);
+              const materialReady = attr3Resolved;
+              const colourReady =
+                materialReady &&
+                (resinOptions.length === 0 || resin.trim().length > 0);
+
+              if (isCollapsed) {
+                return (
+                  <div
+                    key={item.localKey}
+                    ref={(el) => {
+                      if (el) inventoryLineRefs.current.set(item.localKey, el);
+                      else inventoryLineRefs.current.delete(item.localKey);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 hover:border-orange-200"
+                  >
+                    <button
+                      type="button"
+                      disabled={inventoryBusy}
+                      className="min-w-0 flex-1 text-left disabled:opacity-50"
+                      onClick={() => setActiveInventoryLine(item.localKey)}
+                    >
+                      <p className="truncate text-sm font-semibold text-[#111827]">
+                        {inventoryLineTitle(item)}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {summarizeInventoryLine(item) || "No further details"}
+                      </p>
+                    </button>
                     <button
                       type="button"
                       aria-label="Remove inventory line"
                       disabled={inventoryBusy}
-                      className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                      className="shrink-0 rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
                       onClick={() => removeInventoryLine(item.localKey)}
                     >
                       <X className="h-3.5 w-3.5" aria-hidden />
                     </button>
                   </div>
+                );
+              }
+
+              return (
+              <div
+                key={item.localKey}
+                ref={(el) => {
+                  if (el) inventoryLineRefs.current.set(item.localKey, el);
+                  else inventoryLineRefs.current.delete(item.localKey);
+                }}
+                className="space-y-3 rounded-lg border border-[#E5E7EB] p-3"
+              >
+                {item.id != null || inventoryDraft.length > 1 ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-[#111827]">
+                      {inventoryLineTitle(item)}
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      {!isInventoryLineIncomplete(item, inventoryCatalog) ? (
+                        <button
+                          type="button"
+                          aria-label="Collapse inventory line"
+                          disabled={inventoryBusy}
+                          className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
+                          onClick={() => setActiveInventoryLine(null)}
+                        >
+                          <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        aria-label="Remove inventory line"
+                        disabled={inventoryBusy}
+                        className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                        onClick={() => removeInventoryLine(item.localKey)}
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
-                <ModalField
-                  label="Category"
+                <ModalCatalogField
+                  label="Product Group"
                   value={item.category ?? ""}
+                  options={getCatalogProductGroups(inventoryCatalog)}
                   disabled={inventoryBusy}
-                  placeholder="e.g. Fixings"
                   onChange={(category) =>
                     setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, { category })
+                      patchInventoryLine(prev, item.localKey, {
+                        category,
+                        profileType: "",
+                        size: "",
+                        materialGrade: "",
+                        masterInventoryId: undefined,
+                      })
                     )
                   }
                 />
-                <ModalField
-                  label="Profile type"
+                <ModalCatalogField
+                  key={`${item.localKey}-profileType-${item.category}`}
+                  label="Attribute 1"
                   value={item.profileType ?? ""}
+                  options={getCatalogProfileTypes(inventoryCatalog, item.category ?? "")}
                   disabled={inventoryBusy}
-                  placeholder="e.g. Clip"
                   onChange={(profileType) =>
                     setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, { profileType })
+                      patchInventoryLine(prev, item.localKey, {
+                        profileType,
+                        size: "",
+                        materialGrade: "",
+                        masterInventoryId: undefined,
+                      })
                     )
                   }
                 />
-                <ModalField
-                  label="Size"
-                  value={item.size ?? ""}
+                <ModalCatalogField
+                  key={`${item.localKey}-desc2-${item.category}-${item.profileType}`}
+                  label="Attribute 2"
+                  value={meshSpec}
+                  options={desc2Options}
+                  allowBlank={attr2Ready && desc2Options.length === 0}
                   disabled={inventoryBusy}
-                  placeholder="e.g. M8"
-                  onChange={(size) =>
+                  onChange={(nextMeshSpec) =>
                     setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, { size })
+                      patchInventoryLine(prev, item.localKey, {
+                        size: nextMeshSpec,
+                        materialGrade: "",
+                      })
                     )
                   }
                 />
-                <ModalField
-                  label="Material grade"
-                  value={item.materialGrade ?? ""}
+                <ModalCatalogField
+                  key={`${item.localKey}-desc3-${item.category}-${item.profileType}-${meshSpec}`}
+                  label="Attribute 3"
+                  value={dimension}
+                  options={desc3Options}
+                  allowBlank={attr3Ready && desc3Options.length === 0}
                   disabled={inventoryBusy}
-                  placeholder="e.g. 316"
-                  onChange={(materialGrade) =>
+                  onChange={(nextDimension) =>
                     setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, { materialGrade })
+                      patchInventoryLine(prev, item.localKey, {
+                        size: combineCatalogSize(meshSpec, nextDimension),
+                        materialGrade: "",
+                      })
+                    )
+                  }
+                />
+                <ModalCatalogField
+                  key={`${item.localKey}-grade-${item.category}-${item.profileType}-${item.size}`}
+                  label="Resin / Material"
+                  value={splitCatalogMaterialGrade(item.materialGrade ?? "").resin}
+                  options={resinOptions}
+                  allowBlank={materialReady && resinOptions.length === 0}
+                  disabled={inventoryBusy}
+                  onChange={(resin) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, {
+                        materialGrade: resin,
+                      })
+                    )
+                  }
+                />
+                <ModalCatalogField
+                  key={`${item.localKey}-colour-${item.category}-${item.profileType}-${item.size}-${
+                    splitCatalogMaterialGrade(item.materialGrade ?? "").resin
+                  }`}
+                  label="Primary Colour"
+                  value={splitCatalogMaterialGrade(item.materialGrade ?? "").colour}
+                  options={colourOptions}
+                  allowBlank={colourReady && colourOptions.length === 0}
+                  disabled={inventoryBusy}
+                  onChange={(colour) =>
+                    setInventoryDraft((prev) =>
+                      patchInventoryLine(prev, item.localKey, {
+                        materialGrade: combineCatalogMaterialGrade(
+                          splitCatalogMaterialGrade(item.materialGrade ?? "").resin,
+                          colour
+                        ),
+                      })
                     )
                   }
                 />
@@ -1440,6 +1831,13 @@ export function JobWorkflowDashboard({
                   value={item.quantity != null ? String(item.quantity) : ""}
                   disabled={inventoryBusy}
                   type="number"
+                  min={1}
+                  step={1}
+                  error={
+                    item.quantity != null && item.quantity < 1
+                      ? "Quantity must be at least 1"
+                      : undefined
+                  }
                   onChange={(qty) =>
                     setInventoryDraft((prev) =>
                       patchInventoryLine(prev, item.localKey, {
@@ -1448,22 +1846,12 @@ export function JobWorkflowDashboard({
                     )
                   }
                 />
-                <ModalField
-                  label="Description"
-                  value={item.description ?? ""}
-                  disabled={inventoryBusy}
-                  multiline
-                  placeholder="Optional notes"
-                  onChange={(description) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, { description })
-                    )
-                  }
-                />
               </div>
-            ))}
+              );
+            })}
           </div>
           <button
+            type="button"
             className="btn-primary w-full"
             disabled={inventoryBusy || !job.dbId}
             onClick={() => void saveInventory()}

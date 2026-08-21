@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plug, Shield, Users } from "lucide-react";
+import { Package, Plug, Shield, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export function OrgAdminDashboard() {
@@ -67,6 +67,25 @@ export function OrgAdminDashboard() {
                 <h3 className="text-sm font-semibold text-[#111827]">Roles</h3>
                 <p className="mt-1 text-sm text-slate-600">
                   Create and assign privileges to organization roles.
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
+            href="/org/inventory"
+            className="app-card-interactive block !p-5"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                <Package className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-[#111827]">
+                  Inventory
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Manage the product options available when adding
+                  inventory to a job.
                 </p>
               </div>
             </div>

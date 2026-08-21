@@ -1,11 +1,16 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { canEditOwnProfile, updateMyProfile } from "@/lib/frp/api";
+import {
+  canEditOwnProfile,
+  disableMfa,
+  enableMfa,
+  setupMfa,
+  updateMyProfile,
+} from "@/lib/frp/api";
+import type { MfaSetupResponse } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 
 const inputClass =
@@ -33,11 +38,87 @@ export default function ProfileSettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [mfaSetup, setMfaSetup] = useState<MfaSetupResponse | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaPassword, setMfaPassword] = useState("");
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaMessage, setMfaMessage] = useState<string | null>(null);
+  const [mfaBusy, setMfaBusy] = useState(false);
+
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       router.replace("/login");
     }
   }, [loading, isAuthenticated, router]);
+
+  async function onStartMfaSetup() {
+    setMfaError(null);
+    setMfaMessage(null);
+    setMfaBusy(true);
+    try {
+      const res = await setupMfa();
+      setMfaSetup(res);
+      setMfaCode("");
+    } catch (err) {
+      setMfaError(
+        err instanceof FrpApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Setup failed"
+      );
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function onEnableMfa(e: FormEvent) {
+    e.preventDefault();
+    setMfaError(null);
+    setMfaMessage(null);
+    setMfaBusy(true);
+    try {
+      await enableMfa(mfaCode.trim());
+      setMfaSetup(null);
+      setMfaCode("");
+      await refreshUser();
+      setMfaMessage("Authenticator MFA is enabled.");
+    } catch (err) {
+      setMfaError(
+        err instanceof FrpApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Enable failed"
+      );
+    } finally {
+      setMfaBusy(false);
+    }
+  }
+
+  async function onDisableMfa(e: FormEvent) {
+    e.preventDefault();
+    setMfaError(null);
+    setMfaMessage(null);
+    setMfaBusy(true);
+    try {
+      await disableMfa(mfaPassword, mfaCode.trim());
+      setMfaPassword("");
+      setMfaCode("");
+      await refreshUser();
+      setMfaMessage("Authenticator MFA is disabled.");
+    } catch (err) {
+      setMfaError(
+        err instanceof FrpApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Disable failed"
+      );
+    } finally {
+      setMfaBusy(false);
+    }
+  }
 
   // Seed the form once the profile arrives, and after every refresh.
   useEffect(() => {
@@ -89,6 +170,9 @@ export default function ProfileSettingsPage() {
 
   const roleCodes = user.roleCodes ?? [];
   const privileges = user.rolesPrivileges ?? [];
+
+  const mfaAvailable = Boolean(user.mfaAvailable);
+  const totpEnabled = Boolean(user.totpEnabled);
 
   return (
     <main className="app-mesh-bg flex-1 px-4 py-6 sm:px-6 lg:px-8">
@@ -229,21 +313,134 @@ export default function ProfileSettingsPage() {
           </div>
         </div>
 
-        <Link
-          href="/settings/security"
-          className="app-card mt-4 flex items-center gap-3 !p-5 transition-colors hover:bg-slate-50"
-        >
-          <ShieldCheck className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-[#111827]">
-              Security
-            </span>
-            <span className="block text-sm text-slate-600">
-              Two-factor authentication —{" "}
-              {user.totpEnabled ? "enabled" : "not enrolled"}
-            </span>
-          </span>
-        </Link>
+        <h2 className="mt-6 text-xl font-semibold text-[#111827]">Security</h2>
+
+        <div className="app-card mt-3 space-y-4 !p-5">
+          <div>
+            <h3 className="text-sm font-semibold text-[#111827]">
+              Authenticator app (TOTP)
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Status:{" "}
+              {!mfaAvailable
+                ? "MFA is not enabled for your organization (Super Admin must set MFA_TOTP_ENABLED)"
+                : totpEnabled
+                  ? "Enabled"
+                  : "Available — not enrolled"}
+            </p>
+          </div>
+
+          {!mfaAvailable && (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              When your organization has MFA enabled, you can set up Microsoft
+              Authenticator here and it will be required at sign-in.
+            </p>
+          )}
+
+          {mfaError && (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {mfaError}
+            </p>
+          )}
+          {mfaMessage && (
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {mfaMessage}
+            </p>
+          )}
+
+          {mfaAvailable && !totpEnabled && !mfaSetup && (
+            <button
+              type="button"
+              disabled={mfaBusy}
+              onClick={() => void onStartMfaSetup()}
+              className="btn-primary disabled:opacity-60"
+            >
+              {mfaBusy ? "Starting…" : "Set up Microsoft Authenticator"}
+            </button>
+          )}
+
+          {mfaSetup && (
+            <form onSubmit={onEnableMfa} className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Scan this QR code in Microsoft Authenticator, then enter the
+                6-digit code.
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={mfaSetup.qrCodeDataUri}
+                alt="MFA QR code"
+                className="mx-auto h-48 w-48 rounded-xl border border-slate-200 bg-white p-2"
+              />
+              <p className="break-all font-mono text-xs text-slate-500">
+                Manual key: {mfaSetup.secret}
+              </p>
+              <div>
+                <label className={labelClass} htmlFor="enableCode">
+                  Authenticator code
+                </label>
+                <input
+                  id="enableCode"
+                  className={inputClass}
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  required
+                  minLength={6}
+                  maxLength={8}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={mfaBusy}
+                className="btn-primary w-full disabled:opacity-60"
+              >
+                {mfaBusy ? "Enabling…" : "Enable MFA"}
+              </button>
+            </form>
+          )}
+
+          {mfaAvailable && totpEnabled && (
+            <form onSubmit={onDisableMfa} className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Disable requires your password and a current authenticator code.
+              </p>
+              <div>
+                <label className={labelClass} htmlFor="pwd">
+                  Password
+                </label>
+                <input
+                  id="pwd"
+                  type="password"
+                  className={inputClass}
+                  value={mfaPassword}
+                  onChange={(e) => setMfaPassword(e.target.value)}
+                  required
+                  minLength={8}
+                />
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="disableCode">
+                  Authenticator code
+                </label>
+                <input
+                  id="disableCode"
+                  className={inputClass}
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  required
+                  minLength={6}
+                  maxLength={8}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={mfaBusy}
+                className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+              >
+                {mfaBusy ? "Disabling…" : "Disable MFA"}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </main>
   );

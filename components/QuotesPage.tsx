@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, RefreshCw, X } from "lucide-react";
+import { ChevronDown, MessageCircle, RefreshCw, X } from "lucide-react";
 import {
   factoryStatusLabel,
   isSystemLogged,
@@ -11,6 +11,9 @@ import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import { journeyOutcomeFromStatus } from "@/lib/quotient/quote-types";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { listQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
+import { JobsPagination } from "@/components/JobsPagination";
+
+const QUOTES_PAGE_SIZE = 10;
 
 const STATUS_OPTIONS: { value: FrpQuoteStatus; label: string }[] = [
   { value: "AWAITING_ACCEPTANCE", label: "Awaiting acceptance" },
@@ -119,6 +122,48 @@ function FactoryBadge({ item }: { item: QuoteListItem }) {
   );
 }
 
+/** Backend row (raw JSON, mixed camelCase/snake_case) → the UI's `QuoteListItem`. */
+function mapQuoteRow(row: Record<string, unknown>): QuoteListItem {
+  const r = row;
+  const journey_outcome = journeyOutcomeFromStatus(r.status);
+
+  return {
+    quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
+    title: (r.title as string | null) ?? null,
+    quote_for_company_name: String(
+      r.company ?? r.customerName ?? r.quote_for_company_name ?? ""
+    ),
+    quote_status: (r.status ?? r.quoteStatus ?? r.quote_status ?? null) as
+      | string
+      | null,
+    progress: (r.progress as string | null) ?? null,
+    journey_outcome,
+    factory_job_status: (r.factoryStatus ??
+      r.factoryJobStatus ??
+      r.factory_job_status ??
+      null) as string | null,
+    job_id: (r.jobId ?? r.job_id ?? null) as string | null,
+    total_includes_tax:
+      (r.totalIncludesTax as number | null) ??
+      (r.total_includes_tax as number | null) ??
+      null,
+    currency: String(r.currency ?? "AUD"),
+    last_event_name: (r.lastEvent ??
+      r.lastEventName ??
+      r.last_event_name ??
+      null) as string | null,
+    created_at:
+      (r.createdAt as string | null) ??
+      (r.created_at as string | null) ??
+      (r.createdDate as string | null) ??
+      null,
+    updated_at: String(
+      r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
+    ),
+    question_count: Number(r.questionCount ?? r.question_count ?? 0),
+  } satisfies QuoteListItem;
+}
+
 function FilterChip({
   label,
   onClear,
@@ -141,96 +186,149 @@ function FilterChip({
   );
 }
 
-export function QuotesPage() {
-  const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<FrpQuoteStatus | "">("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Status is filtered server-side (GET /quotes?status=...). Search still
-      // has no server-side support, so page through every result (rather than
-      // capping at some fixed size) so it has the complete table to search —
-      // no magic ceiling to outgrow as the table gets bigger.
-      const PAGE_SIZE = 500;
-      const MAX_PAGES = 500; // safety net against a runaway loop, not a real cap
-      const rows: Record<string, unknown>[] = [];
-      for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
-        const page = await listQuotes(pageNum, PAGE_SIZE, {
-          status: statusFilter || undefined,
-        });
-        rows.push(...(page.content ?? []));
-        if (page.last || (page.content ?? []).length === 0) break;
-      }
-      const quotes = rows.map((row) => {
-        const r = row as Record<string, unknown>;
-
-        const journey_outcome = journeyOutcomeFromStatus(r.status);
-
-        return {
-          quote_number: String(r.quoteNumber ?? r.quote_number ?? ""),
-          title: (r.title as string | null) ?? null,
-          quote_for_company_name: String(
-            r.company ?? r.customerName ?? r.quote_for_company_name ?? ""
-          ),
-          quote_status: (r.status ??
-            r.quoteStatus ??
-            r.quote_status ??
-            null) as string | null,
-          progress: (r.progress as string | null) ?? null,
-          journey_outcome,
-          factory_job_status: (r.factoryStatus ??
-            r.factoryJobStatus ??
-            r.factory_job_status ??
-            null) as string | null,
-          job_id: (r.jobId ?? r.job_id ?? null) as string | null,
-          total_includes_tax:
-            (r.totalIncludesTax as number | null) ??
-            (r.total_includes_tax as number | null) ??
-            null,
-          currency: String(r.currency ?? "AUD"),
-          last_event_name: (r.lastEvent ??
-            r.lastEventName ??
-            r.last_event_name ??
-            null) as string | null,
-          created_at:
-            (r.createdAt as string | null) ??
-            (r.created_at as string | null) ??
-            (r.createdDate as string | null) ??
-            null,
-          updated_at: String(
-            r.occurredAt ?? r.updatedAt ?? r.updated_at ?? r.lastModifiedDate ?? ""
-          ),
-          question_count: Number(r.questionCount ?? r.question_count ?? 0),
-        } satisfies QuoteListItem;
-      });
-      setQuotes(quotes);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load quotes");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
+function StatusFilterDropdown({
+  selected,
+  onChange,
+}: {
+  selected: FrpQuoteStatus[];
+  onChange: (next: FrpQuoteStatus[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!open) return;
+    const onDocumentClick = (event: MouseEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocumentClick);
+    return () => document.removeEventListener("mousedown", onDocumentClick);
+  }, [open]);
 
-  const hasActiveFilters = statusFilter !== "";
-  const clearFilters = () => {
-    setStatusFilter("");
+  const toggle = (value: FrpQuoteStatus) => {
+    onChange(
+      selected.includes(value)
+        ? selected.filter((s) => s !== value)
+        : [...selected, value]
+    );
   };
 
-  const filtered = quotes.filter((q) => {
-    const hay = `${q.quote_number} ${q.title ?? ""} ${
-      q.quote_for_company_name
-    } ${q.quote_status ?? ""}`.toLowerCase();
-    return hay.includes(search.toLowerCase());
-  });
+  const triggerLabel =
+    selected.length === 0
+      ? "All statuses"
+      : selected.length === 1
+        ? statusLabel(selected[0])
+        : `${selected.length} statuses selected`;
+
+  return (
+    <div ref={rootRef} className="relative w-full sm:w-56">
+      <button
+        type="button"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        className="inline-flex w-full min-h-[40px] items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition-colors hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label="Filter by quote status"
+      >
+        <span className="truncate">{triggerLabel}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Quote status options"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+        >
+          {STATUS_OPTIONS.map((opt) => {
+            const checked = selected.includes(opt.value);
+            return (
+              <li key={opt.value} role="option" aria-selected={checked}>
+                <label className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-slate-800 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/20"
+                    checked={checked}
+                    onChange={() => toggle(opt.value)}
+                  />
+                  {opt.label}
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export function QuotesPage() {
+  const [statusFilters, setStatusFilters] = useState<FrpQuoteStatus[]>([]);
+  const [page, setPage] = useState(1);
+  // Bumped by the Refresh button to force the effect below to re-run.
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const statusFilterKey = statusFilters.join(",");
+
+  // Pagination is real, backend-driven — one GET /quotes?page=&size=10&status=
+  // request per page/status change, showing exactly what the backend returns.
+  const [pageRows, setPageRows] = useState<QuoteListItem[]>([]);
+  const [pageTotalItems, setPageTotalItems] = useState(0);
+  const [pageTotalPages, setPageTotalPages] = useState(1);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPageLoading(true);
+    setPageError(null);
+
+    listQuotes(page - 1, QUOTES_PAGE_SIZE, {
+      status: statusFilters.length > 0 ? statusFilters : undefined,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setPageRows((res.content ?? []).map((row) => mapQuoteRow(row as Record<string, unknown>)));
+        setPageTotalItems(res.totalElements ?? 0);
+        const total = Math.max(1, res.totalPages ?? 1);
+        setPageTotalPages(total);
+        if (page > total) setPage(total);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setPageError(e instanceof Error ? e.message : "Could not load quotes");
+        setPageRows([]);
+        setPageTotalItems(0);
+        setPageTotalPages(1);
+      })
+      .finally(() => {
+        if (!cancelled) setPageLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [statusFilterKey, page, reloadToken]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilterKey]);
+
+  const hasActiveFilters = statusFilters.length > 0;
+  const clearFilters = () => {
+    setStatusFilters([]);
+  };
+
+  const loading = pageLoading;
+  const error = pageError;
+  const pagedQuotes = pageRows;
+  const pages = pageTotalPages;
+  const safePage = page;
+  const totalItems = pageTotalItems;
 
   return (
     <main className="app-mesh-bg min-h-screen overflow-x-hidden">
@@ -251,32 +349,14 @@ export function QuotesPage() {
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search quote #, title, company…"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-64"
+              <StatusFilterDropdown
+                selected={statusFilters}
+                onChange={setStatusFilters}
               />
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as FrpQuoteStatus | "")
-                }
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-44"
-                aria-label="Filter by quote status"
-              >
-                <option value="">All statuses</option>
-                {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
             </div>
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => setReloadToken((t) => t + 1)}
               className="btn-secondary inline-flex w-full shrink-0 items-center justify-center gap-1.5 sm:w-auto"
             >
               <RefreshCw
@@ -289,12 +369,15 @@ export function QuotesPage() {
 
           {hasActiveFilters && (
             <div className="flex flex-wrap items-center gap-2">
-              {statusFilter && (
+              {statusFilters.map((status) => (
                 <FilterChip
-                  label={`Status: ${statusLabel(statusFilter)}`}
-                  onClear={() => setStatusFilter("")}
+                  key={status}
+                  label={`Status: ${statusLabel(status)}`}
+                  onClear={() =>
+                    setStatusFilters((prev) => prev.filter((s) => s !== status))
+                  }
                 />
-              )}
+              ))}
               <button
                 type="button"
                 onClick={clearFilters}
@@ -325,12 +408,12 @@ export function QuotesPage() {
             <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
               Loading quotes…
             </p>
-          ) : filtered.length === 0 ? (
+          ) : totalItems === 0 ? (
             <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
               No quotes found. Webhooks populate this list automatically.
             </p>
           ) : (
-            filtered.map((q) => <QuoteMobileCard key={q.quote_number} q={q} />)
+            pagedQuotes.map((q) => <QuoteMobileCard key={q.quote_number} q={q} />)
           )}
         </div>
 
@@ -361,7 +444,7 @@ export function QuotesPage() {
                       Loading quotes…
                     </td>
                   </tr>
-                ) : filtered.length === 0 ? (
+                ) : totalItems === 0 ? (
                   <tr>
                     <td
                       colSpan={11}
@@ -372,7 +455,7 @@ export function QuotesPage() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((q) => (
+                  pagedQuotes.map((q) => (
                     <tr
                       key={q.quote_number}
                       className="border-b border-slate-100 transition-colors hover:bg-slate-50/80"
@@ -442,6 +525,18 @@ export function QuotesPage() {
             </table>
           </div>
         </div>
+
+        {!loading && (
+          <div className="mt-4">
+            <JobsPagination
+              page={safePage}
+              totalPages={pages}
+              pageSize={QUOTES_PAGE_SIZE}
+              totalItems={totalItems}
+              onPageChange={setPage}
+            />
+          </div>
+        )}
       </div>
     </main>
   );

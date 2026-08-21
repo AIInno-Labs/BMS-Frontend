@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -36,16 +36,52 @@ import { useAuth } from "@/context/AuthContext";
 import { ACCESS_KEYS } from "@/lib/frp/access";
 import { stageGroupCounts } from "@/lib/frp/job-counts";
 import {
-  filterJobsByStageGroup,
   jobMatchesStageGroup,
   STAGE_GROUP_INFO,
   type JobStageGroup,
   parseStageGroupParam,
 } from "@/lib/jobStageGroups";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import {
+  BACKEND_JOB_STATUSES,
+  isCancelledJob,
+  priorityToBackend,
+  statusToBackend,
+  statusToUi,
+  type BackendJobStatus,
+} from "@/lib/frp/job-status";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
+import { listJobs, type FrpJobSort } from "@/lib/frp/api";
+import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
 import type { Job, JobStatus, ResinType } from "@/lib/types";
+
+/**
+ * Which backend `JobStatus` enum values belong to each stage-group card.
+ *
+ * The backend can only filter `GET /jobs` by one status at a time, but a
+ * stage-group card represents several statuses at once — so a group filter
+ * is served as one backend request per status in the group, merged client
+ * side (see `loadGroupJobs` in `JobsList`).
+ */
+const STAGE_GROUP_BACKEND_STATUSES: Record<JobStageGroup, BackendJobStatus[]> = (() => {
+  const groups: Record<JobStageGroup, BackendJobStatus[]> = {
+    "not-started": [],
+    manufacturing: [],
+    delivered: [],
+  };
+  for (const status of BACKEND_JOB_STATUSES) {
+    groups[resolveStatusGroup(statusToUi(status))].push(status);
+  }
+  return groups;
+})();
+
+/** UI sort option → the `JobSort` enum `GET /jobs` accepts. No backend
+ *  equivalent for job-id ordering, so it falls back to `RECENT`. */
+function toBackendSort(sortBy: JobSortOption): FrpJobSort {
+  if (sortBy === "due_asc") return "DUE_DATE";
+  if (sortBy === "created_asc") return "OLDEST";
+  return "RECENT";
+}
 
 interface JobsListProps {
   jobs: Job[];
@@ -141,20 +177,43 @@ export function JobsList({ jobs }: JobsListProps) {
   const [searchQuery, setSearchQuery] = useState(
     () => searchParams.get("q") ?? ""
   );
-  const [statusFilter, setStatusFilter] = useState<JobStatus | "All">("All");
+  const [statusFilter, setStatusFilter] = useState<JobStatus | "All">(
+    () => (searchParams.get("status") as JobStatus | null) ?? "All"
+  );
   const [stageGroupFilter, setStageGroupFilter] = useState<JobStageGroup | null>(
     () => parseStageGroupParam(searchParams.get("group"))
   );
   const [resinFilter] = useState<ResinType | "All">("All");
   const [sortBy, setSortBy] = useState<JobSortOption>("created_desc");
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+    const fromUrl = Number(searchParams.get("page"));
+    return Number.isFinite(fromUrl) && fromUrl >= 1 ? Math.trunc(fromUrl) : 1;
+  });
   const [createJobOpen, setCreateJobOpen] = useState(false);
 
   useEffect(() => {
     const fromUrl = parseStageGroupParam(searchParams.get("group"));
     setStageGroupFilter(fromUrl);
     setSearchQuery(searchParams.get("q") ?? "");
+    setStatusFilter((searchParams.get("status") as JobStatus | null) ?? "All");
+    const pageFromUrl = Number(searchParams.get("page"));
+    setPage(Number.isFinite(pageFromUrl) && pageFromUrl >= 1 ? Math.trunc(pageFromUrl) : 1);
   }, [searchParams]);
+
+  /** Merge-and-replace the current URL's query string — the same pattern
+   *  already used by the group filter, extended to status/page. */
+  const updateUrlParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `/jobs?${qs}` : "/jobs", { scroll: false });
+    },
+    [router, searchParams]
+  );
 
   const filteredJobs = useMemo(() => {
     const parsed = parseNaturalLanguageQuery(searchQuery);
@@ -192,25 +251,15 @@ export function JobsList({ jobs }: JobsListProps) {
     });
   }, [jobs, searchQuery, resinFilter, statusFilter, stageGroupFilter]);
 
-  const stageGroupJobs = useMemo(
-    () =>
-      stageGroupFilter ? filterJobsByStageGroup(jobs, stageGroupFilter) : [],
-    [jobs, stageGroupFilter]
-  );
-
   const handleStageCardClick = (group: JobStageGroup) => {
     const next = stageGroupFilter === group ? null : group;
     setStageGroupFilter(next);
+    setPage(1);
     if (next) {
       setStatusFilter("All");
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("group", next);
-      router.replace(`/jobs?${params.toString()}`, { scroll: false });
+      updateUrlParams({ group: next, status: null, page: null });
     } else {
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("group");
-      const qs = params.toString();
-      router.replace(qs ? `/jobs?${qs}` : "/jobs", { scroll: false });
+      updateUrlParams({ group: null, page: null });
     }
   };
 
@@ -267,21 +316,184 @@ export function JobsList({ jobs }: JobsListProps) {
     [sortedJobs, safePage]
   );
 
+  // Skip the very first run — `page` may have just been initialised from the
+  // URL (`?page=3`), and resetting it to 1 on mount would throw that away.
+  const skipNextPageReset = useRef(true);
   useEffect(() => {
+    if (skipNextPageReset.current) {
+      skipNextPageReset.current = false;
+      return;
+    }
     setPage(1);
   }, [searchQuery, resinFilter, statusFilter, stageGroupFilter, sortBy, jobs.length]);
 
   const clearStageGroupFilter = () => {
     setStageGroupFilter(null);
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("group");
-    const qs = params.toString();
-    router.replace(qs ? `/jobs?${qs}` : "/jobs", { scroll: false });
+    setPage(1);
+    updateUrlParams({ group: null, page: null });
   };
 
+  // Worker mode's clamp — admin modes clamp themselves further down.
   useEffect(() => {
+    if (!isWorker) return;
     if (page > pages) setPage(pages);
-  }, [page, pages]);
+  }, [isWorker, page, pages]);
+
+  // ------------------------------------------------------------------
+  // Admin (non-worker) server-driven data. Worker mode keeps using
+  // filteredJobs/sortedJobs/pagedJobs above (a small, per-worker dataset
+  // from JobsContext) — out of scope for this fix. Everything below only
+  // drives the admin table, in one of two modes:
+  //  - no stage group selected: one `GET /jobs` request per page/filter/sort
+  //    change, using the backend's real pagination.
+  //  - a stage group selected: `GET /jobs?status=X` looped once per status
+  //    in that group (STAGE_GROUP_BACKEND_STATUSES), merged, then sorted and
+  //    paginated locally — the backend has no "any of these statuses" filter,
+  //    so this is the closest equivalent without a backend change.
+  // ------------------------------------------------------------------
+
+  const [defaultRows, setDefaultRows] = useState<Job[]>([]);
+  const [defaultTotalItems, setDefaultTotalItems] = useState(0);
+  const [defaultTotalPages, setDefaultTotalPages] = useState(1);
+  const [defaultLoading, setDefaultLoading] = useState(false);
+  const [defaultError, setDefaultError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isWorker || stageGroupFilter) return;
+    let cancelled = false;
+    setDefaultLoading(true);
+    setDefaultError(null);
+
+    const parsed = parseNaturalLanguageQuery(searchQuery);
+    const explicitStatus =
+      statusFilter !== "All" ? statusToBackend(statusFilter) ?? undefined : undefined;
+    const impliedStatus =
+      !explicitStatus && parsed.statusFilter
+        ? statusToBackend(parsed.statusFilter) ?? undefined
+        : undefined;
+    const search =
+      [parsed.searchText, parsed.clientHint].filter(Boolean).join(" ").trim() ||
+      undefined;
+    const priority = parsed.priorityFilter
+      ? priorityToBackend(parsed.priorityFilter)
+      : undefined;
+
+    listJobs(page - 1, JOBS_PAGE_SIZE, {
+      search,
+      sort: toBackendSort(sortBy),
+      status: explicitStatus ?? impliedStatus,
+      priority,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setDefaultRows((res.content ?? []).map(frpJobSummaryToUi));
+        setDefaultTotalItems(res.totalElements ?? 0);
+        const total = Math.max(1, res.totalPages ?? 1);
+        setDefaultTotalPages(total);
+        if (page > total) setPage(total);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setDefaultError(e instanceof Error ? e.message : "Could not load jobs");
+        setDefaultRows([]);
+        setDefaultTotalItems(0);
+        setDefaultTotalPages(1);
+      })
+      .finally(() => {
+        if (!cancelled) setDefaultLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isWorker, stageGroupFilter, searchQuery, statusFilter, sortBy, page]);
+
+  const [groupRows, setGroupRows] = useState<Job[]>([]);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isWorker || !stageGroupFilter) return;
+    let cancelled = false;
+    setGroupLoading(true);
+    setGroupError(null);
+
+    async function loadGroupJobs() {
+      // MAX_PAGES is a safety net against a runaway loop, not a real cap.
+      const MAX_PAGES = 500;
+      const statuses = STAGE_GROUP_BACKEND_STATUSES[stageGroupFilter as JobStageGroup];
+      const collected: Job[] = [];
+      for (const status of statuses) {
+        for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
+          const res = await listJobs(backendPage, 200, { status, sort: "RECENT" });
+          collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
+          if (res.last || (res.content ?? []).length === 0) break;
+        }
+      }
+      return collected;
+    }
+
+    loadGroupJobs()
+      .then((collected) => {
+        if (!cancelled) setGroupRows(collected);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setGroupError(e instanceof Error ? e.message : "Could not load jobs");
+        setGroupRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setGroupLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isWorker, stageGroupFilter]);
+
+  const groupFilteredJobs = useMemo(() => {
+    if (!stageGroupFilter) return [];
+    const parsed = parseNaturalLanguageQuery(searchQuery);
+    const textQuery = parsed.searchText.toLowerCase();
+    if (!textQuery) return groupRows;
+    return groupRows.filter((job) => {
+      const contactName = (job.clientContactName ?? "").toLowerCase();
+      return (
+        job.clientName.toLowerCase().includes(textQuery) ||
+        job.projectName.toLowerCase().includes(textQuery) ||
+        job.id.toLowerCase().includes(textQuery) ||
+        contactName.includes(textQuery)
+      );
+    });
+  }, [groupRows, stageGroupFilter, searchQuery]);
+
+  const groupSortedJobs = useMemo(
+    () => sortJobs(groupFilteredJobs, sortBy),
+    [groupFilteredJobs, sortBy]
+  );
+
+  const groupPages = totalPages(groupSortedJobs.length, JOBS_PAGE_SIZE);
+  const safeGroupPage = Math.min(page, groupPages);
+  const groupPagedJobs = useMemo(
+    () => paginateJobs(groupSortedJobs, safeGroupPage, JOBS_PAGE_SIZE),
+    [groupSortedJobs, safeGroupPage]
+  );
+
+  useEffect(() => {
+    if (isWorker || !stageGroupFilter) return;
+    if (page > groupPages) setPage(groupPages);
+  }, [isWorker, stageGroupFilter, page, groupPages]);
+
+  const adminTableJobs = stageGroupFilter ? groupPagedJobs : defaultRows;
+  const adminTotalItems = stageGroupFilter ? groupSortedJobs.length : defaultTotalItems;
+  const adminTotalPages = stageGroupFilter ? groupPages : defaultTotalPages;
+  const adminPage = stageGroupFilter ? safeGroupPage : page;
+  const adminError = stageGroupFilter ? groupError : defaultError;
+
+  const displayedJobs = isWorker ? pagedJobs : adminTableJobs;
+  const displayedTotalItems = isWorker ? sortedJobs.length : adminTotalItems;
+  const displayedTotalPages = isWorker ? pages : adminTotalPages;
+  const displayedPage = isWorker ? safePage : adminPage;
 
   return (
     <div className={`space-y-4 ${isWorker ? "worker-ui" : ""}`}>
@@ -345,7 +557,7 @@ export function JobsList({ jobs }: JobsListProps) {
         >
           {(() => {
             const info = STAGE_GROUP_INFO[stageGroupFilter];
-            const preview = stageGroupJobs.slice(0, 8);
+            const preview = groupSortedJobs.slice(0, 8);
             return (
               <>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -373,32 +585,43 @@ export function JobsList({ jobs }: JobsListProps) {
                     Clear filter
                   </button>
                 </div>
-                <p className="mt-3 text-sm font-semibold text-slate-900">
-                  {stageGroupJobs.length} job{stageGroupJobs.length === 1 ? "" : "s"} in this stage
-                </p>
-                {preview.length > 0 ? (
-                  <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                    {preview.map((job) => (
-                      <li key={job.id}>
-                        <Link
-                          href={`/jobs/${job.id}`}
-                          className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm transition-colors hover:bg-orange-50/50"
-                        >
-                          <span className="font-semibold text-slate-900">{job.id}</span>
-                          <span className="min-w-0 truncate text-slate-600">{job.clientName}</span>
-                          <JobListStageBadges job={job} variant="short" />
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
+                {groupLoading && groupRows.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-600">Loading jobs in this stage…</p>
+                ) : groupError ? (
+                  <p className="mt-3 text-sm text-red-600">{groupError}</p>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-600">No jobs in this stage right now.</p>
-                )}
-                {stageGroupJobs.length > preview.length && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Showing {preview.length} of {stageGroupJobs.length} — full list in the table
-                    below.
-                  </p>
+                  <>
+                    <p className="mt-3 text-sm font-semibold text-slate-900">
+                      {groupSortedJobs.length} job{groupSortedJobs.length === 1 ? "" : "s"} in this
+                      stage
+                    </p>
+                    {preview.length > 0 ? (
+                      <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                        {preview.map((job) => (
+                          <li key={job.id}>
+                            <Link
+                              href={`/jobs/${job.id}`}
+                              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm transition-colors hover:bg-orange-50/50"
+                            >
+                              <span className="font-semibold text-slate-900">{job.id}</span>
+                              <span className="min-w-0 truncate text-slate-600">
+                                {job.clientName}
+                              </span>
+                              <JobListStageBadges job={job} variant="short" />
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-600">No jobs in this stage right now.</p>
+                    )}
+                    {groupSortedJobs.length > preview.length && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Showing {preview.length} of {groupSortedJobs.length} — full list in the
+                        table below.
+                      </p>
+                    )}
+                  </>
                 )}
               </>
             );
@@ -413,8 +636,15 @@ export function JobsList({ jobs }: JobsListProps) {
             <select
               value={statusFilter}
               onChange={(e) => {
-                setStatusFilter(e.target.value as JobStatus | "All");
-                if (stageGroupFilter) clearStageGroupFilter();
+                const next = e.target.value as JobStatus | "All";
+                setStatusFilter(next);
+                setStageGroupFilter(null);
+                setPage(1);
+                updateUrlParams({
+                  status: next === "All" ? null : next,
+                  group: null,
+                  page: null,
+                });
               }}
               className="ml-2 min-w-0 max-w-36 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
               aria-label="Filter stage"
@@ -458,7 +688,17 @@ export function JobsList({ jobs }: JobsListProps) {
         </label>
       )}
 
-      {sortedJobs.length === 0 ? (
+      {!isWorker && !stageGroupFilter && defaultLoading && defaultRows.length === 0 ? (
+        <p className="app-card text-center text-base font-medium text-slate-600">
+          Loading jobs…
+        </p>
+      ) : !isWorker && stageGroupFilter && groupLoading && groupRows.length === 0 ? (
+        <p className="app-card text-center text-base font-medium text-slate-600">
+          Loading jobs…
+        </p>
+      ) : !isWorker && adminError ? (
+        <p className="app-card text-center text-base font-medium text-red-600">{adminError}</p>
+      ) : displayedTotalItems === 0 ? (
         <p className="app-card text-center text-base font-medium text-slate-600">
           {isWorker
             ? "No assigned jobs on the floor right now. Check back later."
@@ -468,15 +708,16 @@ export function JobsList({ jobs }: JobsListProps) {
         </p>
       ) : (
         <>
-          <JobsTable jobs={pagedJobs} workerMode={isWorker} />
-          <JobsCards jobs={pagedJobs} workerMode={isWorker} />
+          <JobsTable jobs={displayedJobs} workerMode={isWorker} />
+          <JobsCards jobs={displayedJobs} workerMode={isWorker} />
           <JobsPagination
-            page={safePage}
-            totalPages={pages}
+            page={displayedPage}
+            totalPages={displayedTotalPages}
             pageSize={JOBS_PAGE_SIZE}
-            totalItems={sortedJobs.length}
+            totalItems={displayedTotalItems}
             onPageChange={(next) => {
               setPage(next);
+              updateUrlParams({ page: next > 1 ? String(next) : null });
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           />
@@ -505,7 +746,7 @@ function JobsTable({
   };
   return (
     <div className="hidden min-w-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_20px_rgba(15,23,42,0.06)] lg:block">
-      <div className="max-h-[min(28rem,65vh)] overflow-auto">
+      <div className="overflow-auto">
       <table
         className={`w-full table-fixed border-collapse ${workerMode ? "min-w-lg" : "min-w-[940px]"}`}
       >

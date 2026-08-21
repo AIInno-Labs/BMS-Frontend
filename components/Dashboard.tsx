@@ -18,8 +18,47 @@ function pickRecentJobs(allJobs: Job[]): Job[] {
       if (bTime !== aTime) return bTime - aTime;
       return b.id.localeCompare(a.id);
     })
-    .slice(0, 6);
+    .slice(0, 10);
 }
+
+/**
+ * Row-by-row visibility for the Recent Jobs list, keyed by viewport height
+ * rather than a fixed count - the first 4 rows always show, and each
+ * further row only appears once the screen is tall enough to fit it, so a
+ * laptop and an external monitor each see as many recent jobs as their
+ * actual vertical space allows, without a JS-measured height (which would
+ * flash/reflow on load) and without a fixed count that wastes a tall screen
+ * or overflows a short one.
+ *
+ * These strings must stay literal (not built via template interpolation) -
+ * Tailwind's build-time scanner only generates CSS for class names it can
+ * find as-written in the source.
+ */
+const RECENT_JOB_ROW_VISIBILITY_BLOCK = [
+  "block",
+  "block",
+  "block",
+  "block",
+  "hidden [@media(min-height:600px)]:block",
+  "hidden [@media(min-height:700px)]:block",
+  "hidden [@media(min-height:800px)]:block",
+  "hidden [@media(min-height:900px)]:block",
+  "hidden [@media(min-height:1000px)]:block",
+  "hidden [@media(min-height:1100px)]:block",
+] as const;
+
+const RECENT_JOB_ROW_VISIBILITY_TABLE_ROW = [
+  "table-row",
+  "table-row",
+  "table-row",
+  "table-row",
+  "hidden [@media(min-height:600px)]:table-row",
+  "hidden [@media(min-height:700px)]:table-row",
+  "hidden [@media(min-height:800px)]:table-row",
+  "hidden [@media(min-height:900px)]:table-row",
+  "hidden [@media(min-height:1000px)]:table-row",
+  "hidden [@media(min-height:1100px)]:table-row",
+] as const;
 
 function isActiveJob(job: Job): boolean {
   return job.status !== "Complete" && job.status !== "Cancelled";
@@ -285,7 +324,7 @@ export function Dashboard() {
 
           {isManager && (
             <section
-              className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
               aria-label="Recent jobs"
             >
               <div className="border-b border-slate-100 px-3 py-2 sm:px-4">
@@ -307,11 +346,11 @@ export function Dashboard() {
                 </div>
               </div>
               <div className="space-y-1 p-2.5 lg:hidden">
-                {recentJobs.map((job) => (
+                {recentJobs.map((job, index) => (
                   <Link
                     key={job.id}
                     href={`/jobs/${job.id}`}
-                    className="block rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50"
+                    className={`${RECENT_JOB_ROW_VISIBILITY_BLOCK[index] ?? "hidden"} rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-xs font-semibold text-slate-900">{job.id}</p>
@@ -325,7 +364,7 @@ export function Dashboard() {
                 ))}
               </div>
               <div className="hidden min-w-0 lg:block">
-                <div className="max-h-[8.6rem] overflow-auto">
+                <div className="overflow-auto">
                   <table className="w-full min-w-[620px] text-left">
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
@@ -336,8 +375,11 @@ export function Dashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                    {recentJobs.map((job) => (
-                      <tr key={job.id} className="hover:bg-slate-50/70">
+                    {recentJobs.map((job, index) => (
+                      <tr
+                        key={job.id}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} hover:bg-slate-50/70`}
+                      >
                         <td className="px-3 py-1.5 font-medium text-slate-900">
                           <Link href={`/jobs/${job.id}`} className="hover:text-amber-700">
                             {job.id}
