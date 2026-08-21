@@ -33,12 +33,11 @@ import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
-  addJobInventory,
   deleteJobDocument,
-  deleteJobInventoryLines,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
+  replaceJobInventory,
   updateJobPayment,
   uploadJobDocument,
 } from "@/lib/frp/api";
@@ -171,7 +170,7 @@ function emptyInventoryLine(): InventoryDraftLine {
     profileType: "",
     size: "",
     materialGrade: "",
-    quantity: null,
+    quantity: 1,
     localKey: newInventoryKey(),
   };
 }
@@ -237,8 +236,7 @@ function isBlankInventoryLine(item: JobInventoryLine): boolean {
     !item.category?.trim() &&
     !item.profileType?.trim() &&
     !item.size?.trim() &&
-    !item.materialGrade?.trim() &&
-    item.quantity == null
+    !item.materialGrade?.trim()
   );
 }
 
@@ -910,9 +908,23 @@ export function JobWorkflowDashboard({
   const saveInventory = async () => {
     if (!job.dbId) return;
     const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
-    if (filled.some((item) => isInventoryLineIncomplete(item, inventoryCatalog))) {
+
+    const qtyInvalid = filled.find(
+      (item) => !isValidInventoryQuantity(item.quantity)
+    );
+    if (qtyInvalid) {
+      setActiveInventoryLine(qtyInvalid.localKey);
+      setInventoryError("Quantity must be at least 1.");
+      return;
+    }
+
+    const unmatched = filled.find(
+      (item) => matchingCatalogItems(inventoryCatalog, item).length !== 1
+    );
+    if (unmatched) {
+      setActiveInventoryLine(unmatched.localKey);
       setInventoryError(
-        "Each inventory line must match one catalog item and have a quantity of at least 1."
+        "Each inventory line must match one catalog item. Finish the dropdowns on the highlighted line."
       );
       return;
     }
@@ -920,7 +932,6 @@ export function JobWorkflowDashboard({
     const resolved = filled.map((line) => {
       const match = resolveCatalogItem(inventoryCatalog, line);
       return {
-        line,
         masterInventoryId: match!.id,
         quantity: line.quantity!,
       };
@@ -934,35 +945,18 @@ export function JobWorkflowDashboard({
     }
 
     const original = job.inventory ?? [];
-    const originalByMaster = new Map<number, JobInventoryLine>();
+    const originalByMaster = new Map<number, number>();
     for (const line of original) {
       if (line.masterInventoryId != null) {
-        originalByMaster.set(line.masterInventoryId, line);
+        originalByMaster.set(line.masterInventoryId, line.quantity ?? 0);
       }
     }
-
-    const keptMasters = new Set(masterIds);
-    const toDelete = original
-      .filter(
-        (line) =>
-          line.id != null &&
-          line.masterInventoryId != null &&
-          !keptMasters.has(line.masterInventoryId)
-      )
-      .map((line) => line.id!);
-
-    const toUpsert = resolved
-      .filter((row) => {
-        const prev = originalByMaster.get(row.masterInventoryId);
-        if (!prev) return true;
-        return (prev.quantity ?? 0) !== row.quantity;
-      })
-      .map((row) => ({
-        masterInventoryId: row.masterInventoryId,
-        quantity: row.quantity,
-      }));
-
-    if (toDelete.length === 0 && toUpsert.length === 0) {
+    const unchanged =
+      originalByMaster.size === resolved.length &&
+      resolved.every(
+        (row) => originalByMaster.get(row.masterInventoryId) === row.quantity
+      );
+    if (unchanged) {
       setShowInventoryModal(false);
       return;
     }
@@ -970,12 +964,7 @@ export function JobWorkflowDashboard({
     setInventoryBusy(true);
     setInventoryError(null);
     try {
-      if (toDelete.length > 0) {
-        await deleteJobInventoryLines(job.dbId, toDelete);
-      }
-      if (toUpsert.length > 0) {
-        await addJobInventory(job.dbId, toUpsert);
-      }
+      await replaceJobInventory(job.dbId, resolved);
       await onJobChanged?.();
       setShowInventoryModal(false);
     } catch (e) {
@@ -1843,6 +1832,7 @@ export function JobWorkflowDashboard({
                   disabled={inventoryBusy}
                   type="number"
                   min={1}
+                  step={1}
                   error={
                     item.quantity != null && item.quantity < 1
                       ? "Quantity must be at least 1"
@@ -1861,6 +1851,7 @@ export function JobWorkflowDashboard({
             })}
           </div>
           <button
+            type="button"
             className="btn-primary w-full"
             disabled={inventoryBusy || !job.dbId}
             onClick={() => void saveInventory()}
