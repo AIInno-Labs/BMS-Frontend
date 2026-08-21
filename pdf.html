@@ -43,19 +43,6 @@ body.jc-print{
     white-space:nowrap;
 }
 
-.jc-version{
-    position:absolute;
-    bottom:8px;
-    right:10px;
-    font-size:7px;
-    font-weight:700;
-    letter-spacing:0.04em;
-    color:rgba(47,49,56,0.7);
-    pointer-events:none;
-    z-index:5;
-    white-space:nowrap;
-}
-
 @page{
     size:A4 portrait;
     margin:2mm;
@@ -907,8 +894,7 @@ Pack Dimensions & Delivery Instructions
 
 </div>
 
-<div class="jc-watermark">JOB ID <span data-jc="jobNumberWatermark"></span></div>
-<div class="jc-version" data-jc="jobCardVersion"></div>
+<div class="jc-watermark">JOB <span data-jc="jobNumberWatermark"></span> · <span data-jc="jobCardVersion"></span></div>
 
 </div>
 

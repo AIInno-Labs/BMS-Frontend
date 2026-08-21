@@ -57,9 +57,6 @@ export function ensureWorkflowExtras(
       : Array.from({ length: 9 }, () => "");
 
   return {
-    documentsRequired: raw?.documentsRequired ?? false,
-    sampleRequired: raw?.sampleRequired ?? false,
-    coiRequired: raw?.coiRequired ?? false,
     jobType: raw?.jobType ?? job.jobType ?? undefined,
     projectedStartDate: raw?.projectedStartDate ?? "",
     productionStatus: raw?.productionStatus ?? PRODUCTION_STATUS_OPTIONS[0],

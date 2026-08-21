@@ -49,6 +49,10 @@ import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
 import { FrpApiError } from "@/lib/frp/types";
 import { isCancelledJob } from "@/lib/frp/job-status";
+import {
+  CASH_PAYMENT_BLOCK_MESSAGE,
+  isJobLockedForCashPayment,
+} from "@/lib/frp/job-cash-payment-gate";
 import { JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import type {
   Job,
@@ -129,6 +133,7 @@ export function JobCard({ jobId }: JobCardProps) {
     if (editFromUrlApplied.current) return;
     if (searchParams.get("edit") !== "1" || !isManager || isWorker || !sourceJob) return;
     if (isCancelledJob(sourceJob.status)) return;
+    if (isJobLockedForCashPayment(sourceJob)) return;
     editFromUrlApplied.current = true;
     const base = { ...sourceJob, printDetails: ensurePrintDetails(sourceJob) };
     setDraft(base);
@@ -292,6 +297,10 @@ export function JobCard({ jobId }: JobCardProps) {
   };
 
   const handleSave = async () => {
+    if (isJobLockedForCashPayment(job)) {
+      setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
     setSaveError(null);
     setSaveSuccess(false);
     setIsSaving(true);
@@ -403,7 +412,7 @@ export function JobCard({ jobId }: JobCardProps) {
   ];
 
   const startEditing = () => {
-    if (isCancelledJob(job.status)) return;
+    if (isCancelledJob(job.status) || isJobLockedForCashPayment(job)) return;
     setSaveSuccess(false);
     const base = { ...job, printDetails: ensurePrintDetails(job) };
     setDraft(base);
@@ -455,6 +464,10 @@ export function JobCard({ jobId }: JobCardProps) {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => {
+    if (isJobLockedForCashPayment(job) && patch.status !== "Cancelled") {
+      setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
     setSaveError(null);
     setSaveSuccess(false);
     setIsSaving(true);

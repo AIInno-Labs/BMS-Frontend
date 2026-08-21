@@ -1,12 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   buildOfficialJobCardData,
-  formatJobCardVersionLabel,
+  formatJobCardIdVersionFooter,
   PHOTO_CHECKLIST_ROWS,
   SCOPE_CHECKLIST_ITEMS,
 } from "@/lib/jobCardPrint";
 import type { OfficialJobCardData } from "@/lib/jobCardPrint";
+import { getJobAuditCount } from "@/lib/frp/job-audit";
 import type { Job } from "@/lib/types";
 
 const FRP_LOGO_LOCKUP_SRC = "/frp-logo-lockup-trimmed.png";
@@ -309,7 +311,9 @@ function OfficialPage1({ data }: { data: OfficialJobCardData }) {
       </div>
 
       <footer className="official-jc-footer official-jc-footer--pinned">
-        <span className="official-jc-footer-left">{formatJobCardVersionLabel(data.jobCardVersion)}</span>
+        <span className="official-jc-footer-left">
+          {formatJobCardIdVersionFooter(data.jobNumber, data.jobCardVersion)}
+        </span>
         <span className="official-jc-footer-page">Page 1</span>
       </footer>
     </section>
@@ -502,7 +506,9 @@ function OfficialPage2({ data }: { data: OfficialJobCardData }) {
       </div>
 
       <footer className="official-jc-footer official-jc-footer--pinned">
-        <span className="official-jc-footer-left">{formatJobCardVersionLabel(data.jobCardVersion)}</span>
+        <span className="official-jc-footer-left">
+          {formatJobCardIdVersionFooter(data.jobNumber, data.jobCardVersion)}
+        </span>
         <span className="official-jc-footer-center">Workshop Schedule_Inventory- NEW</span>
         <span className="official-jc-footer-page">Page 2</span>
       </footer>
@@ -577,7 +583,21 @@ export function JobCardOfficialPrint({
   job: Job;
   className?: string;
 }) {
-  const data = buildOfficialJobCardData(job);
+  const [auditCount, setAuditCount] = useState(0);
+
+  useEffect(() => {
+    const dbId = job.dbId;
+    if (!dbId) return;
+    let cancelled = false;
+    void getJobAuditCount(dbId).then((count) => {
+      if (!cancelled) setAuditCount(count);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId]);
+
+  const data = buildOfficialJobCardData(job, undefined, auditCount);
 
   return (
     <div className={`official-jc-root ${className}`.trim()}>

@@ -46,6 +46,7 @@ import {
   type PoItemRow,
 } from "@/lib/poLineItems";
 import { isCancelledJob } from "@/lib/frp/job-status";
+import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import type { Job } from "@/lib/types";
 
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -476,7 +477,8 @@ export function JobDocumentRevisionsCard({
   onJobChanged,
   onDocumentsChanged,
 }: JobDocumentRevisionsCardProps) {
-  const locked = isCancelledJob(job.status);
+  const locked =
+    isCancelledJob(job.status) || isJobLockedForCashPayment(job);
   const { user: me } = useAuth();
   const [docType, setDocType] = useState<DocTab>("po");
   const [poCompareOpen, setPoCompareOpen] = useState(false);
@@ -1179,9 +1181,6 @@ export function JobDocumentRevisionsCard({
                     <span className="font-semibold text-slate-800">Add note</span> — versions
                     will show here for review.
                   </p>
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    Upload happens in Status Control, not here.
-                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1418,9 +1417,6 @@ export function JobDocumentRevisionsCard({
                   Status Control and attach the drawing file in{" "}
                   <span className="font-semibold text-slate-800">Add note</span> — revisions
                   will show here.
-                </p>
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Upload happens in Status Control, not here.
                 </p>
               </div>
             ) : (

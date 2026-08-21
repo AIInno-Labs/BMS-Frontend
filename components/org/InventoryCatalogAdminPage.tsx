@@ -227,9 +227,10 @@ export function InventoryCatalogAdminPage() {
     setFormError(null);
     try {
       if (editItem) {
-        const updated = masterInventoryToCatalogItem(
-          await updateMasterInventory(editItem.id, catalogEntryToMasterBody(entry))
-        );
+        const [updatedDto] = await updateMasterInventory([
+          { id: editItem.id, ...catalogEntryToMasterBody(entry) },
+        ]);
+        const updated = masterInventoryToCatalogItem(updatedDto);
         setItems((prev) =>
           prev.map((item) => (item.id === editItem.id ? updated : item))
         );
@@ -507,7 +508,7 @@ export function InventoryCatalogAdminPage() {
         onConfirm={() => {
           if (!deleteTarget) return;
           const id = deleteTarget.id;
-          void deleteMasterInventory(id)
+          void deleteMasterInventory([id])
             .then(() => setItems((prev) => prev.filter((item) => item.id !== id)))
             .finally(() => setDeleteTarget(null));
         }}

@@ -2,7 +2,14 @@ import type { JourneyOutcome } from "@/lib/quotient/quote-types";
 
 export interface QuotientEventSummary {
   event_name: string;
+  label?: string;
   count: number;
+}
+
+export interface TopClientSummary {
+  rank: number;
+  companyName: string;
+  jobCount: number;
 }
 
 export interface RecentQuotientEvent {
@@ -21,6 +28,7 @@ export interface AnalyticsSnapshot {
   quotientEvents: QuotientEventSummary[];
   quotientTotal: number;
   recentQuotientEvents: RecentQuotientEvent[];
+  topClients: TopClientSummary[];
   inventoryReorderCount: number;
   inventoryLowStock: {
     sku_code: string;
@@ -43,6 +51,7 @@ export function emptyAnalyticsSnapshot(): AnalyticsSnapshot {
     ].map((event_name) => ({ event_name, count: 0 })),
     quotientTotal: 0,
     recentQuotientEvents: [],
+    topClients: [],
     inventoryReorderCount: 0,
     inventoryLowStock: [],
   };

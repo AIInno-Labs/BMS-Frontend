@@ -11,10 +11,16 @@ import type {
   Job,
   JobCardPrintDetails,
   JobInventoryLine,
+  JobProjectRequirement,
   JobSchedulingLogistics,
   ShipmentMethod,
 } from "@/lib/types";
 import type { JobOrigin } from "@/lib/frp/job-status";
+import {
+  PROJECT_REQUIREMENT_KINDS,
+  PROJECT_REQUIREMENT_LABELS,
+  type ProjectRequirementKind,
+} from "@/lib/frp/project-requirements";
 import {
   combineCatalogMaterialGrade,
   combineCatalogSize,
@@ -115,10 +121,20 @@ export interface FrpJobDTO {
   /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
   payments?: FrpJobPaymentDTO[];
   /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
-   *  `/jobs/{id}/master-inventory`. */
+   *  `/jobs/{id}/job-inventory`. */
   inventory?: FrpJobInventoryDTO[];
-  /** `READ_ONLY`, detail view: count of `job_audit_history` rows (job-card version). */
-  auditVersion?: number;
+    /** `READ_ONLY` — all requirement kinds (Documents / Sample / COI / Cash payment). */
+    requirements?: FrpJobProjectRequirementDTO[];
+}
+
+/** `JobProjectRequirementDTO` — one project requirement row. */
+export interface FrpJobProjectRequirementDTO {
+  requirementName?: ProjectRequirementKind;
+  label?: string;
+  isRequired?: boolean | null;
+  remarks?: string | null;
+  updatedBy?: number | null;
+  updatedAt?: string | null;
 }
 
 /** `MasterInventoryDTO` — one row of the org catalogue. */
@@ -135,7 +151,7 @@ export interface FrpMasterInventoryDTO {
 
 /** `JobInventoryDTO` — a job's use of a master-inventory item. Nested on
  *  `JobDTO` in the detail view and addressable through
- *  `/jobs/{id}/master-inventory`. */
+ *  `/jobs/{id}/job-inventory`. */
 export interface FrpJobInventoryDTO {
   id?: number;
   masterInventoryId?: number;
@@ -247,8 +263,11 @@ export interface FrpJobCardPayload {
   programHistory?: string[];
   notes?: string;
   additionalNotes?: string;
+  /** @deprecated Use `job_project_requirements` via `JobDTO.requirements`. */
   documentsRequired?: boolean;
+  /** @deprecated Use `job_project_requirements` via `JobDTO.requirements`. */
   sampleRequired?: boolean;
+  /** @deprecated Use `job_project_requirements` via `JobDTO.requirements`. */
   coiRequired?: boolean;
   /** @deprecated Payment lives on `job_payment`; kept to read older cards. */
   paymentReceived?: boolean | null;
@@ -640,6 +659,37 @@ export function schedulingLogisticsToBackend(
 }
 
 /** Full record, including everything carried in the job-card document. */
+function requirementsToUi(
+  dto: FrpJobDTO,
+  card?: FrpJobCardPayload | null
+): JobProjectRequirement[] {
+  const fromApi = new Map<ProjectRequirementKind, FrpJobProjectRequirementDTO>();
+  for (const row of dto.requirements ?? []) {
+    if (row.requirementName) {
+      fromApi.set(row.requirementName, row);
+    }
+  }
+
+  return PROJECT_REQUIREMENT_KINDS.map((kind) => {
+    const row = fromApi.get(kind);
+    const legacyValue =
+      kind === "DOCUMENTS_REQUIRED"
+        ? card?.documentsRequired
+        : kind === "SAMPLE_REQUIRED"
+          ? card?.sampleRequired
+          : card?.coiRequired;
+    const legacyRequired =
+      typeof legacyValue === "boolean" ? legacyValue : null;
+
+    return {
+      kind,
+      label: row?.label ?? PROJECT_REQUIREMENT_LABELS[kind],
+      isRequired: row?.isRequired ?? legacyRequired,
+      remarks: row?.remarks ?? null,
+    };
+  });
+}
+
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
   const spec = card?.productSpec;
@@ -685,9 +735,6 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     packs: packsFromPayload(card?.packs),
     scopeLines: card?.scopeLines ?? [],
     workflowExtras: {
-      documentsRequired: card?.documentsRequired,
-      sampleRequired: card?.sampleRequired,
-      coiRequired: card?.coiRequired,
       shipmentMethod: card?.shipmentMethod,
       billingAddress:
         card?.billingAddress ||
@@ -757,7 +804,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
   origin: dto.origin,
   currentStageKey: dto.currentStageKey ?? null,
   inventory: (dto.inventory ?? []).map(inventoryLineToUi),
-  auditVersion: dto.auditVersion ?? 0,
+  requirements: requirementsToUi(dto, card),
   };
 }
 
@@ -914,9 +961,6 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     programHistory: extras?.programHistory,
     notes: extras?.jobCardNotes,
     additionalNotes: extras?.additionalNotes,
-    documentsRequired: extras?.documentsRequired,
-    sampleRequired: extras?.sampleRequired,
-    coiRequired: extras?.coiRequired,
     dateRaised: job.date || undefined,
     quoteValidUntil: job.quoteValidUntil,
     manufacturingRequired: job.manufacturingRequired,

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   ClipboardList,
   FileText,
+  ListChecks,
   Pencil,
   Truck,
 } from "lucide-react";
@@ -26,9 +27,15 @@ import {
   SHIPMENT_METHOD_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
+import { setJobRequirement } from "@/lib/frp/api";
 import { isCancelledJob } from "@/lib/frp/job-status";
+import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
+import {
+  PROJECT_REQUIREMENT_LABELS,
+  type ProjectRequirementKind,
+} from "@/lib/frp/project-requirements";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import type { Job, JobCardPrintDetails, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
+import type { Job, JobCardPrintDetails, JobMaterialRow, JobProjectRequirement, JobWorkflowExtras } from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
 
 interface JobWorkflowExtrasSectionProps {
@@ -53,6 +60,8 @@ interface JobWorkflowExtrasSectionProps {
   onDeletedFile?: () => void;
   /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
   onFailedFile?: (file: JobFileRecord) => void;
+  /** Refetch job after a dedicated API write (requirements, payment, …). */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 function addDaysIso(days: number): string {
@@ -76,10 +85,17 @@ export function JobWorkflowExtrasSection({
   onDownloadVersionFile,
   onDeletedFile,
   onFailedFile,
+  onJobChanged,
 }: JobWorkflowExtrasSectionProps) {
   const cancelled = isCancelledJob(job.status);
+  const cashPaymentLocked = isJobLockedForCashPayment(job);
+  const editsBlocked = cancelled || cashPaymentLocked;
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const requirements = job.requirements ?? [];
   const workers = getAssignableWorkers();
+
+  const [requirementsBusy, setRequirementsBusy] = useState(false);
+  const [requirementsError, setRequirementsError] = useState<string | null>(null);
 
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
@@ -154,22 +170,23 @@ export function JobWorkflowExtrasSection({
     });
   };
 
-  const patchRequirements = async (
-    key: "documentsRequired" | "sampleRequired" | "coiRequired",
-    value: boolean
+  const patchRequirement = async (
+    kind: ProjectRequirementKind,
+    required: boolean
   ) => {
-    const next = { ...extras, [key]: value };
-    const label =
-      key === "documentsRequired"
-        ? "Documents required"
-        : key === "sampleRequired"
-          ? "Sample required"
-          : "COI required";
-    await saveExtras(
-      next,
-      undefined,
-      `${label} ${value ? "enabled" : "disabled"}`
-    );
+    if (!job.dbId) return;
+    setRequirementsBusy(true);
+    setRequirementsError(null);
+    try {
+      await setJobRequirement(job.dbId, kind, required);
+      await onJobChanged?.();
+    } catch (e) {
+      setRequirementsError(
+        e instanceof Error ? e.message : "Could not update project requirement"
+      );
+    } finally {
+      setRequirementsBusy(false);
+    }
   };
 
   const saveLogistics = () => {
@@ -237,28 +254,30 @@ export function JobWorkflowExtrasSection({
   return (
     <>
       <section className="mt-4 grid gap-4 lg:grid-cols-3">
-        <article className="app-card-interactive p-4">
-          <p className="text-sm font-semibold text-[#111827]">Project requirements</p>
-          <div className="mt-3 space-y-2">
-            {(
-              [
-                ["documentsRequired", "Documents required"],
-                ["sampleRequired", "Sample required"],
-                ["coiRequired", "COI required"],
-              ] as const
-            ).map(([key, label]) => (
+        <WidgetCard title="Project Requirements" icon={ListChecks}>
+          {requirementsError ? (
+            <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {requirementsError}
+            </p>
+          ) : null}
+          <div className="space-y-2">
+            {requirements.map((row: JobProjectRequirement) => (
               <label
-                key={key}
+                key={row.kind}
                 className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
               >
                 <input
                   type="checkbox"
-                  checked={Boolean(extras[key])}
-                  onChange={(e) => void patchRequirements(key, e.target.checked)}
-                  disabled={isSaving || cancelled}
+                  checked={row.isRequired === true}
+                  onChange={(e) =>
+                    void patchRequirement(row.kind, e.target.checked)
+                  }
+                  disabled={
+                    isSaving || requirementsBusy || cancelled || !job.dbId
+                  }
                   className="h-4 w-4 rounded border-slate-300 text-orange-600"
                 />
-                {label}
+                {row.label || PROJECT_REQUIREMENT_LABELS[row.kind]}
               </label>
             ))}
           </div>
@@ -274,12 +293,12 @@ export function JobWorkflowExtrasSection({
               </>
             ) : null}
           </p>
-        </article>
+        </WidgetCard>
 
         <WidgetCard
           title="Scheduling & logistics"
           icon={Truck}
-          onEdit={cancelled ? undefined : () => setShowLogisticsModal(true)}
+          onEdit={editsBlocked ? undefined : () => setShowLogisticsModal(true)}
         >
           <Row label="Production status" value={extras.productionStatus || "—"} />
           <Row label="Responsible" value={extras.responsibleParty || "—"} />
@@ -295,7 +314,7 @@ export function JobWorkflowExtrasSection({
         <WidgetCard
           title="Materials & specifications"
           icon={ClipboardList}
-          onEdit={cancelled ? undefined : () => setShowMaterialsModal(true)}
+          onEdit={editsBlocked ? undefined : () => setShowMaterialsModal(true)}
         >
           <p className="line-clamp-3 text-sm text-slate-600">
             {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No materials list."}
@@ -316,7 +335,7 @@ export function JobWorkflowExtrasSection({
           files={files}
           fileSort={fileSort}
           onFileSortChange={onFileSortChange}
-          onUpload={cancelled ? undefined : onUploadFile}
+          onUpload={editsBlocked ? undefined : onUploadFile}
           onDownload={onDownloadFile}
           onOpenFile={onOpenFile}
           onPreviewFile={onPreviewFile}

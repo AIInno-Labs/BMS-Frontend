@@ -46,7 +46,7 @@ export interface OfficialJobCardData {
   priority: string;
   assignedWorker: string;
   estimatedHours: string;
-  /** Footer version from audit-history length (`GET /jobs/{id}.auditVersion`). */
+  /** Footer version from GET /jobs/{id}/audit totalElements (job audit rows only). */
   jobCardVersion: number;
 }
 
@@ -132,15 +132,25 @@ function nonempty(value?: string | null): string | undefined {
   return v ? v : undefined;
 }
 
-/** Footer label: audit length 3 → "Job Card 03". */
+/** Footer label: audit length 3 → "Rev 03". */
 export function formatJobCardVersionLabel(version: number | null | undefined): string {
   const n = Number.isFinite(version) ? Math.max(0, Math.trunc(version as number)) : 0;
-  return `Job Card ${String(n).padStart(2, "0")}`;
+  return `Rev ${String(n).padStart(2, "0")}`;
+}
+
+/** Bottom-left print footer: job number plus revision. */
+export function formatJobCardIdVersionFooter(
+  jobNumber: string,
+  version: number | null | undefined
+): string {
+  const id = (jobNumber ?? "").trim() || "—";
+  return `JOB ${id} · ${formatJobCardVersionLabel(version)}`;
 }
 
 export function buildOfficialJobCardData(
   job: Job,
-  printDetails?: JobCardPrintDetails
+  printDetails?: JobCardPrintDetails,
+  auditCount = 0
 ): OfficialJobCardData {
   const pd = printDetails ?? job.printDetails;
   const sl = job.schedulingLogistics;
@@ -240,7 +250,7 @@ export function buildOfficialJobCardData(
     priority: job.priority,
     assignedWorker: assignedName,
     estimatedHours: job.estimatedHours != null ? `${job.estimatedHours}h` : "",
-    jobCardVersion: job.auditVersion ?? 0,
+    jobCardVersion: auditCount,
   };
 }
 

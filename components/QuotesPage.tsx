@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, RefreshCw, X } from "lucide-react";
+import { ChevronDown, MessageCircle, RefreshCw, X } from "lucide-react";
 import {
   factoryStatusLabel,
   isSystemLogged,
@@ -186,11 +186,93 @@ function FilterChip({
   );
 }
 
+function StatusFilterDropdown({
+  selected,
+  onChange,
+}: {
+  selected: FrpQuoteStatus[];
+  onChange: (next: FrpQuoteStatus[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocumentClick = (event: MouseEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocumentClick);
+    return () => document.removeEventListener("mousedown", onDocumentClick);
+  }, [open]);
+
+  const toggle = (value: FrpQuoteStatus) => {
+    onChange(
+      selected.includes(value)
+        ? selected.filter((s) => s !== value)
+        : [...selected, value]
+    );
+  };
+
+  const triggerLabel =
+    selected.length === 0
+      ? "All statuses"
+      : selected.length === 1
+        ? statusLabel(selected[0])
+        : `${selected.length} statuses selected`;
+
+  return (
+    <div ref={rootRef} className="relative w-full sm:w-56">
+      <button
+        type="button"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        className="inline-flex w-full min-h-[40px] items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition-colors hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label="Filter by quote status"
+      >
+        <span className="truncate">{triggerLabel}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Quote status options"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+        >
+          {STATUS_OPTIONS.map((opt) => {
+            const checked = selected.includes(opt.value);
+            return (
+              <li key={opt.value} role="option" aria-selected={checked}>
+                <label className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-slate-800 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/20"
+                    checked={checked}
+                    onChange={() => toggle(opt.value)}
+                  />
+                  {opt.label}
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function QuotesPage() {
-  const [statusFilter, setStatusFilter] = useState<FrpQuoteStatus | "">("");
+  const [statusFilters, setStatusFilters] = useState<FrpQuoteStatus[]>([]);
   const [page, setPage] = useState(1);
   // Bumped by the Refresh button to force the effect below to re-run.
   const [reloadToken, setReloadToken] = useState(0);
+
+  const statusFilterKey = statusFilters.join(",");
 
   // Pagination is real, backend-driven — one GET /quotes?page=&size=10&status=
   // request per page/status change, showing exactly what the backend returns.
@@ -205,7 +287,9 @@ export function QuotesPage() {
     setPageLoading(true);
     setPageError(null);
 
-    listQuotes(page - 1, QUOTES_PAGE_SIZE, { status: statusFilter || undefined })
+    listQuotes(page - 1, QUOTES_PAGE_SIZE, {
+      status: statusFilters.length > 0 ? statusFilters : undefined,
+    })
       .then((res) => {
         if (cancelled) return;
         setPageRows((res.content ?? []).map((row) => mapQuoteRow(row as Record<string, unknown>)));
@@ -228,15 +312,15 @@ export function QuotesPage() {
     return () => {
       cancelled = true;
     };
-  }, [statusFilter, page, reloadToken]);
+  }, [statusFilterKey, page, reloadToken]);
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter]);
+  }, [statusFilterKey]);
 
-  const hasActiveFilters = statusFilter !== "";
+  const hasActiveFilters = statusFilters.length > 0;
   const clearFilters = () => {
-    setStatusFilter("");
+    setStatusFilters([]);
   };
 
   const loading = pageLoading;
@@ -265,21 +349,10 @@ export function QuotesPage() {
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as FrpQuoteStatus | "")
-                }
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-44"
-                aria-label="Filter by quote status"
-              >
-                <option value="">All statuses</option>
-                {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <StatusFilterDropdown
+                selected={statusFilters}
+                onChange={setStatusFilters}
+              />
             </div>
             <button
               type="button"
@@ -296,12 +369,15 @@ export function QuotesPage() {
 
           {hasActiveFilters && (
             <div className="flex flex-wrap items-center gap-2">
-              {statusFilter && (
+              {statusFilters.map((status) => (
                 <FilterChip
-                  label={`Status: ${statusLabel(statusFilter)}`}
-                  onClear={() => setStatusFilter("")}
+                  key={status}
+                  label={`Status: ${statusLabel(status)}`}
+                  onClear={() =>
+                    setStatusFilters((prev) => prev.filter((s) => s !== status))
+                  }
                 />
-              )}
+              ))}
               <button
                 type="button"
                 onClick={clearFilters}

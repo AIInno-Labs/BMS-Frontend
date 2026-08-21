@@ -16,6 +16,7 @@ export function ModalField({
   placeholder,
   disabled = false,
   multiline = false,
+  min,
   error,
 }: {
   label: string;
@@ -27,6 +28,7 @@ export function ModalField({
   /** Renders a <textarea> instead of a single-line <input>, for longer
    *  free-text fields like remarks/notes. */
   multiline?: boolean;
+  min?: number;
   /** Validation message shown under the field, e.g. from a zod safeParse. */
   error?: string;
 }) {
@@ -51,6 +53,7 @@ export function ModalField({
           value={value}
           placeholder={placeholder}
           disabled={disabled}
+          min={min}
           onChange={(e) => onChange(e.target.value)}
           className={`${fieldClass} ${borderClass}`}
         />

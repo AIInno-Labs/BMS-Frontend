@@ -1,4 +1,5 @@
 import type { AnyJobStatus } from "@/lib/jobStatus";
+import type { ProjectRequirementKind } from "@/lib/frp/project-requirements";
 
 /**
  * Widened during the DEL-01 status-model migration.
@@ -44,9 +45,6 @@ export interface JobMaterialRow {
 
 /** Extended job-card fields (serialized in pack_dimensions JSON). */
 export interface JobWorkflowExtras {
-  documentsRequired?: boolean;
-  sampleRequired?: boolean;
-  coiRequired?: boolean;
   jobType?: string;
   projectedStartDate?: string;
   productionStatus?: string;
@@ -153,10 +151,19 @@ export interface Job {
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   /** Material lines for the job (backend `job_inventory`). Inline on
-   *  `GET /jobs/{id}`; mutated via `/jobs/{id}/master-inventory`. */
+   *  `GET /jobs/{id}`; mutated via `/jobs/{id}/job-inventory`. */
   inventory?: JobInventoryLine[];
-  /** Job-card footer version = length of `job_audit_history`. */
-  auditVersion?: number;
+  /** Documents / sample / COI flags — backend `job_project_requirements`. */
+  requirements?: JobProjectRequirement[];
+}
+
+/** One project requirement row — `kind` mirrors backend `ProjectRequirement`. */
+export interface JobProjectRequirement {
+  kind: ProjectRequirementKind;
+  label: string;
+  /** `null` = not decided yet; distinct from an explicit `false`. */
+  isRequired: boolean | null;
+  remarks?: string | null;
 }
 
 /** One row of the job's material/inventory table (`JobInventoryDTO`). */

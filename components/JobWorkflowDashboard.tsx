@@ -35,7 +35,7 @@ import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
   addJobInventory,
   deleteJobDocument,
-  deleteJobInventoryLine,
+  deleteJobInventoryLines,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
@@ -84,6 +84,10 @@ import {
   resolveWorkerNameFromId,
 } from "@/lib/workers";
 import { isCancelledJob } from "@/lib/frp/job-status";
+import {
+  CASH_PAYMENT_BLOCK_MESSAGE,
+  isJobLockedForCashPayment,
+} from "@/lib/frp/job-cash-payment-gate";
 
 interface JobWorkflowDashboardProps {
   job: Job;
@@ -183,16 +187,32 @@ function isInventoryLineIncomplete(
   item: JobInventoryLine,
   catalog: { productGroup: string; profileType: string; meshSpec: string; dimension: string; resin: string; colour: string }[]
 ): boolean {
+  if (!isValidInventoryQuantity(item.quantity)) return true;
   return matchingCatalogItems(catalog, item).length !== 1;
 }
 
-/** One-line summary shown for a collapsed draft row - everything worth
+/** Short label for an inventory row in the add/edit modal — product identity,
+ *  not "Line 1". Falls back to resin/material, then placeholders while empty. */
+function inventoryLineTitle(item: JobInventoryLine): string {
+  const group = item.category?.trim();
+  const profile = item.profileType?.trim();
+  if (group && profile) return `${group} · ${profile}`;
+  if (group) return group;
+  if (profile) return profile;
+  const { resin } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+  if (resin) return resin;
+  if (isBlankInventoryLine(item)) return "New item";
+  return "Select product";
+}
+
+/** One-line summary shown for a collapsed draft row — everything worth
  *  seeing at a glance without expanding it back out. */
 function summarizeInventoryLine(item: JobInventoryLine): string {
   const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
   const { resin, colour } = splitCatalogMaterialGrade(item.materialGrade ?? "");
   const details = [meshSpec, dimension, resin, colour].filter(Boolean).join(" · ");
-  const qty = item.quantity != null ? `Qty ${item.quantity}` : null;
+  const qty =
+    item.quantity != null && item.quantity >= 1 ? `Qty ${item.quantity}` : null;
   return [details, qty].filter(Boolean).join(" — ");
 }
 
@@ -222,12 +242,16 @@ function isBlankInventoryLine(item: JobInventoryLine): boolean {
   );
 }
 
+function isValidInventoryQuantity(qty: number | null | undefined): boolean {
+  return qty != null && qty >= 1;
+}
+
 function parseInventoryQuantity(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const n = Number(trimmed);
   if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.trunc(n));
+  return Math.trunc(n);
 }
 
 function patchInventoryLine(
@@ -392,6 +416,8 @@ export function JobWorkflowDashboard({
   onJobChanged,
 }: JobWorkflowDashboardProps) {
   const cancelled = isCancelledJob(job.status);
+  const cashPaymentLocked = isJobLockedForCashPayment(job);
+  const editsBlocked = cancelled || cashPaymentLocked;
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.measurement ?? [];
@@ -759,7 +785,7 @@ export function JobWorkflowDashboard({
       await deleteJobDocument(failedFile.documentId);
       setFailedFile(null);
       setDocumentsRefreshKey((k) => k + 1);
-      if (!cancelled) openFileUploadModal();
+      if (!editsBlocked) openFileUploadModal();
     } catch {
       // Leave the dialog open so the user can retry or close.
     } finally {
@@ -886,7 +912,7 @@ export function JobWorkflowDashboard({
     const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
     if (filled.some((item) => isInventoryLineIncomplete(item, inventoryCatalog))) {
       setInventoryError(
-        "Each inventory line must match one catalog item. Finish selecting the product options."
+        "Each inventory line must match one catalog item and have a quantity of at least 1."
       );
       return;
     }
@@ -896,7 +922,7 @@ export function JobWorkflowDashboard({
       return {
         line,
         masterInventoryId: match!.id,
-        quantity: line.quantity ?? 0,
+        quantity: line.quantity!,
       };
     });
     const masterIds = resolved.map((row) => row.masterInventoryId);
@@ -908,28 +934,48 @@ export function JobWorkflowDashboard({
     }
 
     const original = job.inventory ?? [];
+    const originalByMaster = new Map<number, JobInventoryLine>();
+    for (const line of original) {
+      if (line.masterInventoryId != null) {
+        originalByMaster.set(line.masterInventoryId, line);
+      }
+    }
+
     const keptMasters = new Set(masterIds);
-    const toDelete = original.filter(
-      (line) =>
-        line.id != null &&
-        line.masterInventoryId != null &&
-        !keptMasters.has(line.masterInventoryId)
-    );
+    const toDelete = original
+      .filter(
+        (line) =>
+          line.id != null &&
+          line.masterInventoryId != null &&
+          !keptMasters.has(line.masterInventoryId)
+      )
+      .map((line) => line.id!);
+
+    const toUpsert = resolved
+      .filter((row) => {
+        const prev = originalByMaster.get(row.masterInventoryId);
+        if (!prev) return true;
+        return (prev.quantity ?? 0) !== row.quantity;
+      })
+      .map((row) => ({
+        masterInventoryId: row.masterInventoryId,
+        quantity: row.quantity,
+      }));
+
+    if (toDelete.length === 0 && toUpsert.length === 0) {
+      setShowInventoryModal(false);
+      return;
+    }
 
     setInventoryBusy(true);
     setInventoryError(null);
     try {
-      await Promise.all(
-        toDelete.map((line) => deleteJobInventoryLine(job.dbId!, line.id!))
-      );
-      await Promise.all(
-        resolved.map((row) =>
-          addJobInventory(job.dbId!, {
-            masterInventoryId: row.masterInventoryId,
-            quantity: row.quantity,
-          })
-        )
-      );
+      if (toDelete.length > 0) {
+        await deleteJobInventoryLines(job.dbId, toDelete);
+      }
+      if (toUpsert.length > 0) {
+        await addJobInventory(job.dbId, toUpsert);
+      }
       await onJobChanged?.();
       setShowInventoryModal(false);
     } catch (e) {
@@ -1000,6 +1046,15 @@ export function JobWorkflowDashboard({
 
       <JobTimelineAnalytics job={job} />
 
+      {cashPaymentLocked && !cancelled ? (
+        <p
+          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
+          role="status"
+        >
+          {CASH_PAYMENT_BLOCK_MESSAGE}
+        </p>
+      ) : null}
+
       {!chatDrawerOpen && (
         <button
           type="button"
@@ -1033,10 +1088,11 @@ export function JobWorkflowDashboard({
         pd={pd}
         isSaving={isSaving}
         onSavePatch={onSavePatch}
+        onJobChanged={onJobChanged}
         files={displayFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
-        onUploadFile={cancelled ? () => undefined : openFileUploadModal}
+        onUploadFile={editsBlocked ? () => undefined : openFileUploadModal}
         onDownloadFile={handleDownloadFile}
         onPreviewFile={(file) => setPreviewFile(file)}
         onOpenFile={handleOpenProjectFile}
@@ -1047,7 +1103,7 @@ export function JobWorkflowDashboard({
 
       <div className="mt-4 space-y-4">
       <section className="grid gap-4 lg:grid-cols-2">
-        <WidgetCard title="Customer Details" icon={User} onEdit={cancelled ? undefined : () => setShowCustomerModal(true)}>
+        <WidgetCard title="Customer Details" icon={User} onEdit={editsBlocked ? undefined : () => setShowCustomerModal(true)}>
           <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
           <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
           <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
@@ -1056,7 +1112,7 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Job Details"
           icon={Settings}
-          onEdit={cancelled ? undefined : () => setShowJobModal(true)}
+          onEdit={editsBlocked ? undefined : () => setShowJobModal(true)}
         >
           <p className="font-medium text-slate-800">{job.projectName}</p>
           <p className="text-sm text-slate-600">
@@ -1111,7 +1167,7 @@ export function JobWorkflowDashboard({
               <input
                 type="checkbox"
                 checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-                disabled={isSaving || cancelled}
+                disabled={isSaving || editsBlocked}
                 onChange={(e) =>
                   void onSavePatch({
                     status: e.target.checked ? "In Fabrication" : "Pending",
@@ -1172,7 +1228,7 @@ export function JobWorkflowDashboard({
         <WidgetCard
           title="Inventory"
           icon={Package}
-          onEdit={cancelled ? undefined : openInventoryEditor}
+          onEdit={editsBlocked ? undefined : openInventoryEditor}
           className="lg:col-span-2"
         >
           {(job.inventory ?? []).length === 0 ? (
@@ -1238,7 +1294,7 @@ export function JobWorkflowDashboard({
             type="button"
             className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={saveJobCardNotes}
-            disabled={isSaving || cancelled || !jobCardNotesDirty}
+            disabled={isSaving || editsBlocked || !jobCardNotesDirty}
           >
             {isSaving ? "Saving…" : "Save notes"}
           </button>
@@ -1623,7 +1679,7 @@ export function JobWorkflowDashboard({
                       onClick={() => setActiveInventoryLine(item.localKey)}
                     >
                       <p className="truncate text-sm font-semibold text-[#111827]">
-                        {item.category} / {item.profileType}
+                        {inventoryLineTitle(item)}
                       </p>
                       <p className="truncate text-xs text-slate-500">
                         {summarizeInventoryLine(item) || "No further details"}
@@ -1654,7 +1710,7 @@ export function JobWorkflowDashboard({
                 {item.id != null || inventoryDraft.length > 1 ? (
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-[#111827]">
-                      {inventoryDraft.length > 1 ? `Line ${index + 1}` : "Item"}
+                      {inventoryLineTitle(item)}
                     </p>
                     <div className="flex items-center gap-1.5">
                       {!isInventoryLineIncomplete(item, inventoryCatalog) ? (
@@ -1786,6 +1842,12 @@ export function JobWorkflowDashboard({
                   value={item.quantity != null ? String(item.quantity) : ""}
                   disabled={inventoryBusy}
                   type="number"
+                  min={1}
+                  error={
+                    item.quantity != null && item.quantity < 1
+                      ? "Quantity must be at least 1"
+                      : undefined
+                  }
                   onChange={(qty) =>
                     setInventoryDraft((prev) =>
                       patchInventoryLine(prev, item.localKey, {

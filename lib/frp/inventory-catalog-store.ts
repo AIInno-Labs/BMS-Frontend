@@ -59,9 +59,10 @@ export function useInventoryCatalog() {
 
   const updateItem = useCallback(
     async (id: number, entry: InventoryCatalogEntry) => {
-      const updated = masterInventoryToCatalogItem(
-        await updateMasterInventory(id, catalogEntryToMasterBody(entry))
-      );
+      const [updatedDto] = await updateMasterInventory([
+        { id, ...catalogEntryToMasterBody(entry) },
+      ]);
+      const updated = masterInventoryToCatalogItem(updatedDto);
       setItems((prev) => prev.map((item) => (item.id === id ? updated : item)));
       return updated;
     },
@@ -69,7 +70,7 @@ export function useInventoryCatalog() {
   );
 
   const deleteItem = useCallback(async (id: number) => {
-    await deleteMasterInventory(id);
+    await deleteMasterInventory([id]);
     setItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
 

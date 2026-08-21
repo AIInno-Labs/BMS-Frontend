@@ -82,3 +82,9 @@ export async function getJobAuditTrail(
     };
   });
 }
+
+/** Job-card footer version: total rows on GET /jobs/{id}/audit (job events only). */
+export async function getJobAuditCount(dbId: string | number): Promise<number> {
+  const page = await listJobAudit(dbId, 0, 1);
+  return page.totalElements ?? 0;
+}
