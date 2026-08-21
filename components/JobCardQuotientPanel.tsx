@@ -8,9 +8,12 @@ import type { QuotientQuote } from "@/lib/quotient/quote-types";
 import {
   factoryStatusLabel,
 } from "@/lib/quotes/labels";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 
 /** Read-only Quotient snapshot on job card — factory PDF fields edited separately below. */
 export function JobCardQuotientPanel({ jobId }: { jobId: string }) {
+  const { can } = useAuth();
   const match = /^JOB-Q-(.+)$/i.exec(jobId);
   const quoteNumber = match?.[1];
   const [quote, setQuote] = useState<QuotientQuote | null>(null);
@@ -41,6 +44,7 @@ export function JobCardQuotientPanel({ jobId }: { jobId: string }) {
   }, [quoteNumber]);
 
   if (!quoteNumber) return null;
+  if (!can(ACCESS_KEYS.QUOTIENT_VIEW)) return null;
 
   return (
     <section className="min-w-0 rounded-xl border border-blue-200 bg-blue-50/40 p-4">
