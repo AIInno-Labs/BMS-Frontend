@@ -53,7 +53,12 @@ const orgUserManagerLinks: NavLink[] = [
     accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
   },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
-  { href: "/settings/security", label: "Security", icon: Settings2 },
+  {
+    href: "/settings/security",
+    label: "Security",
+    icon: Settings2,
+    accessKey: ACCESS_KEYS.SECURITY_VIEW,
+  },
 ];
 
 const superAdminLinks: NavLink[] = [
