@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Bell,
   Building2,
   House,
   KeyRound,
@@ -70,6 +71,7 @@ const orgAdminLinks: NavLink[] = [
   { href: "/org/roles", label: "Roles", icon: Shield },
   { href: "/org/inventory", label: "Inventory", icon: Package },
   { href: "/org/integrations", label: "Integrations", icon: Settings2 },
+  { href: "/org/notifications", label: "Notifications", icon: Bell },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
 ];
 
