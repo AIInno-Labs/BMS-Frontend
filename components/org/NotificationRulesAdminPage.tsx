@@ -265,31 +265,31 @@ export function NotificationRulesAdminPage() {
   // Guarded by a ref, not just the empty dep array: React Strict Mode (dev
   // only) mounts every component twice, and without this the initial load
   // fires the users GET twice on every page load (same fix as JobsContext).
+  // No cleanup/cancelled flag here — JobsContext's own version of this fix
+  // doesn't use one either: with the ref guard, the effect only ever truly
+  // starts once, so there's nothing to cancel. Adding one back would just
+  // reintroduce a bug — Strict Mode still calls cleanup after the first
+  // (real) mount, which would mark that one real request "cancelled" and
+  // permanently discard its result, including the setUsersLoading(false).
   const usersLoadStartedRef = useRef(false);
   useEffect(() => {
     if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
     if (usersLoadStartedRef.current) return;
     usersLoadStartedRef.current = true;
-    let cancelled = false;
     async function loadUsers() {
       setUsersLoading(true);
       try {
         const page = await listUsers(0, 200);
-        if (cancelled) return;
         setUsers((page.content ?? []).filter((u) => u.enabled !== false));
         setUsersError(null);
       } catch (e) {
-        if (cancelled) return;
         setUsers([]);
         setUsersError(e instanceof Error ? e.message : "Could not load users");
       } finally {
-        if (!cancelled) setUsersLoading(false);
+        setUsersLoading(false);
       }
     }
     void loadUsers();
-    return () => {
-      cancelled = true;
-    };
   }, [authLoading, isAuthenticated, appRole]);
 
   const usersById = useMemo(() => {
