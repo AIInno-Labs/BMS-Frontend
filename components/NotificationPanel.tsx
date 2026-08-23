@@ -57,7 +57,9 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
     async (n: NotificationDTO) => {
       if (!n.readAt) await notifications?.markRead([n.id]);
       onClose();
-      if (n.jobNumber) router.push(`/jobs/${encodeURIComponent(n.jobNumber)}`);
+      if (n.jobNumber) {
+        router.push(`/jobs/${encodeURIComponent(n.jobNumber)}?openChat=1`);
+      }
     },
     [notifications, onClose, router]
   );

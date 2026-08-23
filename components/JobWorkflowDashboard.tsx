@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ChevronUp,
@@ -57,6 +58,8 @@ import {
 } from "@/lib/jobFilesSort";
 import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
 import { formatShortDate, jobPriorities } from "@/lib/mockData";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 import {
   combineCatalogMaterialGrade,
   combineCatalogSize,
@@ -463,7 +466,31 @@ export function JobWorkflowDashboard({
     documentId: number;
     tab: "po" | "drawing";
   } | null>(null);
+  const { can } = useAuth();
+  const canViewJobChat = can(ACCESS_KEYS.JOB_CHAT_VIEW);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Deep link from a notification (?openChat=1): open the drawer straight
+  // away instead of leaving the reader to find the CHAT tab themselves.
+  // Gated on canViewJobChat as defense in depth — the backend already never
+  // raises a notification for someone without MESSAGE_READ (see
+  // ChatRecipientResolver), so this should always be true when the param is
+  // present, but a stale/shared link should not conjure a drawer the viewer
+  // isn't privileged to see.
+  useEffect(() => {
+    if (searchParams.get("openChat") !== "1") return;
+    if (canViewJobChat) setChatDrawerOpen(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openChat");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // Intentionally only reacting to the param arriving, not to every
+    // identity change of router/pathname/searchParams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canViewJobChat]);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
   const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
@@ -1076,7 +1103,7 @@ export function JobWorkflowDashboard({
         </p>
       ) : null}
 
-      {!chatDrawerOpen && (
+      {canViewJobChat && !chatDrawerOpen && (
         <button
           type="button"
           onClick={() => setChatDrawerOpen(true)}
@@ -1093,12 +1120,14 @@ export function JobWorkflowDashboard({
         </button>
       )}
 
-      <JobNotesChatDrawer
-        open={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
-        jobId={job.id}
-        dbId={job.dbId}
-      />
+      {canViewJobChat && (
+        <JobNotesChatDrawer
+          open={chatDrawerOpen}
+          onClose={() => setChatDrawerOpen(false)}
+          jobId={job.id}
+          dbId={job.dbId}
+        />
+      )}
 
       <JobWorkflowExtrasSection
         job={job}

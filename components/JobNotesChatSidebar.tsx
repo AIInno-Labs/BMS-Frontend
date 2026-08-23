@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ArrowUp, AtSign, Loader2, RotateCw, Shield, X } from "lucide-react";
 import type { PendingMessage } from "@/hooks/useJobThread";
 
@@ -17,6 +17,7 @@ interface JobNotesChatSidebarProps {
   onClose?: () => void;
   fillHeight?: boolean;
   className?: string;
+  canCompose?: boolean;
 }
 
 /** Stable colour per author, so the same person keeps the same avatar. */
@@ -45,7 +46,12 @@ function formatTime(iso?: string): string {
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
   const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return sameDay ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
+  return sameDay
+    ? time
+    : `${d.toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
+      })}, ${time}`;
 }
 
 /**
@@ -83,14 +89,18 @@ function ThreadMessage({
   return (
     <div className="relative flex gap-3">
       <span
-        className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm ring-2 ring-[#FAFBFC] ${avatarTone(name)}`}
+        className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm ring-2 ring-[#FAFBFC] ${avatarTone(
+          name
+        )}`}
         aria-hidden
       >
         {initials}
       </span>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
-          <span className="text-[11px] font-semibold text-slate-800">{name}</span>
+          <span className="text-[11px] font-semibold text-slate-800">
+            {name}
+          </span>
           <span className="text-[10px] text-slate-400">
             {message.pending ? "Sending…" : formatTime(message.sentAt)}
           </span>
@@ -106,8 +116,8 @@ function ThreadMessage({
             message.failed
               ? "border border-rose-200 bg-rose-50 text-rose-900"
               : message.pending
-                ? "border border-slate-200/70 bg-white text-slate-400"
-                : "border border-slate-200/70 bg-white text-slate-800"
+              ? "border border-slate-200/70 bg-white text-slate-400"
+              : "border border-slate-200/70 bg-white text-slate-800"
           }`}
         >
           {renderBody(message.body)}
@@ -140,6 +150,7 @@ export function JobNotesChatSidebar({
   onClose,
   fillHeight = false,
   className = "",
+  canCompose = true,
 }: JobNotesChatSidebarProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -151,10 +162,17 @@ export function JobNotesChatSidebar({
     [onSend]
   );
 
-  // Newest-first from the server, rendered newest-first, so "the latest" is at
-  // the top and no scroll-to-bottom dance is needed.
+  // `messages` arrives newest-first from the server (convenient for the
+  // cursor/merge logic in useJobThread) — reversed here purely for display,
+  // so the thread reads top-to-bottom oldest-to-newest like a normal chat.
+  const orderedMessages = useMemo(() => [...messages].reverse(), [messages]);
+
+  // Auto-scroll to the newest message (bottom) whenever the thread grows —
+  // covers first load, polling in new messages, and sending your own.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages.length]);
 
   // Report "the user is looking at this" so the caller can advance the read
@@ -164,7 +182,6 @@ export function JobNotesChatSidebar({
   }, [messages, onVisible]);
 
   const canSend = draft.trim().length > 0;
-  const mentionsAll = /(?<![\w./@-])@all\b/i.test(draft);
 
   return (
     <aside
@@ -177,16 +194,16 @@ export function JobNotesChatSidebar({
             <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-orange-400">
               Job communications
             </p>
-            <h3 className="mt-0.5 text-sm font-semibold tracking-tight text-white">
-              Job chat
+            <h3 className="mt-0.5 truncate text-sm font-semibold tracking-tight text-white">
+              {jobId}
             </h3>
-            <p className="mt-1 truncate text-[11px] text-slate-400">
-              {jobId} · Everyone with chat access
-            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-slate-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+              <span
+                className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+                aria-hidden
+              />
               Live
             </span>
             {onClose ? (
@@ -230,10 +247,10 @@ export function JobNotesChatSidebar({
           ) : (
             <div className="relative space-y-4 pl-1">
               <div
-                className="pointer-events-none absolute bottom-2 left-[15px] top-2 w-px bg-gradient-to-b from-slate-200 via-slate-200 to-transparent"
+                className="pointer-events-none absolute bottom-2 left-[15px] top-2 w-px bg-gradient-to-t from-slate-200 via-slate-200 to-transparent"
                 aria-hidden
               />
-              {messages.map((m) => (
+              {orderedMessages.map((m) => (
                 <ThreadMessage
                   key={m.id ?? m.clientMsgId ?? m.sentAt}
                   message={m}
@@ -245,54 +262,54 @@ export function JobNotesChatSidebar({
         </div>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        className="shrink-0 border-t border-slate-200 bg-white px-3 py-3"
-      >
-        <label htmlFor={`job-note-${jobId}`} className="sr-only">
-          Message the team on this job
-        </label>
-        <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2 shadow-inner transition-[border-color,box-shadow] focus-within:border-orange-300/70 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(249,115,22,0.12)]">
-          <div className="mb-1.5 hidden shrink-0 sm:flex">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900/5 text-slate-500">
-              <Shield className="h-3.5 w-3.5" aria-hidden />
-            </span>
-          </div>
-          <textarea
-            id={`job-note-${jobId}`}
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter sends, Shift+Enter breaks the line — the convention
-              // every chat app has trained people to expect.
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (canSend) onSend();
-              }
-            }}
-            placeholder="Write to the team… type @all to notify everyone"
-            rows={2}
-            className="min-h-[44px] flex-1 resize-none bg-transparent px-1 py-1 text-xs leading-relaxed text-slate-800 outline-none placeholder:text-slate-400"
-          />
-          <button
-            type="submit"
-            disabled={!canSend}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
-            aria-label="Send message"
-          >
-            <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden />
-          </button>
-        </div>
-        <p className="mt-2 text-center text-[10px] text-slate-400">
-          {mentionsAll ? (
-            <span className="font-semibold text-orange-700">
-              @all will notify everyone with chat access
-            </span>
-          ) : (
-            "Visible to everyone with chat access on this job."
-          )}
+      {!canCompose ? (
+        <p className="shrink-0 border-t border-slate-200 bg-white px-3 py-3 text-center text-[11px] text-slate-500">
+          You have read-only access to this chat.
         </p>
-      </form>
+      ) : (
+        <form
+          onSubmit={handleSubmit}
+          className="shrink-0 border-t border-slate-200 bg-white px-3 py-3"
+        >
+          <label htmlFor={`job-note-${jobId}`} className="sr-only">
+            Message the team on this job
+          </label>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2 shadow-inner transition-[border-color,box-shadow] focus-within:border-orange-300/70 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(249,115,22,0.12)]">
+            <div className="hidden shrink-0 sm:flex">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900/5 text-slate-500">
+                <Shield className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            </div>
+            <textarea
+              id={`job-note-${jobId}`}
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter sends, Shift+Enter breaks the line — the convention
+                // every chat app has trained people to expect.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (canSend) onSend();
+                }
+              }}
+              placeholder="Write to the team… type @all to notify everyone"
+              rows={1}
+              className="max-h-24 min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-xs leading-relaxed text-slate-800 outline-none placeholder:text-slate-400"
+            />
+            <button
+              type="submit"
+              disabled={!canSend}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
+              aria-label="Send message"
+            >
+              <ArrowUp className="h-4 w-4" strokeWidth={2.5} aria-hidden />
+            </button>
+          </div>
+          <p className="mt-2 text-center text-[10px] text-slate-400">
+            @all will notify everyone in this chat
+          </p>
+        </form>
+      )}
     </aside>
   );
 }

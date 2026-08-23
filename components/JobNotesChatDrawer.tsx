@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { JobNotesChatSidebar } from "@/components/JobNotesChatSidebar";
 import { useJobThread } from "@/hooks/useJobThread";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 
 interface JobNotesChatDrawerProps {
   open: boolean;
@@ -20,6 +22,8 @@ export function JobNotesChatDrawer({
   dbId,
 }: JobNotesChatDrawerProps) {
   const [draft, setDraft] = useState("");
+  const { can } = useAuth();
+  const canCompose = can(ACCESS_KEYS.JOB_CHAT_SEND);
 
   // The hook polls only while `open`, so a closed drawer costs nothing.
   const { messages, loading, error, send, retry, markRead } = useJobThread(
@@ -79,6 +83,7 @@ export function JobNotesChatDrawer({
             onRetry={retry}
             onVisible={markRead}
             onClose={onClose}
+            canCompose={canCompose}
             fillHeight
             className="h-full rounded-none border-0 shadow-none"
           />

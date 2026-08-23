@@ -17,6 +17,9 @@ export const ACCESS_KEYS = {
   ANALYTICS_VIEW: "ANALYTICS_VIEW",
   QUOTIENT_VIEW: "QUOTIENT_VIEW",
   SECURITY_VIEW: "SECURITY_VIEW",
+  NOTIFICATIONS_VIEW: "NOTIFICATIONS_VIEW",
+  JOB_CHAT_VIEW: "JOB_CHAT_VIEW",
+  JOB_CHAT_SEND: "JOB_CHAT_SEND",
 } as const;
 
 export type AccessKey = (typeof ACCESS_KEYS)[keyof typeof ACCESS_KEYS];
@@ -107,6 +110,14 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
     // to see them; there's no ACTION fallback to fail open on like the keys above.
     [ACCESS_KEYS.QUOTIENT_VIEW, MENU_CODES.QUOTIENT],
     [ACCESS_KEYS.SECURITY_VIEW, MENU_CODES.SECURITY],
+    // Chat/notifications reuse the existing MESSAGE_READ/MESSAGE_CREATE ACTION
+    // codes rather than new ones (see ChatController/NotificationController,
+    // both @PrivilegedResource("MESSAGE")) — real backend enforcement, so
+    // these keys just mirror it on the frontend to avoid dead-end UI (bell/
+    // chat visible, then a 403 the moment it fetches).
+    [ACCESS_KEYS.NOTIFICATIONS_VIEW, "MESSAGE_READ"],
+    [ACCESS_KEYS.JOB_CHAT_VIEW, "MESSAGE_READ"],
+    [ACCESS_KEYS.JOB_CHAT_SEND, "MESSAGE_CREATE"],
   ]);
 
 export function getPrivileges(user: UserDTO | null | undefined): string[] {

@@ -16,6 +16,7 @@ import {
   markNotificationsRead,
 } from "@/lib/frp/api";
 import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 import type { NotificationDTO } from "@/lib/frp/types";
 
 /**
@@ -51,7 +52,12 @@ export function NotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, can } = useAuth();
+  // MESSAGE_READ is a real backend-enforced ACTION privilege (ChatController /
+  // NotificationController are both @PrivilegedResource("MESSAGE")) — a role
+  // without it would otherwise poll this every 45s forever and just collect
+  // 403s. Gate the poll itself, not just the bell's visibility.
+  const canViewNotifications = isAuthenticated && can(ACCESS_KEYS.NOTIFICATIONS_VIEW);
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<NotificationDTO[]>([]);
@@ -83,7 +89,7 @@ export function NotificationProvider({
   useEffect(() => {
     mountedRef.current = true;
 
-    if (!isAuthenticated) {
+    if (!canViewNotifications) {
       setUnreadCount(0);
       setItems([]);
       return () => {
@@ -116,7 +122,7 @@ export function NotificationProvider({
       if (timerRef.current) clearTimeout(timerRef.current);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [isAuthenticated, pollSummary]);
+  }, [canViewNotifications, pollSummary]);
 
   const loadItems = useCallback(async () => {
     setLoadingItems(true);

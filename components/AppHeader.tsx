@@ -6,6 +6,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppProfileMenu } from "@/components/AppProfileMenu";
 import { NotificationPanel } from "@/components/NotificationPanel";
 import { useNotifications } from "@/context/NotificationContext";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 
 function getPageTitle(pathname: string): string {
   if (pathname === "/") return "Dashboard";
@@ -23,11 +25,7 @@ function getPageTitle(pathname: string): string {
   return "Dashboard";
 }
 
-export function AppHeader({
-  onOpenSidebar,
-}: {
-  onOpenSidebar?: () => void;
-}) {
+export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,9 +36,11 @@ export function AppHeader({
   const [draft, setDraft] = useState(urlQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const { can } = useAuth();
   const notifications = useNotifications();
   const [panelOpen, setPanelOpen] = useState(false);
   const unreadCount = notifications?.unreadCount ?? 0;
+  const canViewNotifications = can(ACCESS_KEYS.NOTIFICATIONS_VIEW);
 
   useEffect(() => {
     setDraft(onJobsList ? urlQuery : "");
@@ -115,35 +115,35 @@ export function AppHeader({
               className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
             />
           </label>
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setPanelOpen((open) => !open)}
-              className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-slate-600 transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-orange-700"
-              aria-label={
-                unreadCount > 0
-                  ? `Notifications (${unreadCount} unread)`
-                  : "Notifications"
-              }
-              aria-expanded={panelOpen}
-              aria-haspopup="dialog"
-            >
-              <Bell className="h-4 w-4" aria-hidden />
-              {/* Bound to the real unread count. This was a hardcoded dot that
-                  was always lit, so it carried no information at all. */}
-              {unreadCount > 0 ? (
-                <span
-                  className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.05rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white"
-                  aria-hidden
-                >
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
+          {canViewNotifications ? (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setPanelOpen((open) => !open)}
+                className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-slate-600 transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-orange-700"
+                aria-label={
+                  unreadCount > 0
+                    ? `Notifications (${unreadCount} unread)`
+                    : "Notifications"
+                }
+                aria-expanded={panelOpen}
+                aria-haspopup="dialog"
+              >
+                <Bell className="h-4 w-4" aria-hidden />
+                {unreadCount > 0 ? (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.05rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white"
+                    aria-hidden
+                  >
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                ) : null}
+              </button>
+              {panelOpen ? (
+                <NotificationPanel onClose={() => setPanelOpen(false)} />
               ) : null}
-            </button>
-            {panelOpen ? (
-              <NotificationPanel onClose={() => setPanelOpen(false)} />
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           <AppProfileMenu />
         </div>
       </div>
