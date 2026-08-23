@@ -512,16 +512,9 @@ function CategorySection({
         </h3>
       </div>
 
-      {/* Desktop: table. Breakpoint matches the Jobs page's own table/card
-          split (lg, not md) — a 3-column table needs more room than md
-          (768px) gives it before the columns start cramping. */}
-      <div className="hidden overflow-x-auto lg:block">
-        <table className="w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col className="w-[34%]" />
-            <col className="w-[42%]" />
-            <col className="w-[24%]" />
-          </colgroup>
+      {/* Desktop / tablet: table */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full text-left text-sm">
           <thead className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-2.5">Event</th>
@@ -563,8 +556,8 @@ function CategorySection({
         </table>
       </div>
 
-      {/* Mobile / tablet: stacked cards, same pattern as the Jobs list */}
-      <div className="flex flex-col gap-3 p-3 lg:hidden">
+      {/* Mobile: stacked cards, same pattern as the Jobs list */}
+      <div className="flex flex-col gap-3 p-3 md:hidden">
         {events.map((event) => {
           const selected = rules[event.id] ?? [];
           return (
