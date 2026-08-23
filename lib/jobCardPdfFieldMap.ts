@@ -1,5 +1,6 @@
 import {
   STANDARD_CLIP_ROWS,
+  formatJobCardVersionLabel,
   type OfficialJobCardData,
 } from "@/lib/jobCardPrint";
 import type { Job, JobCardClipRow, JobCardPack } from "@/lib/types";
@@ -532,6 +533,7 @@ export function officialDataToFieldValues(
     finish: blankDash(data.finish),
     notes: blankDash(data.notes),
     deliveryInstructions: blankDash(data.deliveryInstructions),
+    jobCardVersion: formatJobCardVersionLabel(data.jobCardVersion),
     qaName: data.qaCompleted ? blankDash(data.assignedWorker) : "",
     qaSign: "",
     qaDate: "",

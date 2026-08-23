@@ -29,9 +29,11 @@ import type {
   FrpJobDocumentDTO,
   FrpJobDocumentUpdateRequest,
   FrpJobDTO,
-  FrpInventoryDTO,
+  FrpJobInventoryDTO,
+  FrpMasterInventoryDTO,
   FrpJobPaymentDTO,
   FrpJobPaymentUpdateRequest,
+  FrpJobProjectRequirementDTO,
   FrpJobSchedulingLogisticsDTO,
   FrpJobStageDTO,
   FrpJobStageUpdateRequest,
@@ -39,6 +41,7 @@ import type {
   FrpManualPoRequest,
   FrpPoComparisonDTO,
 } from "@/lib/frp/job-mapper";
+import type { ProjectRequirementKind } from "@/lib/frp/project-requirements";
 import {
   STATUS_TARGET_STAGE,
   type BackendJobStatus,
@@ -606,6 +609,34 @@ export async function getJobCounts(): Promise<FrpJobCountsDTO> {
   return frpFetch<FrpJobCountsDTO>("/jobs/counts");
 }
 
+export type FrpQuoteEventCountDTO = {
+  eventType: string;
+  label: string;
+  count: number;
+  known: boolean;
+};
+
+export type FrpQuoteEventCountsSummaryDTO = {
+  total: number;
+  byType: FrpQuoteEventCountDTO[];
+};
+
+/** `GET /quotes/event-counts` — org-scoped quotient event totals by type. */
+export async function getQuoteEventCounts(): Promise<FrpQuoteEventCountsSummaryDTO> {
+  return frpFetch<FrpQuoteEventCountsSummaryDTO>("/quotes/event-counts");
+}
+
+export type FrpJobCompanyCountDTO = {
+  rank: number;
+  companyName: string;
+  jobCount: number;
+};
+
+/** `GET /jobs/top-clients` — ranked clients by job count. */
+export async function getTopClients(limit = 5): Promise<FrpJobCompanyCountDTO[]> {
+  return frpFetch<FrpJobCompanyCountDTO[]>(`/jobs/top-clients?limit=${limit}`);
+}
+
 /** `GET /jobs/{id}` — full record including `jobCard`. */
 export async function getJob(dbId: string | number): Promise<FrpJobDTO> {
   return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(String(dbId))}`);
@@ -671,6 +702,26 @@ export async function updateJobPayment(
   return frpFetch<FrpJobPaymentDTO>(
     `/jobs/${encodeURIComponent(String(dbId))}/payment`,
     { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/requirements/{kind}` — decide one project requirement;
+ * returns all three rows (same pattern as payment kind on `job_payment`).
+ */
+export async function setJobRequirement(
+  dbId: string | number,
+  kind: ProjectRequirementKind,
+  required: boolean,
+  remarks?: string
+): Promise<FrpJobProjectRequirementDTO[]> {
+  const params = new URLSearchParams({ required: String(required) });
+  if (remarks?.trim()) {
+    params.set("remarks", remarks.trim());
+  }
+  return frpFetch<FrpJobProjectRequirementDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/requirements/${encodeURIComponent(kind)}?${params}`,
+    { method: "PUT" }
   );
 }
 
@@ -835,65 +886,85 @@ export async function deleteJobDocument(id: number): Promise<void> {
 }
 
 /**
- * `GET /jobs/{id}/inventory` — material lines for the job. Also returned
- * inline on `GET /jobs/{id}` (`Job.inventory`); call this only when the list
- * needs to be refreshed on its own, without refetching the whole job.
+ * `GET /master-inventory` — the org's product catalogue. Job users with
+ * `MASTER_INVENTORY_READ` (granted alongside `INVENTORY_READ`) can list it
+ * so the Add Inventory picker has something to choose from.
+ */
+export async function listMasterInventory(): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory");
+}
+
+/** `POST /master-inventory` — add one or more catalogue items (org admin). */
+export async function addMasterInventory(
+  body: FrpMasterInventoryDTO[]
+): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `PUT /master-inventory` — update catalogue items (org admin). Pass one row as `[item]`. */
+export async function updateMasterInventory(
+  body: FrpMasterInventoryDTO[]
+): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `DELETE /master-inventory` — remove catalogue items. Pass one id as `[id]`. */
+export async function deleteMasterInventory(ids: number[]): Promise<void> {
+  await frpFetch<void>("/master-inventory", {
+    method: "DELETE",
+    body: JSON.stringify(ids),
+  });
+}
+
+/**
+ * `GET /jobs/{id}/job-inventory` — catalogue items this job consumes.
+ * Also returned inline on `GET /jobs/{id}` (`Job.inventory`); call this only
+ * when the list needs to be refreshed on its own.
  */
 export async function listJobInventory(
   dbId: string | number
-): Promise<FrpInventoryDTO[]> {
-  return frpFetch<FrpInventoryDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory`
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`
   );
 }
 
-/** `POST /jobs/{id}/inventory` — add one material line. */
+/** `PUT /jobs/{id}/job-inventory` — replace the job's lines in one call. */
+export async function replaceJobInventory(
+  dbId: string | number,
+  body: Array<{ masterInventoryId: number; quantity: number }>
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/** `POST /jobs/{id}/job-inventory` — attach catalogue items (upsert by item). */
 export async function addJobInventory(
   dbId: string | number,
-  body: FrpInventoryDTO
-): Promise<FrpInventoryDTO> {
-  return frpFetch<FrpInventoryDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory`,
+  body: Array<{ masterInventoryId: number; quantity: number }>
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`,
     { method: "POST", body: JSON.stringify(body) }
   );
 }
 
-/**
- * `PUT /jobs/{id}/inventory` — save the inventory table in one call. A line
- * WITH an id has only its quantity applied; a line WITHOUT one is created in
- * full. Nothing is deleted — a line the payload omits is left alone, so
- * remove a persisted line with {@link deleteJobInventoryLine} instead.
- */
-export async function saveJobInventory(
+/** `DELETE /jobs/{id}/job-inventory` — remove lines by id. */
+export async function deleteJobInventoryLines(
   dbId: string | number,
-  body: FrpInventoryDTO[]
-): Promise<FrpInventoryDTO[]> {
-  return frpFetch<FrpInventoryDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory`,
-    { method: "PUT", body: JSON.stringify(body) }
-  );
-}
-
-/** `PUT /jobs/{id}/inventory/{lineId}` — update one material line. */
-export async function updateJobInventoryLine(
-  dbId: string | number,
-  lineId: number,
-  body: FrpInventoryDTO
-): Promise<FrpInventoryDTO> {
-  return frpFetch<FrpInventoryDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory/${lineId}`,
-    { method: "PUT", body: JSON.stringify(body) }
-  );
-}
-
-/** `DELETE /jobs/{id}/inventory/{lineId}`. */
-export async function deleteJobInventoryLine(
-  dbId: string | number,
-  lineId: number
+  ids: number[]
 ): Promise<void> {
   await frpFetch<void>(
-    `/jobs/${encodeURIComponent(String(dbId))}/inventory/${lineId}`,
-    { method: "DELETE" }
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`,
+    { method: "DELETE", body: JSON.stringify(ids) }
   );
 }
 
@@ -939,11 +1010,28 @@ export type FrpQuoteStatus =
 export async function listQuotes(
   page = 0,
   size = 100,
-  filters?: { status?: FrpQuoteStatus; company?: string }
+  filters?: {
+    status?: FrpQuoteStatus | FrpQuoteStatus[];
+    company?: string | string[];
+  }
 ): Promise<PageResponse<Record<string, unknown>>> {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
-  if (filters?.status) params.set("status", filters.status);
-  if (filters?.company) params.set("company", filters.company);
+  const statuses = filters?.status
+    ? Array.isArray(filters.status)
+      ? filters.status
+      : [filters.status]
+    : [];
+  for (const s of statuses) {
+    if (s) params.append("status", s);
+  }
+  const companies = filters?.company
+    ? Array.isArray(filters.company)
+      ? filters.company
+      : [filters.company]
+    : [];
+  for (const c of companies) {
+    if (c?.trim()) params.append("company", c.trim());
+  }
   return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes?${params}`);
 }
 

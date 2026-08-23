@@ -32,6 +32,7 @@ import {
   type AnalyticsSnapshot,
 } from "@/lib/analytics/types";
 import { formatCreatedDate } from "@/lib/jobData";
+import { getQuoteEventCounts, getTopClients } from "@/lib/frp/api";
 import { STATUS_THEME } from "@/lib/statusColors";
 import { journeyOutcomeLabel } from "@/lib/quotes/labels";
 
@@ -121,8 +122,24 @@ export function AnalyticsPage() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      // Quote/inventory analytics move with DEL-02; job KPIs come from JobsContext.
-      const data = emptyAnalyticsSnapshot();
+      const empty = emptyAnalyticsSnapshot();
+      const [quoteCounts, topClients] = await Promise.all([
+        getQuoteEventCounts().catch(() => null),
+        getTopClients(5).catch(() => null),
+      ]);
+
+      const data: AnalyticsSnapshot = {
+        ...empty,
+        quotientEvents: quoteCounts
+          ? quoteCounts.byType.map((event) => ({
+              event_name: event.eventType,
+              label: event.label,
+              count: event.count,
+            }))
+          : empty.quotientEvents,
+        quotientTotal: quoteCounts?.total ?? 0,
+        topClients: topClients ?? [],
+      };
       setSnapshot(data);
 
       const total = data.quotientTotal ?? 0;
@@ -227,7 +244,7 @@ export function AnalyticsPage() {
   const quotientChartData = useMemo(
     () =>
       (snapshot?.quotientEvents ?? []).map((e) => ({
-        name: QUOTIENT_LABELS[e.event_name] ?? e.event_name,
+        name: e.label ?? QUOTIENT_LABELS[e.event_name] ?? e.event_name,
         count: e.count,
         fill: QUOTIENT_COLORS[e.event_name] ?? STATUS_THEME.notStarted.soft,
       })),
@@ -491,7 +508,7 @@ export function AnalyticsPage() {
         <section className="app-card" aria-label="Quotient analytics">
           <h2 className="text-lg font-semibold text-slate-900">Quotient quote journey</h2>
           <p className="mt-1 text-base text-slate-600">
-            All webhook events from <code className="text-sm">quote_events_history</code>
+            Webhook events aggregated from <code className="text-sm">quote_event_count</code>
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <AnimatedStatTile
@@ -658,9 +675,15 @@ export function AnalyticsPage() {
         <section className="mt-4 grid gap-4 lg:grid-cols-2">
           <div className="app-card" aria-label="Top clients">
             <h2 className="text-lg font-semibold text-slate-900">Top clients</h2>
-            <p className="mt-1 text-base text-slate-600">By active job count</p>
+            <p className="mt-1 text-base text-slate-600">By job count</p>
             <ul className="mt-4 space-y-2">
-              {jobStats.topClients.map(({ name, count }, i) => (
+              {(snapshot?.topClients.length
+                ? snapshot.topClients.map((client) => ({
+                    name: client.companyName,
+                    count: client.jobCount,
+                  }))
+                : jobStats.topClients
+              ).map(({ name, count }, i) => (
                 <li
                   key={name}
                   className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 transition-all duration-300 hover:border-slate-200"
@@ -671,6 +694,11 @@ export function AnalyticsPage() {
                 </li>
               ))}
             </ul>
+            {!loading &&
+              (snapshot?.topClients.length ?? 0) === 0 &&
+              jobStats.topClients.length === 0 && (
+                <p className="mt-4 text-base text-slate-500">No client job counts yet.</p>
+              )}
           </div>
 
           <div className="app-card" id="inventory" aria-label="Inventory alerts">

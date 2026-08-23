@@ -44,6 +44,46 @@ import type { Job } from "@/lib/types";
 
 export type { JobUpdateAuditAction };
 
+/** Match a route segment to a cached job (job number or database id). */
+function jobRouteMatches(job: Job, routeId: string): boolean {
+  const id = routeId.trim();
+  if (!id) return false;
+  if (job.id === id || job.dbId === id) return true;
+  const bare = id.replace(/^JOB-/i, "");
+  const jobBare = job.id.replace(/^JOB-/i, "");
+  return bare !== id && jobBare === bare;
+}
+
+/** Resolve Spring Boot job id for GET /jobs/{id} from a route id. */
+async function resolveJobDbId(
+  routeId: string,
+  jobs: Job[]
+): Promise<string | null> {
+  const id = routeId.trim();
+  if (!id) return null;
+
+  const cached = jobs.find((j) => jobRouteMatches(j, id));
+  if (cached?.dbId) return cached.dbId;
+
+  if (/^\d+$/.test(id)) return id;
+
+  try {
+    const page = await listJobs(0, 20, { search: id });
+    const hit = (page.content ?? []).find((row) => {
+      const num = row.jobNumber ?? "";
+      return (
+        num === id ||
+        num.replace(/^JOB-/i, "") === id.replace(/^JOB-/i, "") ||
+        String(row.id) === id
+      );
+    });
+    if (hit?.id != null) return String(hit.id);
+  } catch {
+    // Search is best-effort when the job is not in the cached list page.
+  }
+  return null;
+}
+
 export interface DirectorRow {
   id: string;
   name: string;
@@ -211,7 +251,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
    * on the job instead of the search-jobs fallback.
    */
   const findJob = useCallback(
-    (id: string) => jobs.find((j) => j.id === id || j.dbId === id),
+    (id: string) => jobs.find((j) => jobRouteMatches(j, id)),
     [jobs]
   );
 
@@ -219,15 +259,20 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
 
   const loadJobDetail = useCallback(
     async (id: string): Promise<Job> => {
-      const known = findJob(id);
-      if (!known?.dbId) {
-        throw new Error(`Job ${id} is not loaded — refresh the job list first.`);
+      const dbId = await resolveJobDbId(id, jobs);
+      if (!dbId) {
+        throw new FrpApiError(404, "Job not found");
       }
-      const full = frpJobToUi(await getJob(known.dbId));
-      setJobs((prev) => prev.map((j) => (j.id === full.id ? full : j)));
+      const full = frpJobToUi(await getJob(dbId));
+      setJobs((prev) => {
+        const rest = prev.filter(
+          (j) => j.id !== full.id && j.dbId !== full.dbId
+        );
+        return [full, ...rest];
+      });
       return full;
     },
-    [findJob]
+    [jobs]
   );
 
   const rebalanceFloor = useCallback(async () => {

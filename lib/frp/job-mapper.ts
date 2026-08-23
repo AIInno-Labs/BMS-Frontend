@@ -11,10 +11,20 @@ import type {
   Job,
   JobCardPrintDetails,
   JobInventoryLine,
+  JobProjectRequirement,
   JobSchedulingLogistics,
   ShipmentMethod,
 } from "@/lib/types";
 import type { JobOrigin } from "@/lib/frp/job-status";
+import {
+  PROJECT_REQUIREMENT_KINDS,
+  PROJECT_REQUIREMENT_LABELS,
+  type ProjectRequirementKind,
+} from "@/lib/frp/project-requirements";
+import {
+  combineCatalogMaterialGrade,
+  combineCatalogSize,
+} from "@/lib/frp/inventory-catalog";
 import {
   priorityToBackend,
   priorityToUi,
@@ -111,25 +121,43 @@ export interface FrpJobDTO {
   /** `READ_ONLY` — mutated via `PUT /jobs/{id}/payment`. */
   payments?: FrpJobPaymentDTO[];
   /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
-   *  `/jobs/{id}/inventory`. */
-  inventory?: FrpInventoryDTO[];
+   *  `/jobs/{id}/job-inventory`. */
+  inventory?: FrpJobInventoryDTO[];
+    /** `READ_ONLY` — all requirement kinds (Documents / Sample / COI / Cash payment). */
+    requirements?: FrpJobProjectRequirementDTO[];
 }
 
-/** `InventoryDTO` — one material line on a job, nested on `JobDTO` in the
- *  detail view and addressable directly through `/jobs/{id}/inventory`. */
-export interface FrpInventoryDTO {
+/** `JobProjectRequirementDTO` — one project requirement row. */
+export interface FrpJobProjectRequirementDTO {
+  requirementName?: ProjectRequirementKind;
+  label?: string;
+  isRequired?: boolean | null;
+  remarks?: string | null;
+  updatedBy?: number | null;
+  updatedAt?: string | null;
+}
+
+/** `MasterInventoryDTO` — one row of the org catalogue. */
+export interface FrpMasterInventoryDTO {
   id?: number;
-  /** `READ_ONLY` — taken from the path, not the body. */
-  jobId?: number;
-  category?: string | null;
-  profileType?: string | null;
-  size?: string | null;
-  materialGrade?: string | null;
-  quantity?: number | null;
-  description?: string | null;
-  /** `READ_ONLY` — resolved from the authenticated user by Spring Data auditing. */
+  productGroup?: string;
+  attribute1?: string | null;
+  attribute2?: string | null;
+  attribute3?: string | null;
+  material?: string | null;
+  primaryColour?: string | null;
   createdBy?: number | null;
-  createdDate?: string;
+}
+
+/** `JobInventoryDTO` — a job's use of a master-inventory item. Nested on
+ *  `JobDTO` in the detail view and addressable through
+ *  `/jobs/{id}/job-inventory`. */
+export interface FrpJobInventoryDTO {
+  id?: number;
+  masterInventoryId?: number;
+  quantity?: number | null;
+  /** The referenced catalogue item, populated on read. */
+  master?: FrpMasterInventoryDTO | null;
 }
 
 /** `CustomerDTO` — nested on `JobDTO` in the detail view. */
@@ -235,8 +263,11 @@ export interface FrpJobCardPayload {
   programHistory?: string[];
   notes?: string;
   additionalNotes?: string;
+  /** @deprecated Use `job_project_requirements` via `JobDTO.requirements`. */
   documentsRequired?: boolean;
+  /** @deprecated Use `job_project_requirements` via `JobDTO.requirements`. */
   sampleRequired?: boolean;
+  /** @deprecated Use `job_project_requirements` via `JobDTO.requirements`. */
   coiRequired?: boolean;
   /** @deprecated Payment lives on `job_payment`; kept to read older cards. */
   paymentReceived?: boolean | null;
@@ -353,6 +384,8 @@ export interface FrpJobDocumentDTO {
   documentVersion?: number;
   status?: FrpDocumentStatus;
   extractionStatus?: FrpDocumentExtractionStatus;
+  /** Reason for the current extractionStatus: the failure message on FAILED, null on READY. */
+  extractionMessage?: string | null;
   /** SharePoint upload — PENDING until the async worker stores or fails. */
   storageStatus?: FrpDocumentStorageStatus;
   uploadedBy?: number;
@@ -626,6 +659,37 @@ export function schedulingLogisticsToBackend(
 }
 
 /** Full record, including everything carried in the job-card document. */
+function requirementsToUi(
+  dto: FrpJobDTO,
+  card?: FrpJobCardPayload | null
+): JobProjectRequirement[] {
+  const fromApi = new Map<ProjectRequirementKind, FrpJobProjectRequirementDTO>();
+  for (const row of dto.requirements ?? []) {
+    if (row.requirementName) {
+      fromApi.set(row.requirementName, row);
+    }
+  }
+
+  return PROJECT_REQUIREMENT_KINDS.map((kind) => {
+    const row = fromApi.get(kind);
+    const legacyValue =
+      kind === "DOCUMENTS_REQUIRED"
+        ? card?.documentsRequired
+        : kind === "SAMPLE_REQUIRED"
+          ? card?.sampleRequired
+          : card?.coiRequired;
+    const legacyRequired =
+      typeof legacyValue === "boolean" ? legacyValue : null;
+
+    return {
+      kind,
+      label: row?.label ?? PROJECT_REQUIREMENT_LABELS[kind],
+      isRequired: row?.isRequired ?? legacyRequired,
+      remarks: row?.remarks ?? null,
+    };
+  });
+}
+
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
   const spec = card?.productSpec;
@@ -671,9 +735,6 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     packs: packsFromPayload(card?.packs),
     scopeLines: card?.scopeLines ?? [],
     workflowExtras: {
-      documentsRequired: card?.documentsRequired,
-      sampleRequired: card?.sampleRequired,
-      coiRequired: card?.coiRequired,
       shipmentMethod: card?.shipmentMethod,
       billingAddress:
         card?.billingAddress ||
@@ -740,45 +801,33 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     printDetails,
     createdAt: dto.createdDate,
     quoteNumber: dto.quoteNumber ?? null,
-    origin: dto.origin,
-    currentStageKey: dto.currentStageKey ?? null,
-    inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  origin: dto.origin,
+  currentStageKey: dto.currentStageKey ?? null,
+  inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  requirements: requirementsToUi(dto, card),
   };
 }
 
-function inventoryLineToUi(line: FrpInventoryDTO): JobInventoryLine {
+function inventoryLineToUi(line: FrpJobInventoryDTO): JobInventoryLine {
+  const master = line.master;
   return {
     id: line.id,
-    category: line.category ?? null,
-    profileType: line.profileType ?? null,
-    size: line.size ?? null,
-    materialGrade: line.materialGrade ?? null,
+    masterInventoryId: line.masterInventoryId ?? master?.id,
+    category: master?.productGroup ?? null,
+    profileType: master?.attribute1 ?? null,
+    size: combineCatalogSize(master?.attribute2 ?? "", master?.attribute3 ?? ""),
+    materialGrade: combineCatalogMaterialGrade(
+      master?.material ?? "",
+      master?.primaryColour ?? ""
+    ),
     quantity: inventoryQuantityToUi(line.quantity),
-    description: line.description ?? null,
   };
 }
 
-/** Integer quantity as stored by `InventoryDTO.quantity`; blanks become null. */
+/** Integer quantity as stored by `JobInventoryDTO.quantity`; blanks become null. */
 function inventoryQuantityToUi(value: number | null | undefined): number | null {
   if (value == null || !Number.isFinite(value)) return null;
   return Math.trunc(value);
-}
-
-/**
- * UI row → `InventoryDTO` write body. `category` and `profileType` are required
- * on create; empty optional strings are sent as `""` so a single-line PUT can
- * clear them (`null` on that endpoint means "leave the stored value").
- */
-export function uiInventoryLineToDto(line: JobInventoryLine): FrpInventoryDTO {
-  return {
-    ...(line.id != null ? { id: line.id } : {}),
-    category: line.category?.trim() || undefined,
-    profileType: line.profileType?.trim() || undefined,
-    size: line.size?.trim() ?? "",
-    materialGrade: line.materialGrade?.trim() ?? "",
-    quantity: inventoryQuantityToUi(line.quantity) ?? 0,
-    description: line.description?.trim() ?? "",
-  };
 }
 
 /* ------------------------------------------------------------- UI → DTO */
@@ -912,9 +961,6 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     programHistory: extras?.programHistory,
     notes: extras?.jobCardNotes,
     additionalNotes: extras?.additionalNotes,
-    documentsRequired: extras?.documentsRequired,
-    sampleRequired: extras?.sampleRequired,
-    coiRequired: extras?.coiRequired,
     dateRaised: job.date || undefined,
     quoteValidUntil: job.quoteValidUntil,
     manufacturingRequired: job.manufacturingRequired,

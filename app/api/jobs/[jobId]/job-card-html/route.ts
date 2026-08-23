@@ -40,20 +40,29 @@ export async function GET(request: Request, context: RouteContext) {
   const auth = request.headers.get("authorization");
 
   try {
-    const res = await fetch(`${base}/jobs/${encodeURIComponent(decoded)}`, {
-      headers: auth ? { Authorization: auth } : {},
-      cache: "no-store",
-    });
-    if (!res.ok) {
+    const [jobRes, auditRes] = await Promise.all([
+      fetch(`${base}/jobs/${encodeURIComponent(decoded)}`, {
+        headers: auth ? { Authorization: auth } : {},
+        cache: "no-store",
+      }),
+      fetch(`${base}/jobs/${encodeURIComponent(decoded)}/audit?page=0&size=1`, {
+        headers: auth ? { Authorization: auth } : {},
+        cache: "no-store",
+      }),
+    ]);
+    if (!jobRes.ok) {
       const message =
-        res.status === 404
+        jobRes.status === 404
           ? "Job not found"
-          : `Backend error (${res.status})`;
-      return NextResponse.json({ error: message }, { status: res.status });
+          : `Backend error (${jobRes.status})`;
+      return NextResponse.json({ error: message }, { status: jobRes.status });
     }
-    const dto = (await res.json()) as FrpJobDTO;
+    const dto = (await jobRes.json()) as FrpJobDTO;
+    const auditPage = auditRes.ok
+      ? ((await auditRes.json()) as { totalElements?: number })
+      : null;
     const job = frpJobToUi(dto);
-    const data = buildOfficialJobCardData(job);
+    const data = buildOfficialJobCardData(job, undefined, auditPage?.totalElements ?? 0);
     const html = buildJobCardPrintHtml(data, { autoprint });
 
     return new NextResponse(html, {

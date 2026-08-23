@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  Bell,
   Building2,
   House,
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  Package,
   PackageSearch,
   Settings2,
   Shield,
@@ -53,7 +55,6 @@ const orgUserManagerLinks: NavLink[] = [
     accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
   },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
-  { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
 
 const superAdminLinks: NavLink[] = [
@@ -62,16 +63,16 @@ const superAdminLinks: NavLink[] = [
   { href: "/admin/privileges", label: "Privileges", icon: KeyRound },
   { href: "/admin/parameters", label: "Parameters", icon: Settings2 },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
-  { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
 
 const orgAdminLinks: NavLink[] = [
   { href: "/org", label: "Dashboard", icon: LayoutDashboard },
   { href: "/org/users", label: "Users", icon: Users },
   { href: "/org/roles", label: "Roles", icon: Shield },
+  { href: "/org/inventory", label: "Inventory", icon: Package },
   { href: "/org/integrations", label: "Integrations", icon: Settings2 },
+  { href: "/org/notifications", label: "Notifications", icon: Bell },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
-  { href: "/settings/security", label: "Security", icon: Settings2 },
 ];
 
 function NavLinkItem({ href, label, icon: Icon }: NavLink) {
