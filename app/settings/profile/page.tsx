@@ -12,6 +12,8 @@ import {
 } from "@/lib/frp/api";
 import type { MfaSetupResponse } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { FieldGate } from "@/components/FieldGate";
+import { FIELD_KEYS } from "@/lib/frp/access";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 disabled:bg-slate-50 disabled:text-slate-500";
@@ -315,6 +317,7 @@ export default function ProfileSettingsPage() {
 
         <h2 className="mt-6 text-xl font-semibold text-[#111827]">Security</h2>
 
+        <FieldGate fieldKey={FIELD_KEYS.MFA}>
         <div className="app-card mt-3 space-y-4 !p-5">
           <div>
             <h3 className="text-sm font-semibold text-[#111827]">
@@ -441,6 +444,7 @@ export default function ProfileSettingsPage() {
             </form>
           )}
         </div>
+        </FieldGate>
       </div>
     </main>
   );

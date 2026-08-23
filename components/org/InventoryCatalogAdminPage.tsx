@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { Package, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { useAuth } from "@/context/AuthContext";
@@ -47,6 +47,82 @@ function normalized(entry: InventoryCatalogEntry): string {
     .join("|");
 }
 
+/**
+ * Type-or-pick text field: shows every distinct value already used for this
+ * column, narrowed as you type, but any typed value is valid even if it
+ * matches nothing — the catalog has no fixed vocabulary to enforce.
+ */
+function ComboboxField({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder?: string;
+  value: string;
+  options: string[];
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocumentClick(event: MouseEvent) {
+      if (containerRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocumentClick);
+    return () => document.removeEventListener("mousedown", onDocumentClick);
+  }, [open]);
+
+  const needle = value.trim().toLowerCase();
+  const filtered = needle
+    ? options.filter((opt) => opt.toLowerCase().includes(needle))
+    : options;
+
+  return (
+    <label className={labelClass}>
+      {label}
+      <div className="relative" ref={containerRef}>
+        <input
+          className={inputClass}
+          value={value}
+          placeholder={placeholder}
+          autoComplete="off"
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+        />
+        {open && filtered.length > 0 && (
+          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+            {filtered.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                className="block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-slate-800 hover:bg-slate-50"
+                // mousedown (not click) fires before the input's blur, so
+                // picking a suggestion isn't swallowed by the close-on-blur.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(opt);
+                  setOpen(false);
+                }}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </label>
+  );
+}
+
 export function InventoryCatalogAdminPage() {
   const { loading: authLoading, isAuthenticated, appRole } = useAuth();
   const router = useRouter();
@@ -78,33 +154,28 @@ export function InventoryCatalogAdminPage() {
     }
   }, [authLoading, isAuthenticated, appRole, router]);
 
+  const reload = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const rows = await listMasterInventory();
+      setItems(
+        rows.map(masterInventoryToCatalogItem).filter((item) => item.id > 0)
+      );
+      setCatalogError(null);
+    } catch (e) {
+      setItems([]);
+      setCatalogError(
+        e instanceof Error ? e.message : "Could not load inventory catalog"
+      );
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
-    let cancelled = false;
-    async function loadCatalog() {
-      setCatalogLoading(true);
-      try {
-        const rows = await listMasterInventory();
-        if (cancelled) return;
-        setItems(
-          rows.map(masterInventoryToCatalogItem).filter((item) => item.id > 0)
-        );
-        setCatalogError(null);
-      } catch (e) {
-        if (cancelled) return;
-        setItems([]);
-        setCatalogError(
-          e instanceof Error ? e.message : "Could not load inventory catalog"
-        );
-      } finally {
-        if (!cancelled) setCatalogLoading(false);
-      }
-    }
-    void loadCatalog();
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, isAuthenticated, appRole]);
+    void reload();
+  }, [authLoading, isAuthenticated, appRole, reload]);
 
   const categories = useMemo(
     () =>
@@ -146,10 +217,74 @@ export function InventoryCatalogAdminPage() {
     [scopedByProfile]
   );
 
+  // A filter can point at a value that an edit/delete just made stale (e.g.
+  // filtered to the one item with Attribute 1 "Y", then that item was edited
+  // to "Z" or deleted) — left alone, the table would keep showing "No items
+  // match this filter" with no way back short of manually clearing it. Drop
+  // whichever filter no longer has a matching option, cascading down exactly
+  // like a manual change to that filter would.
+  useEffect(() => {
+    if (categoryFilter && !categories.includes(categoryFilter)) {
+      setCategoryFilter("");
+      setProfileTypeFilter("");
+      setMaterialFilter("");
+      return;
+    }
+    if (profileTypeFilter && !profileTypes.includes(profileTypeFilter)) {
+      setProfileTypeFilter("");
+      setMaterialFilter("");
+      return;
+    }
+    if (materialFilter && !materials.includes(materialFilter)) {
+      setMaterialFilter("");
+    }
+  }, [categories, profileTypes, materials, categoryFilter, profileTypeFilter, materialFilter]);
+
   const hasActiveFilter =
     Boolean(categoryFilter) ||
     Boolean(profileTypeFilter) ||
     Boolean(materialFilter);
+
+  // Combobox suggestions for the create/edit form — every distinct value
+  // this field has ever had, independent of the other fields (unlike the
+  // filter bar above, these aren't narrowed by sibling selections, since an
+  // admin here may be entering a genuinely new combination).
+  const productGroupOptions = useMemo(
+    () => [...new Set(items.map((item) => item.productGroup).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b)
+    ),
+    [items]
+  );
+  const attribute1Options = useMemo(
+    () => [...new Set(items.map((item) => item.profileType).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b)
+    ),
+    [items]
+  );
+  const attribute2Options = useMemo(
+    () => [...new Set(items.map((item) => item.meshSpec).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b)
+    ),
+    [items]
+  );
+  const attribute3Options = useMemo(
+    () => [...new Set(items.map((item) => item.dimension).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b)
+    ),
+    [items]
+  );
+  const resinOptions = useMemo(
+    () => [...new Set(items.map((item) => item.resin).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b)
+    ),
+    [items]
+  );
+  const colourOptions = useMemo(
+    () => [...new Set(items.map((item) => item.colour).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b)
+    ),
+    [items]
+  );
 
   function handleCategoryFilterChange(value: string) {
     setCategoryFilter(value);
@@ -273,6 +408,15 @@ export function InventoryCatalogAdminPage() {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary inline-flex items-center gap-1.5 px-4 py-2.5 text-sm"
+              onClick={() => void reload()}
+              disabled={catalogLoading}
+            >
+              <RefreshCw className={`h-4 w-4 ${catalogLoading ? "animate-spin" : ""}`} aria-hidden />
+              Refresh
+            </button>
             <button
               type="button"
               className="btn-primary inline-flex items-center gap-1.5 px-4 py-2.5 text-sm"
@@ -438,60 +582,48 @@ export function InventoryCatalogAdminPage() {
               {formError}
             </p>
           ) : null}
-          <label className={labelClass}>
-            Product Group
-            <input
-              className={inputClass}
-              value={form.productGroup}
-              placeholder="e.g. Grating - Moulded"
-              onChange={(e) => setForm((f) => ({ ...f, productGroup: e.target.value }))}
-            />
-          </label>
-          <label className={labelClass}>
-            Attribute 1
-            <input
-              className={inputClass}
-              value={form.profileType}
-              placeholder="e.g. 38mm thick"
-              onChange={(e) => setForm((f) => ({ ...f, profileType: e.target.value }))}
-            />
-          </label>
-          <label className={labelClass}>
-            Attribute 2
-            <input
-              className={inputClass}
-              value={form.meshSpec}
-              placeholder="e.g. 38 square mesh"
-              onChange={(e) => setForm((f) => ({ ...f, meshSpec: e.target.value }))}
-            />
-          </label>
-          <label className={labelClass}>
-            Attribute 3
-            <input
-              className={inputClass}
-              value={form.dimension}
-              placeholder="e.g. 1220 x 3660"
-              onChange={(e) => setForm((f) => ({ ...f, dimension: e.target.value }))}
-            />
-          </label>
-          <label className={labelClass}>
-            Resin / Material
-            <input
-              className={inputClass}
-              value={form.resin}
-              placeholder="e.g. IsoFR"
-              onChange={(e) => setForm((f) => ({ ...f, resin: e.target.value }))}
-            />
-          </label>
-          <label className={labelClass}>
-            Primary Colour
-            <input
-              className={inputClass}
-              value={form.colour}
-              placeholder="e.g. Yellow"
-              onChange={(e) => setForm((f) => ({ ...f, colour: e.target.value }))}
-            />
-          </label>
+          <ComboboxField
+            label="Product Group"
+            placeholder="e.g. Grating - Moulded"
+            value={form.productGroup}
+            options={productGroupOptions}
+            onChange={(next) => setForm((f) => ({ ...f, productGroup: next }))}
+          />
+          <ComboboxField
+            label="Attribute 1"
+            placeholder="e.g. 38mm thick"
+            value={form.profileType}
+            options={attribute1Options}
+            onChange={(next) => setForm((f) => ({ ...f, profileType: next }))}
+          />
+          <ComboboxField
+            label="Attribute 2"
+            placeholder="e.g. 38 square mesh"
+            value={form.meshSpec}
+            options={attribute2Options}
+            onChange={(next) => setForm((f) => ({ ...f, meshSpec: next }))}
+          />
+          <ComboboxField
+            label="Attribute 3"
+            placeholder="e.g. 1220 x 3660"
+            value={form.dimension}
+            options={attribute3Options}
+            onChange={(next) => setForm((f) => ({ ...f, dimension: next }))}
+          />
+          <ComboboxField
+            label="Resin / Material"
+            placeholder="e.g. IsoFR"
+            value={form.resin}
+            options={resinOptions}
+            onChange={(next) => setForm((f) => ({ ...f, resin: next }))}
+          />
+          <ComboboxField
+            label="Primary Colour"
+            placeholder="e.g. Yellow"
+            value={form.colour}
+            options={colourOptions}
+            onChange={(next) => setForm((f) => ({ ...f, colour: next }))}
+          />
         </form>
       </EnterpriseDrawer>
 
