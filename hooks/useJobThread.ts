@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  getNewJobMessages,
   listJobMessages,
   markThreadRead,
   postJobMessage,
@@ -30,9 +31,9 @@ function newClientMsgId(): string {
 /**
  * Merge by id, keeping the newest-first order the server returns.
  *
- * Deliberately not an append: `since` is a timestamp, and two app servers with
- * slightly different clocks could return a message the client already holds.
- * Keying on id makes a repeat harmless.
+ * Deliberately not an append: the first load and a poll can overlap, and an
+ * optimistic row is replaced rather than duplicated. Keying on id makes a
+ * repeat harmless whatever its cause.
  *
  * Optimistic rows are matched on `clientMsgId` so the server's copy replaces
  * the pending bubble rather than appearing beside it.
@@ -62,12 +63,10 @@ function mergeMessages(
   });
 }
 
-function newestSentAt(messages: GroupChatDTO[]): string | null {
-  let newest: string | null = null;
+function newestId(messages: GroupChatDTO[]): number | null {
+  let newest: number | null = null;
   for (const m of messages) {
-    if (m.sentAt && (newest === null || Date.parse(m.sentAt) > Date.parse(newest))) {
-      newest = m.sentAt;
-    }
+    if (m.id != null && (newest === null || m.id > newest)) newest = m.id;
   }
   return newest;
 }
@@ -86,7 +85,9 @@ export function useJobThread(dbId: string | number | undefined, open: boolean) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const cursorRef = useRef<string | null>(null);
+  /** Highest message id held. An id cursor cannot miss or repeat a message
+   *  that shares a timestamp with another, which a time cursor can do both of. */
+  const cursorRef = useRef<number | null>(null);
   const intervalRef = useRef(THREAD_INTERVAL_MS);
   const readSentRef = useRef<number>(0);
 
@@ -103,15 +104,16 @@ export function useJobThread(dbId: string | number | undefined, open: boolean) {
     if (!dbId) return;
     if (typeof document !== "undefined" && document.hidden) return;
     try {
-      const page = await listJobMessages(dbId, {
-        since: cursorRef.current,
-        page: 0,
-        size: 30,
-      });
-      const incoming = page.content ?? [];
+      // No cursor yet means this is the first load of the thread: take a page
+      // of history. After that every fetch is a poll for what is new.
+      const incoming =
+        cursorRef.current === null
+          ? (await listJobMessages(dbId, { page: 0, size: 30 })).content ?? []
+          : await getNewJobMessages(dbId, cursorRef.current);
+
       if (incoming.length > 0) {
         setMessages((prev) => mergeMessages(prev, incoming));
-        cursorRef.current = newestSentAt(incoming) ?? cursorRef.current;
+        cursorRef.current = newestId(incoming) ?? cursorRef.current;
       }
       setError(null);
       intervalRef.current = THREAD_INTERVAL_MS;
@@ -180,7 +182,7 @@ export function useJobThread(dbId: string | number | undefined, open: boolean) {
       try {
         const saved = await postJobMessage(dbId, trimmed, { clientMsgId });
         setMessages((prev) => mergeMessages(prev, [saved]));
-        if (saved.sentAt) cursorRef.current = saved.sentAt;
+        if (saved.id != null) cursorRef.current = saved.id;
       } catch (e) {
         setMessages((prev) =>
           prev.map((m) =>
