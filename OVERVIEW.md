@@ -137,7 +137,7 @@ Every route except `/login` is behind the auth gate. Print styles are threaded t
 | `/quotes` | Quotient quote list |
 | `/quotes/[quoteNumber]` | Quote detail — line items, question thread, event timeline |
 | `/analytics` | Quotient event counts, journey/factory completion, inventory alerts |
-| `/settings/security` | MFA enrolment and management |
+| `/settings/profile` | Profile, org/access details, and MFA enrolment |
 | `/login` | Credential + MFA login |
 | `/admin`, `/admin/organizations`, `/admin/privileges`, `/admin/parameters` | Platform super-admin |
 | `/org`, `/org/users`, `/org/roles`, `/org/integrations` | Organization admin |

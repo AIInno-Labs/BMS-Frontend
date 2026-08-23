@@ -850,8 +850,9 @@ export function JobDocumentRevisionsCard({
     // once known (job contact) but stays editable while genuinely blank.
     // Currency defaults to whatever this job's existing PO(s) already used,
     // so it doesn't have to be re-picked on every additional PO for the same
-    // order — first doc (by version/id) that actually has one wins; blank if
-    // none do.
+    // order — first doc (by version/id) that actually has one wins; falls
+    // back to the job's own currency (set at creation, or from the quote)
+    // when there's no PO yet to source one from.
     const buyerName = job.clientContactName?.trim() ?? "";
     setAddPoBuyerEditable(!buyerName);
     setAddPoDetails({
@@ -859,7 +860,7 @@ export function JobDocumentRevisionsCard({
       orderDate: "",
       buyerName,
       expectedDate: "",
-      currency: poDocs.map(poDocCurrency).find((c) => c) ?? "",
+      currency: poDocs.map(poDocCurrency).find((c) => c) ?? job.currency ?? "",
     });
     setAddPoItems([emptyPoItemRow()]);
     setAddPoError(null);
