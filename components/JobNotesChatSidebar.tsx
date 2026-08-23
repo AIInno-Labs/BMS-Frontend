@@ -38,21 +38,55 @@ function avatarTone(seed: string) {
   return AVATAR_TONES[Math.abs(hash) % AVATAR_TONES.length];
 }
 
+// The date divider now carries the date, so each bubble only needs a time.
 function formatTime(iso?: string): string {
   if (!iso) return "";
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
-  const d = new Date(t);
-  const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return sameDay
-    ? time
-    : `${d.toLocaleDateString([], {
-        month: "short",
-        day: "numeric",
-      })}, ${time}`;
+  return new Date(t).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** WhatsApp-style grouping: Today, Yesterday, weekday name within the last
+ *  week, then a full date for anything older. */
+function formatDateDivider(iso?: string): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const d = new Date(t);
+  const dayDiff = Math.round((startOfDay(new Date()) - startOfDay(d)) / DAY_MS);
+
+  if (dayDiff === 0) return "Today";
+  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff > 1 && dayDiff < 7) {
+    return d.toLocaleDateString([], { weekday: "long" });
+  }
+  return d.toLocaleDateString([], {
+    day: "numeric",
+    month: "short",
+    year: d.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
+  });
+}
+
+/** Calendar-day grouping key — local time, so a message just after midnight
+ *  starts a new group even if the poll happens to batch it with the prior day. */
+function dayKey(iso?: string): string {
+  if (!iso) return "unknown";
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? "unknown" : new Date(t).toDateString();
+}
+
+type ChatRenderItem =
+  | { kind: "divider"; key: string; label: string }
+  | { kind: "message"; key: string | number; message: PendingMessage };
 
 /**
  * Highlights `@all` in a rendered body.
@@ -167,6 +201,22 @@ export function JobNotesChatSidebar({
   // so the thread reads top-to-bottom oldest-to-newest like a normal chat.
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
+  // Interleave a date divider before the first message of each calendar day,
+  // same rule WhatsApp uses: Today / Yesterday / weekday / full date.
+  const renderItems = useMemo(() => {
+    const items: ChatRenderItem[] = [];
+    let lastDay: string | null = null;
+    for (const m of orderedMessages) {
+      const key = dayKey(m.sentAt);
+      if (key !== lastDay) {
+        items.push({ kind: "divider", key: `divider-${key}`, label: formatDateDivider(m.sentAt) });
+        lastDay = key;
+      }
+      items.push({ kind: "message", key: m.id ?? m.clientMsgId ?? m.sentAt ?? Math.random(), message: m });
+    }
+    return items;
+  }, [orderedMessages]);
+
   // Auto-scroll to the newest message (bottom) whenever the thread grows —
   // covers first load, polling in new messages, and sending your own.
   useEffect(() => {
@@ -250,13 +300,24 @@ export function JobNotesChatSidebar({
                 className="pointer-events-none absolute bottom-2 left-[15px] top-2 w-px bg-gradient-to-t from-slate-200 via-slate-200 to-transparent"
                 aria-hidden
               />
-              {orderedMessages.map((m) => (
-                <ThreadMessage
-                  key={m.id ?? m.clientMsgId ?? m.sentAt}
-                  message={m}
-                  onRetry={onRetry}
-                />
-              ))}
+              {renderItems.map((item) =>
+                item.kind === "divider" ? (
+                  <div
+                    key={item.key}
+                    className="relative z-10 flex justify-center py-1"
+                  >
+                    <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-slate-200">
+                      {item.label}
+                    </span>
+                  </div>
+                ) : (
+                  <ThreadMessage
+                    key={item.key}
+                    message={item.message}
+                    onRetry={onRetry}
+                  />
+                )
+              )}
             </div>
           )}
         </div>
