@@ -18,6 +18,9 @@ interface JobNotesChatSidebarProps {
   fillHeight?: boolean;
   className?: string;
   canCompose?: boolean;
+  /** Whoever's looking at this thread — used to tell "my" bubbles from
+   *  everyone else's, so they can render on the right vs. the left. */
+  currentUserId?: number;
 }
 
 /** Stable colour per author, so the same person keeps the same avatar. */
@@ -113,15 +116,24 @@ function renderBody(body: string) {
 function ThreadMessage({
   message,
   onRetry,
+  isMine,
+  connectNext,
 }: {
   message: PendingMessage;
   onRetry: (message: PendingMessage) => void;
+  /** This message is the current viewer's own — renders on the right. */
+  isMine: boolean;
+  /** The next item in the thread is a message on the same side with no date
+   *  divider in between — draw a connector down to it. Runs of consecutive
+   *  same-side messages get their own connected line; the line never
+   *  crosses from one side to the other. */
+  connectNext: boolean;
 }) {
   const name = message.sentByName ?? "You";
   const initials = message.sentByInitials ?? "•";
 
   return (
-    <div className="relative flex gap-3">
+    <div className={`relative flex gap-3 ${isMine ? "flex-row-reverse" : ""}`}>
       <span
         className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm ring-2 ring-[#FAFBFC] ${avatarTone(
           name
@@ -130,8 +142,20 @@ function ThreadMessage({
       >
         {initials}
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
+      {connectNext ? (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute top-8 bottom-[-16px] w-px bg-gradient-to-b from-slate-200 to-slate-200/40 ${
+            isMine ? "right-[15px]" : "left-[15px]"
+          }`}
+        />
+      ) : null}
+      <div className={`min-w-0 flex-1 ${isMine ? "flex flex-col items-end" : ""}`}>
+        <div
+          className={`mb-1 flex flex-wrap items-baseline gap-x-2 ${
+            isMine ? "flex-row-reverse" : ""
+          }`}
+        >
           <span className="text-[11px] font-semibold text-slate-800">
             {name}
           </span>
@@ -146,11 +170,15 @@ function ThreadMessage({
           ) : null}
         </div>
         <div
-          className={`inline-block max-w-[95%] whitespace-pre-wrap rounded-2xl rounded-bl-md px-3 py-2 text-left text-xs leading-relaxed shadow-sm ${
+          className={`inline-block max-w-[95%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-left text-xs leading-relaxed shadow-sm ${
+            isMine ? "rounded-br-md" : "rounded-bl-md"
+          } ${
             message.failed
               ? "border border-rose-200 bg-rose-50 text-rose-900"
               : message.pending
               ? "border border-slate-200/70 bg-white text-slate-400"
+              : isMine
+              ? "border border-orange-200 bg-orange-50 text-slate-900"
               : "border border-slate-200/70 bg-white text-slate-800"
           }`}
         >
@@ -185,6 +213,7 @@ export function JobNotesChatSidebar({
   fillHeight = false,
   className = "",
   canCompose = true,
+  currentUserId,
 }: JobNotesChatSidebarProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -216,6 +245,17 @@ export function JobNotesChatSidebar({
     }
     return items;
   }, [orderedMessages]);
+
+  // A pending or failed message has no `sentBy` yet — the server hasn't
+  // echoed it back — but it can only ever be the current viewer's own, since
+  // nobody else's composer produces a locally-optimistic row.
+  const isMine = useCallback(
+    (m: PendingMessage) =>
+      m.pending === true ||
+      m.failed === true ||
+      (currentUserId != null && m.sentBy === currentUserId),
+    [currentUserId]
+  );
 
   // Auto-scroll to the newest message (bottom) whenever the thread grows —
   // covers first load, polling in new messages, and sending your own.
@@ -295,29 +335,37 @@ export function JobNotesChatSidebar({
               No messages yet — be the first to post.
             </p>
           ) : (
-            <div className="relative space-y-4 pl-1">
-              <div
-                className="pointer-events-none absolute bottom-2 left-[15px] top-2 w-px bg-gradient-to-t from-slate-200 via-slate-200 to-transparent"
-                aria-hidden
-              />
-              {renderItems.map((item) =>
-                item.kind === "divider" ? (
-                  <div
-                    key={item.key}
-                    className="relative z-10 flex justify-center py-1"
-                  >
-                    <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-slate-200">
-                      {item.label}
-                    </span>
-                  </div>
-                ) : (
+            <div className="relative space-y-4 px-1">
+              {renderItems.map((item, idx) => {
+                if (item.kind === "divider") {
+                  return (
+                    <div
+                      key={item.key}
+                      className="relative z-10 flex justify-center py-1"
+                    >
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 shadow-sm ring-1 ring-slate-200">
+                        {item.label}
+                      </span>
+                    </div>
+                  );
+                }
+                const mine = isMine(item.message);
+                // Connect to the next message only when it's on the same
+                // side (both mine, or both someone else's) — the line never
+                // crosses from the left column to the right column.
+                const next = renderItems[idx + 1];
+                const connectNext =
+                  next?.kind === "message" && isMine(next.message) === mine;
+                return (
                   <ThreadMessage
                     key={item.key}
                     message={item.message}
                     onRetry={onRetry}
+                    isMine={mine}
+                    connectNext={connectNext}
                   />
-                )
-              )}
+                );
+              })}
             </div>
           )}
         </div>

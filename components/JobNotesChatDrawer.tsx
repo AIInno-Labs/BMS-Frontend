@@ -22,7 +22,7 @@ export function JobNotesChatDrawer({
   dbId,
 }: JobNotesChatDrawerProps) {
   const [draft, setDraft] = useState("");
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const canCompose = can(ACCESS_KEYS.JOB_CHAT_SEND);
 
   // The hook polls only while `open`, so a closed drawer costs nothing.
@@ -84,6 +84,7 @@ export function JobNotesChatDrawer({
             onVisible={markRead}
             onClose={onClose}
             canCompose={canCompose}
+            currentUserId={user?.id}
             fillHeight
             className="h-full rounded-none border-0 shadow-none"
           />
