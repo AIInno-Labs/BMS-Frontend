@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Pencil, Search, X } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { useAuth } from "@/context/AuthContext";
 import { listUsers } from "@/lib/frp/api";
@@ -11,8 +11,7 @@ import type { UserDTO } from "@/lib/frp/types";
 type NotificationCategory =
   | "Job Lifecycle"
   | "Documents & Approvals"
-  | "Financial"
-  | "Quote Events";
+  | "Financial";
 
 interface NotificationEvent {
   id: string;
@@ -29,9 +28,7 @@ interface NotificationEvent {
  * an admin-typed custom event would look configured while never firing.
  *
  * Job-lifecycle rows match `JobAuditEvent` (backend) and the Job page's real
- * actions. Quote Events match the 6 real Quotient webhook events
- * (`QuotientEventCode.java`) — added ahead of time, using their exact
- * existing labels, for whenever quote-level notifications are wired up.
+ * actions.
  */
 const NOTIFICATION_EVENTS: NotificationEvent[] = [
   // Job Lifecycle
@@ -147,44 +144,6 @@ const NOTIFICATION_EVENTS: NotificationEvent[] = [
     description: "Payment is marked received on the job.",
     category: "Financial",
   },
-
-  // Quote Events (Quotient) — ahead of backend wiring, matching QuotientEventCode
-  {
-    id: "QUOTE_SENT",
-    label: "Quote Sent",
-    description: "A quote is sent to the customer.",
-    category: "Quote Events",
-  },
-  {
-    id: "CUSTOMER_VIEWED",
-    label: "Customer Viewed",
-    description: "The customer opens the quote.",
-    category: "Quote Events",
-  },
-  {
-    id: "CUSTOMER_QUESTION",
-    label: "Customer Question",
-    description: "The customer asks a question on the quote.",
-    category: "Quote Events",
-  },
-  {
-    id: "QUOTE_ACCEPTED",
-    label: "Quote Accepted",
-    description: "The customer accepts the quote.",
-    category: "Quote Events",
-  },
-  {
-    id: "QUOTE_DECLINED",
-    label: "Quote Declined",
-    description: "The customer declines the quote.",
-    category: "Quote Events",
-  },
-  {
-    id: "QUOTE_COMPLETED",
-    label: "Quote Completed",
-    description: "The quote's job work is completed.",
-    category: "Quote Events",
-  },
 ];
 
 /** Category headers rendered in this fixed order, grouping NOTIFICATION_EVENTS. */
@@ -192,7 +151,6 @@ const CATEGORY_ORDER: NotificationCategory[] = [
   "Job Lifecycle",
   "Documents & Approvals",
   "Financial",
-  "Quote Events",
 ];
 
 /**
@@ -205,9 +163,6 @@ const SPECIAL_RECIPIENTS: { id: string; label: string }[] = [
   { id: "CUSTOMER_CONTACT", label: "Customer Contact" },
   { id: "ASSIGNED_WORKER", label: "Assigned Worker" },
 ];
-const SPECIAL_RECIPIENT_LABELS = new Map(
-  SPECIAL_RECIPIENTS.map((r) => [r.id, r.label])
-);
 
 /** eventId -> selected recipient ids (either a UserDTO.id, or one of SPECIAL_RECIPIENTS' string ids). */
 type NotificationRules = Record<string, (number | string)[]>;
@@ -242,6 +197,7 @@ export function NotificationRulesAdminPage() {
   const [rules, setRules] = useState<NotificationRules>({});
   const [drawerEvent, setDrawerEvent] = useState<NotificationEvent | null>(null);
   const [drawerSelected, setDrawerSelected] = useState<(number | string)[]>([]);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -300,16 +256,10 @@ export function NotificationRulesAdminPage() {
     return map;
   }, [users]);
 
-  function recipientLabel(id: number | string): string {
-    const special = SPECIAL_RECIPIENT_LABELS.get(String(id));
-    if (special) return special;
-    const u = usersById.get(Number(id));
-    return u?.displayName || u?.email || `User ${id}`;
-  }
-
   function openEdit(event: NotificationEvent) {
     setDrawerEvent(event);
     setDrawerSelected(rules[event.id] ?? []);
+    setUserSearchQuery("");
   }
 
   function closeDrawer() {
@@ -320,6 +270,46 @@ export function NotificationRulesAdminPage() {
     setDrawerSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  }
+
+  function addUser(id: number) {
+    setDrawerSelected((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setUserSearchQuery("");
+  }
+
+  function removeRecipient(id: number | string) {
+    setDrawerSelected((prev) => prev.filter((x) => x !== id));
+  }
+
+  // Team members already added to this event — the numeric ids in
+  // drawerSelected (the two special string ids live in their own section,
+  // unchanged, above this one).
+  const addedUsers = useMemo(() => {
+    const ids = drawerSelected.filter(
+      (id): id is number => typeof id === "number"
+    );
+    return ids
+      .map((id) => usersById.get(id))
+      .filter((u): u is UserDTO => u != null);
+  }, [drawerSelected, usersById]);
+
+  const userSearchResults = useMemo(() => {
+    const query = userSearchQuery.trim().toLowerCase();
+    if (!query) return [];
+    const addedIds = new Set(addedUsers.map((u) => u.id));
+    return users
+      .filter((u) => u.id != null && !addedIds.has(u.id))
+      .filter(
+        (u) =>
+          (u.displayName ?? "").toLowerCase().includes(query) ||
+          (u.email ?? "").toLowerCase().includes(query)
+      )
+      .slice(0, 8);
+  }, [users, userSearchQuery, addedUsers]);
+
+  function userRoleLabel(u: UserDTO): string {
+    if (u.roleCodes && u.roleCodes.length > 0) return u.roleCodes.join(", ");
+    return u.designation ?? "—";
   }
 
   function saveDrawer() {
@@ -373,7 +363,6 @@ export function NotificationRulesAdminPage() {
                 category={category}
                 events={rows}
                 rules={rules}
-                recipientLabel={recipientLabel}
                 onEdit={openEdit}
               />
             );
@@ -416,32 +405,87 @@ export function NotificationRulesAdminPage() {
                 </label>
               ))}
             </div>
-            <div className="space-y-1.5">
-              {usersLoading ? (
-                <p className="text-sm text-slate-500">Loading users…</p>
-              ) : users.length === 0 ? (
-                <p className="text-sm text-slate-500">No users found.</p>
-              ) : (
-                users.map((u) =>
-                  u.id == null ? null : (
-                    <label
+            <div className="space-y-3">
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  aria-hidden
+                />
+                <input
+                  type="text"
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  placeholder="Search by name or email to add…"
+                  autoComplete="off"
+                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                />
+                {userSearchQuery.trim() && (
+                  <div className="absolute z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                    {usersLoading ? (
+                      <p className="px-3 py-2 text-sm text-slate-500">
+                        Loading users…
+                      </p>
+                    ) : userSearchResults.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-slate-500">
+                        No matching users.
+                      </p>
+                    ) : (
+                      userSearchResults.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
+                          onClick={() => addUser(u.id!)}
+                        >
+                          <span className="text-sm font-medium text-slate-800">
+                            {u.displayName || u.email}
+                          </span>
+                          {u.email && u.displayName ? (
+                            <span className="text-xs text-slate-500">
+                              {u.email}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Added ({addedUsers.length})
+                </p>
+                {addedUsers.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No team members added yet.
+                  </p>
+                ) : (
+                  addedUsers.map((u) => (
+                    <div
                       key={u.id}
-                      className="flex items-start gap-2 text-sm text-slate-700"
+                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
                     >
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 shrink-0"
-                        checked={drawerSelected.includes(u.id)}
-                        onChange={() => toggleRecipient(u.id!)}
-                      />
-                      <span className="min-w-0 wrap-break-word">
-                        {u.displayName || u.email}
-                        {u.email ? ` (${u.email})` : ""}
-                      </span>
-                    </label>
-                  )
-                )
-              )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-800">
+                          {u.displayName || u.email}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          {u.email ?? "—"} · {userRoleLabel(u)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-red-600"
+                        onClick={() => removeRecipient(u.id!)}
+                        aria-label={`Remove ${u.displayName || u.email}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </fieldset>
@@ -450,48 +494,17 @@ export function NotificationRulesAdminPage() {
   );
 }
 
-/** Recipient chips beyond this many collapse into one "+N more" chip. */
-const MAX_VISIBLE_RECIPIENTS = 2;
-
-function RecipientChips({
-  ids,
-  recipientLabel,
-}: {
-  ids: (number | string)[];
-  recipientLabel: (id: number | string) => string;
-}) {
+function RecipientCount({ ids }: { ids: (number | string)[] }) {
   if (ids.length === 0) {
-    return <span className="text-xs text-slate-400">No one selected</span>;
+    return <span className="text-xs text-slate-400">0</span>;
   }
-  const visible = ids.slice(0, MAX_VISIBLE_RECIPIENTS);
-  const overflow = ids.slice(MAX_VISIBLE_RECIPIENTS);
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {visible.map((id) => (
-        <span
-          key={id}
-          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700"
-        >
-          {recipientLabel(id)}
-        </span>
-      ))}
-      {overflow.length > 0 && (
-        <span
-          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500"
-          title={overflow.map(recipientLabel).join(", ")}
-        >
-          +{overflow.length} more
-        </span>
-      )}
-    </div>
-  );
+  return <span className="text-sm font-semibold text-slate-700">{ids.length}</span>;
 }
 
 interface CategorySectionProps {
   category: NotificationCategory;
   events: NotificationEvent[];
   rules: NotificationRules;
-  recipientLabel: (id: number | string) => string;
   onEdit: (event: NotificationEvent) => void;
 }
 
@@ -501,7 +514,6 @@ function CategorySection({
   category,
   events,
   rules,
-  recipientLabel,
   onEdit,
 }: CategorySectionProps) {
   return (
@@ -537,7 +549,7 @@ function CategorySection({
                     <p className="text-xs text-slate-500">{event.description}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <RecipientChips ids={selected} recipientLabel={recipientLabel} />
+                    <RecipientCount ids={selected} />
                   </td>
                   <td className="px-4 py-3">
                     <button
@@ -568,7 +580,7 @@ function CategorySection({
               <p className="font-semibold text-slate-900">{event.label}</p>
               <p className="mt-0.5 text-xs text-slate-500">{event.description}</p>
               <div className="mt-3">
-                <RecipientChips ids={selected} recipientLabel={recipientLabel} />
+                <RecipientCount ids={selected} />
               </div>
               <button
                 type="button"
