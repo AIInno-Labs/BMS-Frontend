@@ -51,16 +51,33 @@ function isReadOnlyParam(name: string) {
   return isGeneratedParam(name) || name === SHAREPOINT_DRIVE_ID;
 }
 
-function groupOf(name: string): "SharePoint" | "Quotient" | "LLM" | "Other" {
+type IntegrationGroup = "SharePoint" | "Quotient" | "LLM" | "SMTP" | "Other";
+
+const INTEGRATION_GROUPS: IntegrationGroup[] = [
+  "SharePoint",
+  "Quotient",
+  "LLM",
+  "SMTP",
+  "Other",
+];
+
+function groupOf(name: string): IntegrationGroup {
   if (name.startsWith("SHAREPOINT_")) return "SharePoint";
   if (name.startsWith("QUOTIENT_")) return "Quotient";
   if (name.startsWith("LLM_")) return "LLM";
+  if (name.startsWith("SMTP2GO_")) return "SMTP";
   return "Other";
 }
 
-function integrationLabel(group: "SharePoint" | "Quotient" | "LLM" | "Other") {
-  return group === "Other" ? "OCR and others" : group;
+function integrationLabel(group: IntegrationGroup) {
+  return group === "Other" ? "Others" : group;
 }
+
+const GROUP_MESSAGE: Partial<Record<IntegrationGroup, string>> = {
+  SMTP: "Outbound email through SMTP2GO. From uses the organisation email and company name unless you set sender fields below. Mail is skipped unless this is enabled.",
+  Other:
+    "OCR (Tesseract fallback for scanned PDFs and images) and remaining org-level toggles that are not SharePoint, Quotient, LLM, or SMTP.",
+};
 
 function sharePointSaveOrder(rows: ApplicationParameterDTO[]) {
   const byName = new Map(rows.map((row) => [row.paramName, row]));
@@ -98,9 +115,9 @@ export default function OrgIntegrationsPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [confirmGroup, setConfirmGroup] = useState<
-    "SharePoint" | "Quotient" | "LLM" | "Other" | null
-  >(null);
+  const [confirmGroup, setConfirmGroup] = useState<IntegrationGroup | null>(
+    null
+  );
 
   useEffect(() => {
     if (authLoading) return;
@@ -151,10 +168,11 @@ export default function OrgIntegrationsPage() {
   }, [load, appRole]);
 
   const grouped = useMemo(() => {
-    const map: Record<string, ApplicationParameterDTO[]> = {
+    const map: Record<IntegrationGroup, ApplicationParameterDTO[]> = {
       SharePoint: [],
       Quotient: [],
       LLM: [],
+      SMTP: [],
       Other: [],
     };
     for (const p of params) {
@@ -163,15 +181,12 @@ export default function OrgIntegrationsPage() {
     return map;
   }, [params]);
 
-  function onSubmitGroup(
-    e: FormEvent,
-    group: "SharePoint" | "Quotient" | "LLM" | "Other"
-  ) {
+  function onSubmitGroup(e: FormEvent, group: IntegrationGroup) {
     e.preventDefault();
     setConfirmGroup(group);
   }
 
-  async function saveGroup(group: "SharePoint" | "Quotient" | "LLM" | "Other") {
+  async function saveGroup(group: IntegrationGroup) {
     setSaving(true);
     setError(null);
     setMessage(null);
@@ -205,7 +220,7 @@ export default function OrgIntegrationsPage() {
           paramType: row.paramType ?? "String",
         });
       }
-      setMessage(`${group} settings saved.`);
+      setMessage(`${integrationLabel(group)} settings saved.`);
       setConfirmGroup(null);
       await load();
     } catch (err) {
@@ -278,8 +293,9 @@ export default function OrgIntegrationsPage() {
           Integrations
         </h2>
         <p className="mt-1 text-sm text-slate-600">
-          SharePoint and Quotient connection settings for your organization.
-          Only parameters marked org-editable by Super Admin appear here.
+          SharePoint, Quotient, LLM, SMTP, and other connection settings for
+          your organization. Only parameters marked org-editable by Super Admin
+          appear here.
         </p>
 
         {error && (
@@ -296,7 +312,7 @@ export default function OrgIntegrationsPage() {
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Loading…</p>
         ) : (
-          (["SharePoint", "Quotient", "LLM", "Other"] as const).map((group) => {
+          INTEGRATION_GROUPS.map((group) => {
             const rows = grouped[group];
             if (rows.length === 0) return null;
             return (
@@ -305,7 +321,14 @@ export default function OrgIntegrationsPage() {
                 onSubmit={(e) => onSubmitGroup(e, group)}
                 className="app-card mt-6 space-y-4 !p-5"
               >
-                <h3 className="text-sm font-semibold text-[#111827]">{group}</h3>
+                <h3 className="text-sm font-semibold text-[#111827]">
+                  {integrationLabel(group)}
+                </h3>
+                {GROUP_MESSAGE[group] ? (
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    {GROUP_MESSAGE[group]}
+                  </p>
+                ) : null}
                 {rows.map((row) => {
                   const booleanType =
                     (row.paramType ?? "").toLowerCase() === "boolean";
@@ -442,7 +465,7 @@ export default function OrgIntegrationsPage() {
                   disabled={saving}
                   className="btn-primary disabled:opacity-60"
                 >
-                  {saving ? "Saving…" : `Save ${group}`}
+                  {saving ? "Saving…" : `Save ${integrationLabel(group)}`}
                 </button>
                 {group === "Quotient" && (
                   <p className="text-xs leading-relaxed text-slate-500">

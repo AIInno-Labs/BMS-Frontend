@@ -14,6 +14,7 @@ import {
   type RoleDTO,
   type UpdateUserRequest,
   type UserDTO,
+  type JobEmailRecipientDTO,
 } from "@/lib/frp/types";
 import type {
   FrpDocumentDownloadDTO,
@@ -237,6 +238,19 @@ async function frpFetch<T>(
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+export async function listJobEmailRecipients(): Promise<JobEmailRecipientDTO[]> {
+  return frpFetch<JobEmailRecipientDTO[]>("/job-email-recipients");
+}
+
+export async function updateJobEmailRecipients(
+  body: JobEmailRecipientDTO[]
+): Promise<JobEmailRecipientDTO[]> {
+  return frpFetch<JobEmailRecipientDTO[]>("/job-email-recipients", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function authenticate(

@@ -5,199 +5,230 @@ import { useRouter } from "next/navigation";
 import { Pencil, Search, X } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { useAuth } from "@/context/AuthContext";
-import { listUsers } from "@/lib/frp/api";
-import type { UserDTO } from "@/lib/frp/types";
+import {
+  listJobEmailRecipients,
+  listUsers,
+  updateJobEmailRecipients,
+} from "@/lib/frp/api";
+import type {
+  JobEmailRecipientCategory,
+  JobEmailRecipientDTO,
+  UserDTO,
+} from "@/lib/frp/types";
 
-type NotificationCategory =
-  | "Job Lifecycle"
-  | "Documents & Approvals"
-  | "Financial";
-
-interface NotificationEvent {
+/** UI sections. Documents and drawing/PO approvals share one card. */
+const SECTIONS: {
   id: string;
   label: string;
-  description: string;
-  category: NotificationCategory;
-}
-
-/**
- * Client-side only — the backend has no event taxonomy for this yet
- * (see NotificationType.java's own "deliberately not anticipated" note).
- * Deliberately a fixed, developer-maintained list, not admin-editable: each
- * row has to correspond to a real moment a future backend hook can detect —
- * an admin-typed custom event would look configured while never firing.
- *
- * Job-lifecycle rows match `JobAuditEvent` (backend) and the Job page's real
- * actions.
- */
-const NOTIFICATION_EVENTS: NotificationEvent[] = [
-  // Job Lifecycle
+  categories: JobEmailRecipientCategory[];
+}[] = [
+  { id: "JOB_LIFECYCLE", label: "Job Lifecycle", categories: ["JOB_LIFECYCLE"] },
   {
-    id: "JOB_CREATED",
-    label: "Job Created",
-    description: "A new job is raised, manually or from an accepted quote.",
-    category: "Job Lifecycle",
+    id: "DOCUMENTS",
+    label: "Documents & Approvals",
+    categories: ["DOCUMENTS", "APPROVALS"],
   },
-  {
-    id: "WORKER_ASSIGNED",
-    label: "Worker Assigned",
-    description: "A worker is assigned to the job.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_DRAFT",
-    label: "Stage reached: Draft",
-    description: "Job enters the draft / pending stage.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_DRAWING",
-    label: "Stage reached: Drawing",
-    description: "Job moves into the drawing stage.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_APPROVAL",
-    label: "Stage reached: Approval",
-    description: "Job moves into the approval stage.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_PRODUCTION",
-    label: "Stage reached: Production",
-    description: "Job is released to the shop floor.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_QC",
-    label: "Stage reached: QC",
-    description: "Job enters quality control.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_DISPATCH",
-    label: "Stage reached: Dispatch",
-    description: "Job is ready for dispatch.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_COMPLETED",
-    label: "Stage reached: Completed",
-    description: "Job is marked complete.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "SUBSTAGE_CHANGED",
-    label: "Sub-stage Changed",
-    description: "A finer sub-stage within the current stage changes.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "JOB_ON_HOLD",
-    label: "Job On Hold",
-    description: "The job is placed on hold.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "JOB_CANCELLED",
-    label: "Job Cancelled",
-    description: "The job is cancelled.",
-    category: "Job Lifecycle",
-  },
-
-  // Documents & Approvals
-  {
-    id: "DRAWING_UPLOADED",
-    label: "Drawing Uploaded",
-    description: "A drawing document is uploaded to the job.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "PO_UPLOADED",
-    label: "PO Uploaded",
-    description: "A purchase order is uploaded or entered on the job.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "REVISION_UPLOADED",
-    label: "New Revision Uploaded",
-    description: "A revised drawing or PO replaces an earlier version.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "APPROVED",
-    label: "Approved",
-    description: "A drawing, PO, or requirement is approved.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "REJECTED",
-    label: "Rejected",
-    description: "A drawing, PO, or requirement is rejected.",
-    category: "Documents & Approvals",
-  },
-
-  // Financial
-  {
-    id: "PAYMENT_RECEIVED",
-    label: "Payment Received",
-    description: "Payment is marked received on the job.",
-    category: "Financial",
-  },
+  { id: "FINANCE", label: "Finance", categories: ["FINANCE"] },
 ];
 
-/** Category headers rendered in this fixed order, grouping NOTIFICATION_EVENTS. */
-const CATEGORY_ORDER: NotificationCategory[] = [
-  "Job Lifecycle",
-  "Documents & Approvals",
-  "Financial",
-];
+/** Operation eventKey → parent milestone eventKey. Matches JobStageServiceImpl. */
+const OPERATION_MILESTONE: Record<string, string> = {
+  SCOPE: "DESIGN",
+  CAD: "DESIGN",
+  REV: "DESIGN",
+  CLIENT_APPROVAL: "APPROVAL",
+  ENGINEER_APPROVAL: "APPROVAL",
+  MOULD: "PRODUCTION",
+  LAYUP: "PRODUCTION",
+  CURE: "PRODUCTION",
+  VISUAL: "QC",
+  DIMENSIONAL: "QC",
+  SIGNOFF: "QC",
+};
 
-/**
- * Pinned, non-user recipient options. Selectable per event rather than
- * always-on: not every event is customer-facing (e.g. PO Uploaded often
- * carries internal pricing), and the assigned worker doesn't exist yet for
- * early events like Job Created.
- */
+const MILESTONE_ORDER = [
+  "DRAFT",
+  "DESIGN",
+  "APPROVAL",
+  "PRODUCTION",
+  "QC",
+  "DISPATCH",
+  "COMPLETED",
+] as const;
+
+const MILESTONE_LABEL: Record<string, string> = {
+  DRAFT: "Draft",
+  DESIGN: "Drawing",
+  APPROVAL: "Approval",
+  PRODUCTION: "Production",
+  QC: "QC",
+  DISPATCH: "Dispatch",
+  COMPLETED: "Completed",
+};
+
+const CUSTOMER_CONTACT = "CUSTOMER_CONTACT";
+const ASSIGNED_WORKER = "ASSIGNED_WORKER";
+
 const SPECIAL_RECIPIENTS: { id: string; label: string }[] = [
-  { id: "CUSTOMER_CONTACT", label: "Customer Contact" },
-  { id: "ASSIGNED_WORKER", label: "Assigned Worker" },
+  { id: CUSTOMER_CONTACT, label: "Customer Contact" },
+  { id: ASSIGNED_WORKER, label: "Assigned Worker" },
 ];
 
-/** eventId -> selected recipient ids (either a UserDTO.id, or one of SPECIAL_RECIPIENTS' string ids). */
-type NotificationRules = Record<string, (number | string)[]>;
-
-function storageKey(organizationId: string | number): string {
-  return `bmsman-notification-rules-${organizationId}`;
+function rowKey(row: JobEmailRecipientDTO): string {
+  const def = row.eventDef;
+  if (!def?.eventKey || !def.event) return String(row.id ?? "");
+  return `${def.eventKey}:${def.event}`;
 }
 
-function readRules(organizationId: string | number): NotificationRules {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(storageKey(organizationId));
-    return raw ? (JSON.parse(raw) as NotificationRules) : {};
-  } catch {
-    return {};
+function eventKeyOf(row: JobEmailRecipientDTO): string {
+  return row.eventDef?.eventKey ?? "";
+}
+
+function milestoneLabelFor(eventKey: string): string | null {
+  const parent = OPERATION_MILESTONE[eventKey];
+  return parent ? (MILESTONE_LABEL[parent] ?? parent) : null;
+}
+
+function eventTitle(row: JobEmailRecipientDTO): string {
+  const name = row.eventDef?.eventName ?? rowKey(row);
+  const milestone = milestoneLabelFor(row.eventDef?.eventKey ?? "");
+  return milestone ? `${milestone} · ${name}` : name;
+}
+
+type LifecycleItem =
+  | { kind: "row"; row: JobEmailRecipientDTO }
+  | {
+      kind: "group";
+      key: string;
+      label: string;
+      milestone: JobEmailRecipientDTO | null;
+      operations: JobEmailRecipientDTO[];
+    };
+
+function operationOrder(milestoneKey: string, eventKey: string): number {
+  const order = OPERATION_ORDER[milestoneKey];
+  if (!order) return 0;
+  const idx = order.indexOf(eventKey);
+  return idx === -1 ? order.length : idx;
+}
+
+const OPERATION_ORDER: Record<string, string[]> = {
+  DESIGN: ["SCOPE", "CAD", "REV"],
+  APPROVAL: ["CLIENT_APPROVAL", "ENGINEER_APPROVAL"],
+  PRODUCTION: ["MOULD", "LAYUP", "CURE"],
+  QC: ["VISUAL", "DIMENSIONAL", "SIGNOFF"],
+};
+
+function lifecycleItems(events: JobEmailRecipientDTO[]): LifecycleItem[] {
+  const unused = new Set(events);
+  const byKey = new Map<string, JobEmailRecipientDTO[]>();
+  for (const row of events) {
+    const key = eventKeyOf(row);
+    const list = byKey.get(key) ?? [];
+    list.push(row);
+    byKey.set(key, list);
   }
+
+  const items: LifecycleItem[] = [];
+  for (const row of events) {
+    if (eventKeyOf(row) === "JOB") {
+      unused.delete(row);
+      items.push({ kind: "row", row });
+    }
+  }
+
+  for (const milestoneKey of MILESTONE_ORDER) {
+    const milestoneRows = byKey.get(milestoneKey) ?? [];
+    const milestone = milestoneRows[0] ?? null;
+    const operations = events
+      .filter((row) => OPERATION_MILESTONE[eventKeyOf(row)] === milestoneKey)
+      .sort(
+        (a, b) =>
+          operationOrder(milestoneKey, eventKeyOf(a)) -
+          operationOrder(milestoneKey, eventKeyOf(b))
+      );
+    if (!milestone && operations.length === 0) continue;
+    if (milestone) unused.delete(milestone);
+    for (const op of operations) unused.delete(op);
+    if (operations.length === 0 && milestone) {
+      items.push({ kind: "row", row: milestone });
+      continue;
+    }
+    items.push({
+      kind: "group",
+      key: milestoneKey,
+      label: MILESTONE_LABEL[milestoneKey] ?? milestoneKey,
+      milestone,
+      operations,
+    });
+  }
+
+  for (const row of events) {
+    if (unused.has(row)) items.push({ kind: "row", row });
+  }
+  return items;
 }
 
-function writeRules(organizationId: string | number, rules: NotificationRules) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(storageKey(organizationId), JSON.stringify(rules));
+function parseUserIds(csv: string | null | undefined): number[] {
+  if (!csv) return [];
+  const ids: number[] = [];
+  for (const part of csv.split(",")) {
+    const n = Number(part.trim());
+    if (Number.isInteger(n) && n > 0) ids.push(n);
+  }
+  return ids;
+}
+
+function selectedFromRow(row: JobEmailRecipientDTO): (number | string)[] {
+  const selected: (number | string)[] = [];
+  if (row.customerTriggered) selected.push(CUSTOMER_CONTACT);
+  if (row.assigningTrigger) selected.push(ASSIGNED_WORKER);
+  selected.push(...parseUserIds(row.otherUserIds));
+  return selected;
+}
+
+function payloadFromSelection(
+  row: JobEmailRecipientDTO,
+  selected: (number | string)[],
+  enabled: boolean
+): JobEmailRecipientDTO {
+  const userIds = selected.filter((id): id is number => typeof id === "number");
+  return {
+    ...(row.id != null ? { id: row.id } : {}),
+    eventDef: row.eventDef
+      ? {
+          category: row.eventDef.category,
+          eventKey: row.eventDef.eventKey,
+          event: row.eventDef.event,
+        }
+      : undefined,
+    assigningTrigger: selected.includes(ASSIGNED_WORKER),
+    customerTriggered: selected.includes(CUSTOMER_CONTACT),
+    otherUserIds: userIds.join(","),
+    customerSideRecipients: row.customerSideRecipients ?? "",
+    clientSideRecipients: row.clientSideRecipients ?? "",
+    enabled,
+  };
 }
 
 export function NotificationRulesAdminPage() {
-  const { loading: authLoading, isAuthenticated, appRole, user } = useAuth();
+  const { loading: authLoading, isAuthenticated, appRole } = useAuth();
   const router = useRouter();
 
   const [users, setUsers] = useState<UserDTO[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
 
-  const [rules, setRules] = useState<NotificationRules>({});
-  const [drawerEvent, setDrawerEvent] = useState<NotificationEvent | null>(null);
+  const [rows, setRows] = useState<JobEmailRecipientDTO[]>([]);
+  const [rowsLoading, setRowsLoading] = useState(true);
+  const [rowsError, setRowsError] = useState<string | null>(null);
+
+  const [drawerRow, setDrawerRow] = useState<JobEmailRecipientDTO | null>(null);
   const [drawerSelected, setDrawerSelected] = useState<(number | string)[]>([]);
+  const [drawerEnabled, setDrawerEnabled] = useState(true);
   const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -210,42 +241,36 @@ export function NotificationRulesAdminPage() {
     }
   }, [authLoading, isAuthenticated, appRole, router]);
 
-  const organizationId = user?.organization?.id;
-
+  const loadStartedRef = useRef(false);
   useEffect(() => {
     if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
-    if (organizationId == null) return;
-    setRules(readRules(organizationId));
-  }, [authLoading, isAuthenticated, appRole, organizationId]);
+    if (loadStartedRef.current) return;
+    loadStartedRef.current = true;
 
-  // Guarded by a ref, not just the empty dep array: React Strict Mode (dev
-  // only) mounts every component twice, and without this the initial load
-  // fires the users GET twice on every page load (same fix as JobsContext).
-  // No cleanup/cancelled flag here — JobsContext's own version of this fix
-  // doesn't use one either: with the ref guard, the effect only ever truly
-  // starts once, so there's nothing to cancel. Adding one back would just
-  // reintroduce a bug — Strict Mode still calls cleanup after the first
-  // (real) mount, which would mark that one real request "cancelled" and
-  // permanently discard its result, including the setUsersLoading(false).
-  const usersLoadStartedRef = useRef(false);
-  useEffect(() => {
-    if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
-    if (usersLoadStartedRef.current) return;
-    usersLoadStartedRef.current = true;
-    async function loadUsers() {
+    async function load() {
       setUsersLoading(true);
+      setRowsLoading(true);
       try {
-        const page = await listUsers(0, 200);
+        const [page, catalog] = await Promise.all([
+          listUsers(0, 200),
+          listJobEmailRecipients(),
+        ]);
         setUsers((page.content ?? []).filter((u) => u.enabled !== false));
         setUsersError(null);
+        setRows(catalog.filter((row) => row.eventDef != null));
+        setRowsError(null);
       } catch (e) {
         setUsers([]);
-        setUsersError(e instanceof Error ? e.message : "Could not load users");
+        setRows([]);
+        const message = e instanceof Error ? e.message : "Could not load notifications";
+        setUsersError(message);
+        setRowsError(message);
       } finally {
         setUsersLoading(false);
+        setRowsLoading(false);
       }
     }
-    void loadUsers();
+    void load();
   }, [authLoading, isAuthenticated, appRole]);
 
   const usersById = useMemo(() => {
@@ -256,14 +281,34 @@ export function NotificationRulesAdminPage() {
     return map;
   }, [users]);
 
-  function openEdit(event: NotificationEvent) {
-    setDrawerEvent(event);
-    setDrawerSelected(rules[event.id] ?? []);
+  const grouped = useMemo(() => {
+    const byCategory = new Map<JobEmailRecipientCategory, JobEmailRecipientDTO[]>();
+    for (const row of rows) {
+      const category = row.eventDef?.category;
+      if (!category) continue;
+      const list = byCategory.get(category) ?? [];
+      list.push(row);
+      byCategory.set(category, list);
+    }
+    return SECTIONS.map((section) => ({
+      id: section.id,
+      label: section.label,
+      events: section.categories.flatMap((category) => byCategory.get(category) ?? []),
+    })).filter((section) => section.events.length > 0);
+  }, [rows]);
+
+  function openEdit(row: JobEmailRecipientDTO) {
+    setDrawerRow(row);
+    setDrawerSelected(selectedFromRow(row));
+    setDrawerEnabled(row.enabled !== false);
     setUserSearchQuery("");
+    setSaveError(null);
   }
 
   function closeDrawer() {
-    setDrawerEvent(null);
+    if (saving) return;
+    setDrawerRow(null);
+    setSaveError(null);
   }
 
   function toggleRecipient(id: number | string) {
@@ -281,13 +326,8 @@ export function NotificationRulesAdminPage() {
     setDrawerSelected((prev) => prev.filter((x) => x !== id));
   }
 
-  // Team members already added to this event — the numeric ids in
-  // drawerSelected (the two special string ids live in their own section,
-  // unchanged, above this one).
   const addedUsers = useMemo(() => {
-    const ids = drawerSelected.filter(
-      (id): id is number => typeof id === "number"
-    );
+    const ids = drawerSelected.filter((id): id is number => typeof id === "number");
     return ids
       .map((id) => usersById.get(id))
       .filter((u): u is UserDTO => u != null);
@@ -312,12 +352,21 @@ export function NotificationRulesAdminPage() {
     return u.designation ?? "—";
   }
 
-  function saveDrawer() {
-    if (!drawerEvent || organizationId == null) return;
-    const next = { ...rules, [drawerEvent.id]: drawerSelected };
-    setRules(next);
-    writeRules(organizationId, next);
-    closeDrawer();
+  async function saveDrawer() {
+    if (!drawerRow?.eventDef) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const next = await updateJobEmailRecipients([
+        payloadFromSelection(drawerRow, drawerSelected, drawerEnabled),
+      ]);
+      setRows(next.filter((row) => row.eventDef != null));
+      setDrawerRow(null);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Could not save recipients");
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (authLoading || !isAuthenticated || appRole !== "orgadmin") {
@@ -339,48 +388,67 @@ export function NotificationRulesAdminPage() {
             Notifications
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Choose which team members — and, where appropriate, the
-            customer contact or assigned worker — get emailed when a job
-            reaches each event below.
+            Choose which team members — and, where appropriate, the customer
+            contact or assigned worker — get emailed when a job reaches each
+            event below.
           </p>
         </div>
 
-        {usersError ? (
+        {rowsError ? (
+          <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {rowsError}
+          </p>
+        ) : null}
+        {usersError && usersError !== rowsError ? (
           <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {usersError}
           </p>
         ) : null}
 
-        <div className="space-y-6">
-          {CATEGORY_ORDER.map((category) => {
-            const rows = NOTIFICATION_EVENTS.filter(
-              (event) => event.category === category
-            );
-            if (rows.length === 0) return null;
-            return (
+        {rowsLoading ? (
+          <p className="text-sm text-slate-600">Loading notification events…</p>
+        ) : grouped.length === 0 ? (
+          <p className="text-sm text-slate-600">No notification events are available.</p>
+        ) : (
+          <div className="space-y-6">
+            {grouped.map((section) => (
               <CategorySection
-                key={category}
-                category={category}
-                events={rows}
-                rules={rules}
+                key={section.id}
+                label={section.label}
+                events={section.events}
+                nestMilestones={section.id === "JOB_LIFECYCLE"}
                 onEdit={openEdit}
               />
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <EnterpriseDrawer
-        open={drawerEvent != null}
+        open={drawerRow != null}
         onClose={closeDrawer}
-        title={drawerEvent ? `Recipients — ${drawerEvent.label}` : "Recipients"}
+        title={
+          drawerRow
+            ? `Recipients — ${eventTitle(drawerRow)}`
+            : "Recipients"
+        }
         footer={
           <div className="flex justify-end gap-2">
-            <button type="button" className="btn-secondary" onClick={closeDrawer}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={closeDrawer}
+              disabled={saving}
+            >
               Cancel
             </button>
-            <button type="button" className="btn-primary" onClick={saveDrawer}>
-              Save
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void saveDrawer()}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save"}
             </button>
           </div>
         }
@@ -389,6 +457,19 @@ export function NotificationRulesAdminPage() {
           <legend className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             Recipients
           </legend>
+          {saveError ? (
+            <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {saveError}
+            </p>
+          ) : null}
+          <label className="mt-3 flex items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              checked={drawerEnabled}
+              onChange={(e) => setDrawerEnabled(e.target.checked)}
+            />
+            Email this event
+          </label>
           <div className="mt-2 max-h-80 space-y-3 overflow-y-auto rounded-xl border border-slate-200 p-3">
             <div className="space-y-1.5 border-b border-slate-100 pb-3">
               {SPECIAL_RECIPIENTS.map((r) => (
@@ -494,37 +575,38 @@ export function NotificationRulesAdminPage() {
   );
 }
 
-function RecipientCount({ ids }: { ids: (number | string)[] }) {
-  if (ids.length === 0) {
+function RecipientCount({ count }: { count: number }) {
+  if (count === 0) {
     return <span className="text-xs text-slate-400">0</span>;
   }
-  return <span className="text-sm font-semibold text-slate-700">{ids.length}</span>;
+  return <span className="text-sm font-semibold text-slate-700">{count}</span>;
 }
 
 interface CategorySectionProps {
-  category: NotificationCategory;
-  events: NotificationEvent[];
-  rules: NotificationRules;
-  onEdit: (event: NotificationEvent) => void;
+  label: string;
+  events: JobEmailRecipientDTO[];
+  nestMilestones?: boolean;
+  onEdit: (row: JobEmailRecipientDTO) => void;
 }
 
-/** One category = its own card, spaced apart from the others — not one
- *  continuous table with inline section-header rows. */
 function CategorySection({
-  category,
+  label,
   events,
-  rules,
+  nestMilestones = false,
   onEdit,
 }: CategorySectionProps) {
+  const display = nestMilestones
+    ? flattenLifecycle(events)
+    : events.map((row) => ({ row, indent: false }));
+
   return (
     <section className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
       <div className="border-b border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
         <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          {category}
+          {label}
         </h3>
       </div>
 
-      {/* Desktop / tablet: table */}
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-left text-sm">
           <thead className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -535,65 +617,140 @@ function CategorySection({
             </tr>
           </thead>
           <tbody>
-            {events.map((event, idx) => {
-              const selected = rules[event.id] ?? [];
-              return (
-                <tr
-                  key={event.id}
-                  className={`border-t border-slate-100 ${
-                    idx % 2 === 0 ? "bg-white" : "bg-[#FAFBFC]"
-                  }`}
-                >
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-900">{event.label}</p>
-                    <p className="text-xs text-slate-500">{event.description}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <RecipientCount ids={selected} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
-                      onClick={() => onEdit(event)}
-                    >
-                      <Pencil className="h-3.5 w-3.5 shrink-0" />
-                      Edit recipients
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+            {display.map(({ row, indent }, idx) => (
+              <EventTableRow
+                key={rowKey(row)}
+                row={row}
+                indent={indent}
+                striped={idx % 2 === 1}
+                onEdit={onEdit}
+              />
+            ))}
           </tbody>
         </table>
       </div>
 
-      {/* Mobile: stacked cards, same pattern as the Jobs list */}
       <div className="flex flex-col gap-3 p-3 md:hidden">
-        {events.map((event) => {
-          const selected = rules[event.id] ?? [];
-          return (
-            <article
-              key={event.id}
-              className="rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-sm"
-            >
-              <p className="font-semibold text-slate-900">{event.label}</p>
-              <p className="mt-0.5 text-xs text-slate-500">{event.description}</p>
-              <div className="mt-3">
-                <RecipientCount ids={selected} />
-              </div>
-              <button
-                type="button"
-                className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-orange-50"
-                onClick={() => onEdit(event)}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit recipients
-              </button>
-            </article>
-          );
-        })}
+        {display.map(({ row, indent }) => (
+          <EventCard key={rowKey(row)} row={row} indent={indent} onEdit={onEdit} />
+        ))}
       </div>
     </section>
+  );
+}
+
+function flattenLifecycle(
+  events: JobEmailRecipientDTO[]
+): { row: JobEmailRecipientDTO; indent: boolean }[] {
+  const out: { row: JobEmailRecipientDTO; indent: boolean }[] = [];
+  for (const item of lifecycleItems(events)) {
+    if (item.kind === "row") {
+      out.push({ row: item.row, indent: false });
+      continue;
+    }
+    if (item.milestone) {
+      out.push({ row: item.milestone, indent: false });
+    }
+    for (const op of item.operations) {
+      out.push({ row: op, indent: true });
+    }
+  }
+  return out;
+}
+
+function EventName({
+  row,
+  indent,
+}: {
+  row: JobEmailRecipientDTO;
+  indent: boolean;
+}) {
+  const name = row.eventDef?.eventName ?? rowKey(row);
+  const milestone = indent ? milestoneLabelFor(row.eventDef?.eventKey ?? "") : null;
+  return (
+    <>
+      {milestone ? (
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          {milestone}
+        </p>
+      ) : null}
+      <p className={`font-semibold text-slate-900 ${indent ? "pl-3" : ""}`}>
+        {name}
+      </p>
+      <p className={`text-xs text-slate-500 ${indent ? "pl-3" : ""}`}>
+        {row.eventDef?.description ?? ""}
+        {row.enabled === false ? " · Off" : ""}
+      </p>
+    </>
+  );
+}
+
+function EventTableRow({
+  row,
+  indent,
+  striped,
+  onEdit,
+}: {
+  row: JobEmailRecipientDTO;
+  indent: boolean;
+  striped: boolean;
+  onEdit: (row: JobEmailRecipientDTO) => void;
+}) {
+  const count = row.totalRecipients ?? selectedFromRow(row).length;
+  return (
+    <tr
+      className={`border-t border-slate-100 ${
+        striped ? "bg-[#FAFBFC]" : "bg-white"
+      }`}
+    >
+      <td className="px-4 py-3">
+        <EventName row={row} indent={indent} />
+      </td>
+      <td className="px-4 py-3">
+        <RecipientCount count={count} />
+      </td>
+      <td className="px-4 py-3">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
+          onClick={() => onEdit(row)}
+        >
+          <Pencil className="h-3.5 w-3.5 shrink-0" />
+          Edit recipients
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function EventCard({
+  row,
+  indent,
+  onEdit,
+}: {
+  row: JobEmailRecipientDTO;
+  indent: boolean;
+  onEdit: (row: JobEmailRecipientDTO) => void;
+}) {
+  const count = row.totalRecipients ?? selectedFromRow(row).length;
+  return (
+    <article
+      className={`rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-sm ${
+        indent ? "ml-3" : ""
+      }`}
+    >
+      <EventName row={row} indent={indent} />
+      <div className="mt-3">
+        <RecipientCount count={count} />
+      </div>
+      <button
+        type="button"
+        className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-orange-50"
+        onClick={() => onEdit(row)}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+        Edit recipients
+      </button>
+    </article>
   );
 }

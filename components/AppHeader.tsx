@@ -17,6 +17,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/admin/privileges")) return "Privileges";
   if (pathname === "/org") return "Org Admin";
   if (pathname.startsWith("/org/roles")) return "Roles";
+  if (pathname.startsWith("/org/notifications")) return "Notifications";
   if (pathname === "/login") return "Sign in";
   return "Dashboard";
 }
