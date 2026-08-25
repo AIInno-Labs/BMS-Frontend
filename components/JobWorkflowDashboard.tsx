@@ -565,7 +565,12 @@ export function JobWorkflowDashboard({
           if (prev.milestoneId !== "" && nextMilestones.some((m) => m.id === prev.milestoneId)) {
             return prev;
           }
-          return { ...prev, milestoneId: nextMilestones[0]?.id ?? "" };
+          const fromJob =
+            job.currentStageId != null &&
+            nextMilestones.some((m) => m.id === job.currentStageId)
+              ? job.currentStageId
+              : nextMilestones.find((m) => m.stageKey === job.currentStageKey)?.id;
+          return { ...prev, milestoneId: fromJob ?? nextMilestones[0]?.id ?? "" };
         });
       } catch {
         if (!cancelled) {
@@ -578,7 +583,7 @@ export function JobWorkflowDashboard({
     return () => {
       cancelled = true;
     };
-  }, [job.dbId, documentsRefreshKey]);
+  }, [job.dbId, job.currentStageId, job.currentStageKey, documentsRefreshKey]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
@@ -740,9 +745,14 @@ export function JobWorkflowDashboard({
 
   const openFileUploadModal = () => {
     setFileUploadError(null);
+    const fromJob =
+      job.currentStageId != null &&
+      milestones.some((m) => m.id === job.currentStageId)
+        ? job.currentStageId
+        : milestones.find((m) => m.stageKey === job.currentStageKey)?.id;
     setFileUploadDraft({
       file: null,
-      milestoneId: milestones[0]?.id ?? "",
+      milestoneId: fromJob ?? milestones[0]?.id ?? "",
     });
     setShowFileModal(true);
   };
@@ -839,12 +849,17 @@ export function JobWorkflowDashboard({
   };
 
   const handleUploadProjectDocument = async () => {
-    if (!job.dbId || !fileUploadDraft.file || fileUploadDraft.milestoneId === "") return;
+    if (!job.dbId || !fileUploadDraft.file) return;
+    const jobStageId = milestones.find((m) => m.id === fileUploadDraft.milestoneId)?.id;
+    if (jobStageId == null) {
+      setFileUploadError("Choose a milestone to attach this file to.");
+      return;
+    }
     setFileUploading(true);
     setFileUploadError(null);
     try {
       await uploadJobDocument(job.dbId, {
-        jobStageId: fileUploadDraft.milestoneId,
+        jobStageId,
         file: fileUploadDraft.file,
         documentName: fileUploadDraft.file.name,
       });

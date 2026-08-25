@@ -186,20 +186,25 @@ export async function refreshTokens(
   };
 }
 
+function isFormDataBody(body: unknown): boolean {
+  if (body == null || typeof body !== "object") return false;
+  if (typeof FormData !== "undefined" && body instanceof FormData) return true;
+  return Object.prototype.toString.call(body) === "[object FormData]";
+}
+
 async function frpFetch<T>(
   path: string,
   init: RequestInit = {},
   opts?: { auth?: boolean; retried?: boolean }
 ): Promise<T> {
   const useAuth = opts?.auth !== false;
+  const multipart = isFormDataBody(init.body);
   const headers = new Headers(init.headers);
-  // FormData bodies must keep the browser-generated multipart boundary —
-  // setting Content-Type ourselves would drop it and break the upload.
-  if (
-    !headers.has("Content-Type") &&
-    init.body &&
-    !(init.body instanceof FormData)
-  ) {
+  // FormData must keep the browser-generated multipart boundary. Setting
+  // Content-Type: application/json here makes Spring see no `file` part.
+  if (multipart) {
+    headers.delete("Content-Type");
+  } else if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
@@ -211,9 +216,18 @@ async function frpFetch<T>(
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
+  // Plain object so fetch does not inherit a JSON Content-Type from Headers.
+  const headerInit: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    if (multipart && key.toLowerCase() === "content-type") return;
+    headerInit[key] = value;
+  });
+
   const res = await fetch(`${getFrpApiBase()}${path}`, {
-    ...init,
-    headers,
+    method: init.method,
+    body: init.body,
+    signal: init.signal,
+    headers: headerInit,
   });
 
   if (
@@ -821,12 +835,14 @@ export async function uploadJobDocument(
 ): Promise<FrpJobDocumentDTO> {
   const form = new FormData();
   form.set("jobStageId", String(params.jobStageId));
-  form.set("file", params.file);
+  form.append("file", params.file, params.file.name);
   if (params.documentName) form.set("documentName", params.documentName);
   if (params.remarks) form.set("remarks", params.remarks);
 
+  // Query string as well: Spring binds `@RequestParam jobStageId` from the URL
+  // even when multipart text fields are not exposed as request parameters.
   return frpFetch<FrpJobDocumentDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
+    `/jobs/${encodeURIComponent(String(dbId))}/documents?jobStageId=${encodeURIComponent(String(params.jobStageId))}`,
     { method: "POST", body: form }
   );
 }
