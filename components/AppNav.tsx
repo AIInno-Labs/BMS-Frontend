@@ -27,6 +27,8 @@ type NavLink = {
   icon: LucideIcon;
   /** Access key (looked up in ACCESS_PRIVILEGE_MAP) required to see this link. Omit for always-visible links. */
   accessKey?: AccessKey;
+  /** Set true to hide this link in the nav without deleting it. Flip back to re-enable. */
+  hidden?: boolean;
 };
 
 const orgUserManagerLinks: NavLink[] = [
@@ -53,6 +55,7 @@ const orgUserManagerLinks: NavLink[] = [
     label: "Analytics",
     icon: BarChart3,
     accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
+    hidden: true,
   },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
 ];
@@ -119,7 +122,9 @@ export function AppNav({ compact = false }: { compact?: boolean }) {
   // PRIVILEGE_MODEL.md), so only custom-role org users can ever be missing
   // one — but the filter runs for everyone, it just never removes anything
   // for the other roles since they have no `accessKey` requirement set.
-  links = links.filter((link) => !link.accessKey || can(link.accessKey));
+  links = links.filter(
+    (link) => !link.hidden && (!link.accessKey || can(link.accessKey))
+  );
 
   return (
     <nav

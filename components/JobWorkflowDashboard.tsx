@@ -102,6 +102,12 @@ interface JobWorkflowDashboardProps {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => Promise<void>;
+  /**
+   * Change only the job's status (e.g. the "Ready to Manufacture" checkbox).
+   * Sends a minimal request instead of resending the whole job through
+   * `onSavePatch`, so unrelated bad data elsewhere on the job can't block it.
+   */
+  onStatusChange: (status: Job["status"]) => Promise<void>;
   /** Refetch the job after a stage change so the page reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
 }
@@ -411,6 +417,7 @@ export function JobWorkflowDashboard({
   onPrint,
   onCancelJob,
   onSavePatch,
+  onStatusChange,
   onJobChanged,
 }: JobWorkflowDashboardProps) {
   const cancelled = isCancelledJob(job.status);
@@ -558,7 +565,12 @@ export function JobWorkflowDashboard({
           if (prev.milestoneId !== "" && nextMilestones.some((m) => m.id === prev.milestoneId)) {
             return prev;
           }
-          return { ...prev, milestoneId: nextMilestones[0]?.id ?? "" };
+          const fromJob =
+            job.currentStageId != null &&
+            nextMilestones.some((m) => m.id === job.currentStageId)
+              ? job.currentStageId
+              : nextMilestones.find((m) => m.stageKey === job.currentStageKey)?.id;
+          return { ...prev, milestoneId: fromJob ?? nextMilestones[0]?.id ?? "" };
         });
       } catch {
         if (!cancelled) {
@@ -571,7 +583,7 @@ export function JobWorkflowDashboard({
     return () => {
       cancelled = true;
     };
-  }, [job.dbId, documentsRefreshKey]);
+  }, [job.dbId, job.currentStageId, job.currentStageKey, documentsRefreshKey]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
@@ -733,9 +745,14 @@ export function JobWorkflowDashboard({
 
   const openFileUploadModal = () => {
     setFileUploadError(null);
+    const fromJob =
+      job.currentStageId != null &&
+      milestones.some((m) => m.id === job.currentStageId)
+        ? job.currentStageId
+        : milestones.find((m) => m.stageKey === job.currentStageKey)?.id;
     setFileUploadDraft({
       file: null,
-      milestoneId: milestones[0]?.id ?? "",
+      milestoneId: fromJob ?? milestones[0]?.id ?? "",
     });
     setShowFileModal(true);
   };
@@ -832,12 +849,17 @@ export function JobWorkflowDashboard({
   };
 
   const handleUploadProjectDocument = async () => {
-    if (!job.dbId || !fileUploadDraft.file || fileUploadDraft.milestoneId === "") return;
+    if (!job.dbId || !fileUploadDraft.file) return;
+    const jobStageId = milestones.find((m) => m.id === fileUploadDraft.milestoneId)?.id;
+    if (jobStageId == null) {
+      setFileUploadError("Choose a milestone to attach this file to.");
+      return;
+    }
     setFileUploading(true);
     setFileUploadError(null);
     try {
       await uploadJobDocument(job.dbId, {
-        jobStageId: fileUploadDraft.milestoneId,
+        jobStageId,
         file: fileUploadDraft.file,
         documentName: fileUploadDraft.file.name,
       });
@@ -1158,9 +1180,7 @@ export function JobWorkflowDashboard({
                 checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
                 disabled={isSaving || editsBlocked}
                 onChange={(e) =>
-                  void onSavePatch({
-                    status: e.target.checked ? "In Fabrication" : "Pending",
-                  })
+                  void onStatusChange(e.target.checked ? "In Fabrication" : "Pending")
                 }
                 className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
               />

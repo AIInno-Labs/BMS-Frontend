@@ -150,6 +150,8 @@ export interface Job {
   percentComplete?: number | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
+  /** Id of that milestone — `JobDTO.currentStageId`. Sent as `jobStageId` on document upload. */
+  currentStageId?: number | null;
   /** Material lines for the job (backend `job_inventory`). Inline on
    *  `GET /jobs/{id}`; mutated via `/jobs/{id}/job-inventory`. */
   inventory?: JobInventoryLine[];
