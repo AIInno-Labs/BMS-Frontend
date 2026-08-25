@@ -102,6 +102,12 @@ interface JobWorkflowDashboardProps {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => Promise<void>;
+  /**
+   * Change only the job's status (e.g. the "Ready to Manufacture" checkbox).
+   * Sends a minimal request instead of resending the whole job through
+   * `onSavePatch`, so unrelated bad data elsewhere on the job can't block it.
+   */
+  onStatusChange: (status: Job["status"]) => Promise<void>;
   /** Refetch the job after a stage change so the page reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
 }
@@ -411,6 +417,7 @@ export function JobWorkflowDashboard({
   onPrint,
   onCancelJob,
   onSavePatch,
+  onStatusChange,
   onJobChanged,
 }: JobWorkflowDashboardProps) {
   const cancelled = isCancelledJob(job.status);
@@ -1158,9 +1165,7 @@ export function JobWorkflowDashboard({
                 checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
                 disabled={isSaving || editsBlocked}
                 onChange={(e) =>
-                  void onSavePatch({
-                    status: e.target.checked ? "In Fabrication" : "Pending",
-                  })
+                  void onStatusChange(e.target.checked ? "In Fabrication" : "Pending")
                 }
                 className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
               />

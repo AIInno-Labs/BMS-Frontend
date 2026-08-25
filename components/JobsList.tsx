@@ -497,7 +497,9 @@ export function JobsList({ jobs }: JobsListProps) {
 
   return (
     <div className={`space-y-4 ${isWorker ? "worker-ui" : ""}`}>
-      <p className="text-sm text-slate-500">Fabrication programs and stage tracking</p>
+      {false && (
+        <p className="text-sm text-slate-500">Fabrication programs and stage tracking</p>
+      )}
 
       <CreateNewJobDrawer
         open={createJobOpen && canCreateJob}

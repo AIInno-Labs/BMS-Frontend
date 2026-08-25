@@ -73,8 +73,16 @@ interface JobCardProps {
 }
 
 export function JobCard({ jobId }: JobCardProps) {
-  const { jobs, getJobById, loadJobDetail, updateJob, hydrated, loading, error } =
-    useJobs();
+  const {
+    jobs,
+    getJobById,
+    loadJobDetail,
+    updateJob,
+    updateJobStatus,
+    hydrated,
+    loading,
+    error,
+  } = useJobs();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isClearingAlert, setIsClearingAlert] = useState(false);
@@ -528,6 +536,47 @@ export function JobCard({ jobId }: JobCardProps) {
     }
   };
 
+  /**
+   * A pure status change (e.g. the "Ready to Manufacture" checkbox). Sends
+   * only `{id, stageStatusLabel}` via `updateJobStatus`, instead of routing
+   * through `handleSavePatch`/`updateJob`, which resends every field on the
+   * job — a due date or estimated-hours value left in a bad shape elsewhere
+   * on the job would 400 the whole save and the checkbox would never move.
+   */
+  const handleStatusChange = async (status: Job["status"]) => {
+    if (isJobLockedForCashPayment(job) && status !== "Cancelled") {
+      setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
+    setSaveError(null);
+    setSaveSuccess(false);
+    setIsSaving(true);
+    try {
+      const saved = await updateJobStatus(job, status);
+      setJob(saved);
+      setDraft(saved);
+      setSaveSuccess(true);
+      setAuditRefreshKey((k) => k + 1);
+    } catch (e) {
+      if (e instanceof FrpApiError && e.status === 409) {
+        setSaveError(
+          "This job changed elsewhere and your edit couldn't be applied. Reloaded the latest version — please try again."
+        );
+        try {
+          const fresh = await loadJobDetail(jobId);
+          setJob(fresh);
+          if (!isEditing) setDraft(fresh);
+        } catch {
+          // Refresh failed too; the error above still tells the user what to do.
+        }
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // A stage change (from Status Control) can move the job's status/percent, so
   // re-pull the job detail to keep the page's badge, timeline, and % in sync.
   // Plain function (not a hook) — it sits after the component's early returns
@@ -596,6 +645,7 @@ export function JobCard({ jobId }: JobCardProps) {
           onPrint={handlePrint}
           onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
+          onStatusChange={handleStatusChange}
           onJobChanged={handleJobChanged}
         />
       )}

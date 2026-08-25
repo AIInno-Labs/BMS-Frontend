@@ -333,9 +333,11 @@ export function Dashboard() {
                     <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
                       Recent Jobs
                     </h2>
-                    <p className="mt-0.5 text-xs text-slate-600">
-                      Latest programs entering the fabrication pipeline.
-                    </p>
+                    {false && (
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        Latest programs entering the fabrication pipeline.
+                      </p>
+                    )}
                   </div>
                   <Link
                     href="/jobs"

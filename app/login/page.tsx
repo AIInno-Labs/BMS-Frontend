@@ -97,9 +97,11 @@ export default function LoginPage() {
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <FrpLogo variant="lockup" size="sidebar" />
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              FRP platform
-            </p>
+            {false && (
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                FRP platform
+              </p>
+            )}
             <h1 className="mt-1 text-lg font-semibold text-[#111827]">
               {mfaToken ? "Authenticator code" : "Sign in"}
             </h1>
