@@ -12,8 +12,7 @@ import {
 } from "@/lib/frp/api";
 import type { MfaSetupResponse } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
-import { FieldGate } from "@/components/FieldGate";
-import { FIELD_KEYS } from "@/lib/frp/access";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 disabled:bg-slate-50 disabled:text-slate-500";
@@ -31,7 +30,7 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 }
 
 export default function ProfileSettingsPage() {
-  const { user, loading, isAuthenticated, refreshUser } = useAuth();
+  const { user, loading, isAuthenticated, refreshUser, isOrgUser, can } = useAuth();
   const router = useRouter();
 
   const [displayName, setDisplayName] = useState("");
@@ -176,6 +175,13 @@ export default function ProfileSettingsPage() {
   const mfaAvailable = Boolean(user.mfaAvailable);
   const totpEnabled = Boolean(user.totpEnabled);
 
+  // Super Admin / Org Admin are never granted FIELD_SECURITY_MFA (it's not
+  // part of their auto-seeded ACTION set — see docs/PRIVILEGE_MODEL.md), so
+  // gating on can() for them would hide this unconditionally. Only plain org
+  // users are subject to the grant-to-see check — same fail-closed rule now
+  // applied to Dashboard/Jobs/Quotes/Analytics/Security alike.
+  const showSecuritySection = !isOrgUser || can(ACCESS_KEYS.SECURITY_VIEW);
+
   return (
     <main className="app-mesh-bg flex-1 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-2xl">
@@ -315,9 +321,10 @@ export default function ProfileSettingsPage() {
           </div>
         </div>
 
+        {showSecuritySection && (
+        <>
         <h2 className="mt-6 text-xl font-semibold text-[#111827]">Security</h2>
 
-        <FieldGate fieldKey={FIELD_KEYS.MFA}>
         <div className="app-card mt-3 space-y-4 !p-5">
           <div>
             <h3 className="text-sm font-semibold text-[#111827]">
@@ -444,7 +451,8 @@ export default function ProfileSettingsPage() {
             </form>
           )}
         </div>
-        </FieldGate>
+        </>
+        )}
       </div>
     </main>
   );
