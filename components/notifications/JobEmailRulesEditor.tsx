@@ -319,6 +319,21 @@ export function JobEmailRulesEditor({
     }
   }
 
+  async function toggleEnabled(row: JobEmailRecipientDTO, enabled: boolean) {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(payloadFromSelection(row, selectedFromRow(row), enabled));
+      if (drawerRow && rowKey(drawerRow) === rowKey(row)) {
+        setDrawerEnabled(enabled);
+      }
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Could not update enabled");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       {rowsError ? (
@@ -344,7 +359,9 @@ export function JobEmailRulesEditor({
               label={section.label}
               events={section.events}
               nestMilestones={section.id === "JOB_LIFECYCLE"}
+              saving={saving}
               onEdit={openEdit}
+              onToggleEnabled={toggleEnabled}
             />
           ))}
         </div>
@@ -514,12 +531,16 @@ function CategorySection({
   label,
   events,
   nestMilestones = false,
+  saving,
   onEdit,
+  onToggleEnabled,
 }: {
   label: string;
   events: JobEmailRecipientDTO[];
   nestMilestones?: boolean;
+  saving: boolean;
   onEdit: (row: JobEmailRecipientDTO) => void;
+  onToggleEnabled: (row: JobEmailRecipientDTO, enabled: boolean) => void;
 }) {
   const display = nestMilestones
     ? flattenLifecycle(events)
@@ -554,7 +575,9 @@ function CategorySection({
                 row={row}
                 indent={indent}
                 striped={idx % 2 === 1}
+                saving={saving}
                 onEdit={onEdit}
+                onToggleEnabled={onToggleEnabled}
               />
             ))}
           </tbody>
@@ -563,7 +586,14 @@ function CategorySection({
 
       <div className="divide-y divide-slate-100 md:hidden">
         {display.map(({ row, indent }) => (
-          <EventCard key={rowKey(row)} row={row} indent={indent} onEdit={onEdit} />
+          <EventCard
+            key={rowKey(row)}
+            row={row}
+            indent={indent}
+            saving={saving}
+            onEdit={onEdit}
+            onToggleEnabled={onToggleEnabled}
+          />
         ))}
       </div>
     </section>
@@ -619,19 +649,23 @@ function EventTableRow({
   row,
   indent,
   striped,
+  saving,
   onEdit,
+  onToggleEnabled,
 }: {
   row: JobEmailRecipientDTO;
   indent: boolean;
   striped: boolean;
+  saving: boolean;
   onEdit: (row: JobEmailRecipientDTO) => void;
+  onToggleEnabled: (row: JobEmailRecipientDTO, enabled: boolean) => void;
 }) {
   const count = row.totalRecipients ?? selectedFromRow(row).length;
   return (
     <tr
       className={`border-t border-slate-100 ${
         striped ? "bg-[#FAFBFC]" : "bg-white"
-      }`}
+      } ${row.enabled === false ? "opacity-60" : ""}`}
     >
       <td className="px-4 py-3">
         <EventName row={row} indent={indent} />
@@ -641,9 +675,8 @@ function EventTableRow({
           <input
             type="checkbox"
             checked={row.enabled !== false}
-            readOnly
-            tabIndex={-1}
-            className="pointer-events-none"
+            disabled={saving}
+            onChange={(e) => onToggleEnabled(row, e.target.checked)}
           />
           <span className="md:sr-only">Enabled</span>
         </label>
@@ -668,18 +701,22 @@ function EventTableRow({
 function EventCard({
   row,
   indent,
+  saving,
   onEdit,
+  onToggleEnabled,
 }: {
   row: JobEmailRecipientDTO;
   indent: boolean;
+  saving: boolean;
   onEdit: (row: JobEmailRecipientDTO) => void;
+  onToggleEnabled: (row: JobEmailRecipientDTO, enabled: boolean) => void;
 }) {
   const count = row.totalRecipients ?? selectedFromRow(row).length;
   return (
     <article
       className={`px-4 py-3 ${
         indent ? "border-l-[3px] border-slate-200 bg-[#FAFBFC]" : ""
-      }`}
+      } ${row.enabled === false ? "opacity-60" : ""}`}
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -689,9 +726,9 @@ function EventCard({
           <input
             type="checkbox"
             checked={row.enabled !== false}
-            readOnly
-            tabIndex={-1}
-            className="pointer-events-none h-4 w-4"
+            disabled={saving}
+            onChange={(e) => onToggleEnabled(row, e.target.checked)}
+            className="h-4 w-4"
           />
           <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             Enabled
