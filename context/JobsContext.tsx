@@ -37,6 +37,7 @@ import {
   uiJobToJobCardPayload,
   uiJobToUpdateRequest,
 } from "@/lib/frp/job-mapper";
+import { statusToBackend } from "@/lib/frp/job-status";
 import { FrpApiError, type UserDTO } from "@/lib/frp/types";
 import type { DbStaffRow } from "@/lib/floorOps";
 import { setStaffRoster } from "@/lib/workers";
@@ -119,6 +120,13 @@ interface JobsContextValue {
     audit?: JobUpdateAuditAction,
     auditDetail?: string | null
   ) => Promise<Job>;
+  /**
+   * Change only the job's status — a minimal `{id, stageStatusLabel}` body,
+   * not the whole job. Unlike `updateJob`, this cannot be broken by unrelated
+   * bad data sitting on other fields (dueDate, estimatedHours, ...), because
+   * those fields are never part of the request.
+   */
+  updateJobStatus: (job: Job, status: Job["status"]) => Promise<Job>;
 }
 
 const JobsContext = createContext<JobsContextValue | null>(null);
@@ -372,6 +380,22 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const updateJobStatus = useCallback(
+    async (job: Job, status: Job["status"]): Promise<Job> => {
+      if (job.dbId == null) {
+        throw new Error(`Job ${job.id} has no database id — cannot update.`);
+      }
+      const saved = await updateJobApi({
+        id: Number(job.dbId),
+        stageStatusLabel: statusToBackend(status) ?? undefined,
+      });
+      const ui = frpJobToUi(saved);
+      setJobs((prev) => prev.map((j) => (j.id === ui.id ? ui : j)));
+      return ui;
+    },
+    []
+  );
+
   const value = useMemo(
     () => ({
       jobs,
@@ -388,6 +412,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       loadJobDetail,
       createJobFromUi,
       updateJob,
+      updateJobStatus,
     }),
     [
       jobs,
@@ -404,6 +429,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       loadJobDetail,
       createJobFromUi,
       updateJob,
+      updateJobStatus,
     ]
   );
 

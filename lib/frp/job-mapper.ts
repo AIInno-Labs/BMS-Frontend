@@ -803,6 +803,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     quoteNumber: dto.quoteNumber ?? null,
   origin: dto.origin,
   currentStageKey: dto.currentStageKey ?? null,
+  currentStageId: dto.currentStageId ?? null,
   inventory: (dto.inventory ?? []).map(inventoryLineToUi),
   requirements: requirementsToUi(dto, card),
   };
