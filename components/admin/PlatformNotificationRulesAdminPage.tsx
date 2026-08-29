@@ -79,6 +79,15 @@ const OPERATION_ORDER: Record<string, string[]> = {
   QC: ["VISUAL", "DIMENSIONAL", "SIGNOFF"],
 };
 
+/** Uploads first, then drawing/PO review. Keys are eventKey:event. */
+const DOCUMENT_EVENT_ORDER = [
+  "DRAWING:UPLOADED",
+  "PO:UPLOADED",
+  "REVISION:UPLOADED",
+  "APPROVAL:APPROVED",
+  "APPROVAL:REJECTED",
+];
+
 function rowKey(row: JobEmailRecipientDTO): string {
   const def = row.eventDef;
   if (!def?.eventKey || !def.event) return String(row.id ?? "");
@@ -87,6 +96,15 @@ function rowKey(row: JobEmailRecipientDTO): string {
 
 function eventKeyOf(row: JobEmailRecipientDTO): string {
   return row.eventDef?.eventKey ?? "";
+}
+
+function sortDocumentEvents(events: JobEmailRecipientDTO[]): JobEmailRecipientDTO[] {
+  return [...events].sort((a, b) => {
+    const ai = DOCUMENT_EVENT_ORDER.indexOf(rowKey(a));
+    const bi = DOCUMENT_EVENT_ORDER.indexOf(rowKey(b));
+    return (ai === -1 ? DOCUMENT_EVENT_ORDER.length : ai) -
+      (bi === -1 ? DOCUMENT_EVENT_ORDER.length : bi);
+  });
 }
 
 function operationOrder(milestoneKey: string, eventKey: string): number {
@@ -267,11 +285,17 @@ export function PlatformNotificationRulesAdminPage() {
       list.push(row);
       byCategory.set(category, list);
     }
-    return SECTIONS.map((section) => ({
-      id: section.id,
-      label: section.label,
-      events: section.categories.flatMap((category) => byCategory.get(category) ?? []),
-    })).filter((section) => section.events.length > 0);
+    return SECTIONS.map((section) => {
+      const events = section.categories.flatMap(
+        (category) => byCategory.get(category) ?? []
+      );
+      return {
+        id: section.id,
+        label: section.label,
+        events:
+          section.id === "DOCUMENTS" ? sortDocumentEvents(events) : events,
+      };
+    }).filter((section) => section.events.length > 0);
   }, [rows]);
 
   async function patchRow(row: JobEmailRecipientDTO, patch: PlatformPatch) {
