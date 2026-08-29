@@ -6,11 +6,12 @@ import { RefreshCw, Search } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { JobsPagination } from "@/components/JobsPagination";
 import {
-  getOrganizationCount,
+  getJobCounts,
+  getJobPaymentHistory,
+  getQuoteEventCounts,
   listClientNames,
   listClients,
   type FrpJobCompanyCountDTO,
-  type FrpOrganizationCountDTO,
 } from "@/lib/frp/api";
 
 const CUSTOMERS_PAGE_SIZE = 10;
@@ -91,7 +92,10 @@ export function CustomersListPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const [orgTotals, setOrgTotals] = useState<FrpOrganizationCountDTO | null>(null);
+  const [activeJobs, setActiveJobs] = useState(0);
+  const [totalJobs, setTotalJobs] = useState(0);
+  const [quotesAccepted, setQuotesAccepted] = useState(0);
+  const [paymentsReceivedCents, setPaymentsReceivedCents] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -167,12 +171,27 @@ export function CustomersListPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getOrganizationCount()
-      .then((totals) => {
-        if (!cancelled) setOrgTotals(totals);
+    Promise.all([
+      getJobCounts(),
+      getQuoteEventCounts(),
+      getJobPaymentHistory({ period: 24, unit: "MONTHS" }),
+    ])
+      .then(([counts, quotes, payments]) => {
+        if (cancelled) return;
+        setActiveJobs(counts.active ?? 0);
+        setTotalJobs(counts.total ?? 0);
+        setQuotesAccepted(
+          quotes.byType.find((event) => event.eventType === "quote_accepted")
+            ?.count ?? 0
+        );
+        setPaymentsReceivedCents(payments.totalReceivedAmount ?? 0);
       })
       .catch(() => {
-        if (!cancelled) setOrgTotals(null);
+        if (cancelled) return;
+        setActiveJobs(0);
+        setTotalJobs(0);
+        setQuotesAccepted(0);
+        setPaymentsReceivedCents(0);
       });
     return () => {
       cancelled = true;
@@ -219,7 +238,7 @@ export function CustomersListPage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <AnimatedStatTile
             label="Active jobs"
-            value={orgTotals?.activeJobsCount ?? 0}
+            value={activeJobs}
             hint="Across all accounts"
           />
           <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -230,37 +249,18 @@ export function CustomersListPage() {
               </p>
             </div>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900">
-              {fmtGBP(fromCents(orgTotals?.totalPaymentReceivedAmount))}
+              {fmtGBP(fromCents(paymentsReceivedCents))}
             </p>
-            <div className="mt-2 space-y-1 text-xs text-slate-600">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Cash
-                </span>
-                <span className="font-semibold text-slate-900">
-                  {fmtGBP(fromCents(orgTotals?.cashCollectedPaymentAmount))}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
-                  Account
-                </span>
-                <span className="font-semibold text-slate-900">
-                  {fmtGBP(fromCents(orgTotals?.accountCollectedPaymentAmount))}
-                </span>
-              </div>
-            </div>
+            <p className="mt-2 text-xs text-slate-500">Last 24 months</p>
           </div>
           <AnimatedStatTile
             label="Total jobs"
-            value={orgTotals?.jobCount ?? 0}
+            value={totalJobs}
             hint="All accounts, all time"
           />
           <AnimatedStatTile
             label="Quotes accepted"
-            value={orgTotals?.quoteAcceptedCount ?? 0}
+            value={quotesAccepted}
             hint="Converted into jobs"
             accent="amber"
           />

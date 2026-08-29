@@ -23,6 +23,7 @@ import type {
   FrpJobCardPayload,
   FrpJobContactDetailsDTO,
   FrpJobCountsDTO,
+  FrpJobResinCountsDTO,
   FrpJobDocumentDTO,
   FrpJobDocumentUpdateRequest,
   FrpJobDTO,
@@ -601,14 +602,26 @@ export async function listJobs(
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
-/** `GET /jobs/counts` — org-wide, or one customer when `companyName` is set. */
+/** `GET /jobs/counts` — org-wide, or scoped by customer and/or resin. */
 export async function getJobCounts(params?: {
   companyName?: string;
+  resinCode?: string;
 }): Promise<FrpJobCountsDTO> {
   const q = new URLSearchParams();
   if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  if (params?.resinCode?.trim()) q.set("resinCode", params.resinCode.trim());
   const suffix = q.size ? `?${q}` : "";
   return frpFetch<FrpJobCountsDTO>(`/jobs/counts${suffix}`);
+}
+
+/** `GET /jobs/resin-counts` — every resin category together. */
+export async function getJobResinCounts(params?: {
+  companyName?: string;
+}): Promise<FrpJobResinCountsDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpJobResinCountsDTO>(`/jobs/resin-counts${suffix}`);
 }
 
 export type FrpPeriodUnit = "DAYS" | "MONTHS";
@@ -772,29 +785,6 @@ export async function getCrmQuestions(
   companyName: string
 ): Promise<FrpCrmQuestionDTO[]> {
   return frpFetch<FrpCrmQuestionDTO[]>(`${crmCompanyPath(companyName)}/questions`);
-}
-
-export type FrpOrganizationCountDTO = {
-  quoteCount: number;
-  jobCount: number;
-  activeJobsCount: number;
-  quoteEventCount: number;
-  quoteSentCount: number;
-  customerViewedCount: number;
-  customerQuestionCount: number;
-  quoteAcceptedCount: number;
-  quoteDeclinedCount: number;
-  quoteCompletedCount: number;
-  totalPaymentReceivedCount: number;
-  /** Sum of received payments (cash + account), in minor units (cents). */
-  totalPaymentReceivedAmount: number;
-  cashCollectedPaymentAmount: number;
-  accountCollectedPaymentAmount: number;
-};
-
-/** `GET /jobs/organization-count` — org dashboard rollup. */
-export async function getOrganizationCount(): Promise<FrpOrganizationCountDTO> {
-  return frpFetch<FrpOrganizationCountDTO>("/jobs/organization-count");
 }
 
 /** `GET /jobs/{id}` — full record including `jobCard`. */

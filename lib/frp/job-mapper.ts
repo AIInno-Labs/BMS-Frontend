@@ -282,6 +282,19 @@ export interface FrpJobCardPayload {
   manualInstructions?: string;
 }
 
+/** One resin category from `GET /jobs/resin-counts`. */
+export interface FrpJobResinCountDTO {
+  resinCode?: string | null;
+  label?: string;
+  count?: number;
+}
+
+/** `JobResinCountsDTO` — `GET /jobs/resin-counts`. */
+export interface FrpJobResinCountsDTO {
+  total?: number;
+  byResin?: FrpJobResinCountDTO[];
+}
+
 /** `JobCountsDTO` — `GET /jobs/counts`. */
 export interface FrpJobCountsDTO {
   total?: number;
