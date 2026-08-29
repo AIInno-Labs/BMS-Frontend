@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Search } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { JobsPagination } from "@/components/JobsPagination";
 import {
   getOrganizationCount,
+  listClientNames,
   listClients,
   type FrpJobCompanyCountDTO,
   type FrpOrganizationCountDTO,
@@ -83,6 +84,9 @@ export function CustomersListPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [nameSuggestions, setNameSuggestions] = useState<string[]>([]);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
   const [modeFilter, setModeFilter] = useState<"all" | PaymentModeLabel>("all");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -96,6 +100,37 @@ export function CustomersListPage() {
   }, [search]);
 
   useEffect(() => {
+    let cancelled = false;
+    const term = search.trim();
+    const timeout = window.setTimeout(() => {
+      listClientNames(term || undefined)
+        .then((names) => {
+          if (!cancelled) setNameSuggestions(names);
+        })
+        .catch(() => {
+          if (!cancelled) setNameSuggestions([]);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [search]);
+
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (
+        searchBoxRef.current &&
+        !searchBoxRef.current.contains(event.target as Node)
+      ) {
+        setShowNameSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, []);
+
+  useEffect(() => {
     setPage(1);
   }, [debouncedSearch, modeFilter]);
 
@@ -106,7 +141,7 @@ export function CustomersListPage() {
     const paymentMode =
       modeFilter === "Cash" ? "CASH" : modeFilter === "Account" ? "ACCOUNT" : undefined;
     listClients(page - 1, CUSTOMERS_PAGE_SIZE, {
-      search: debouncedSearch || undefined,
+      company: debouncedSearch || undefined,
       paymentMode,
     })
       .then((result) => {
@@ -143,6 +178,12 @@ export function CustomersListPage() {
       cancelled = true;
     };
   }, [reloadToken]);
+
+  const applyCompanySearch = (name: string) => {
+    setSearch(name);
+    setDebouncedSearch(name);
+    setShowNameSuggestions(false);
+  };
 
   const handleRefresh = () => {
     setReloadToken((t) => t + 1);
@@ -226,17 +267,46 @@ export function CustomersListPage() {
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2.5">
-          <label className="flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3.5 shadow-sm focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+          <div
+            ref={searchBoxRef}
+            className="relative flex h-11 min-w-[220px] flex-1 items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-3.5 shadow-sm focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40"
+          >
             <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
             <input
-              type="text"
+              type="search"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setShowNameSuggestions(true);
+              }}
+              onFocus={() => setShowNameSuggestions(true)}
               placeholder="Search company name…"
               aria-label="Search customers"
+              aria-autocomplete="list"
+              autoComplete="off"
               className="w-full min-w-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
             />
-          </label>
+            {showNameSuggestions && nameSuggestions.length > 0 ? (
+              <ul
+                role="listbox"
+                className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+              >
+                {nameSuggestions.map((name) => (
+                  <li key={name}>
+                    <button
+                      type="button"
+                      role="option"
+                      className="w-full truncate px-3 py-2 text-left text-sm text-slate-800 hover:bg-orange-50"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyCompanySearch(name)}
+                    >
+                      {name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <label className="inline-flex h-11 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-4 shadow-sm">
             <select
               value={modeFilter}

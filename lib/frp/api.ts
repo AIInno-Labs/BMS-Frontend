@@ -689,17 +689,28 @@ export async function getTopClients(limit = 5): Promise<FrpJobCompanyCountDTO[]>
 export async function listClients(
   page = 0,
   size = 10,
-  filters?: { search?: string; paymentMode?: "CASH" | "ACCOUNT" }
+  filters?: { company?: string; paymentMode?: "CASH" | "ACCOUNT" }
 ): Promise<PageResponse<FrpJobCompanyCountDTO>> {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
-  const search = filters?.search?.trim();
-  if (search) {
-    params.set("search", search);
+  const company = filters?.company?.trim();
+  if (company) {
+    params.set("company", company);
   }
   if (filters?.paymentMode) {
     params.set("paymentMode", filters.paymentMode);
   }
   return frpFetch<PageResponse<FrpJobCompanyCountDTO>>(`/jobs/clients?${params}`);
+}
+
+/** `GET /jobs/client-names` — company names for the CRM search box. */
+export async function listClientNames(company?: string): Promise<string[]> {
+  const params = new URLSearchParams();
+  const term = company?.trim();
+  if (term) {
+    params.set("company", term);
+  }
+  const query = params.toString();
+  return frpFetch<string[]>(query ? `/jobs/client-names?${query}` : "/jobs/client-names");
 }
 
 export type FrpCrmOverviewDTO = {
