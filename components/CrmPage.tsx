@@ -20,16 +20,25 @@ import {
 import { ArrowLeft } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { fetchAllJobs } from "@/lib/crm/fetch-all-jobs";
-import { jobStageLabel, JOB_STAGE_LABEL_ORDER } from "@/lib/crm/job-stage-label";
 import { formatCreatedDate, formatShortDate } from "@/lib/jobData";
-import { getQuote, listQuotes } from "@/lib/frp/api";
+import {
+  getCrmJobPipeline,
+  getCrmOverview,
+  getCrmQuestions,
+  getJobPaymentHistory,
+  getQuoteEventCounts,
+  listQuotes,
+  type FrpCrmJobPipelineDTO,
+  type FrpCrmOverviewDTO,
+  type FrpCrmQuestionDTO,
+  type FrpJobPaymentHistoryDTO,
+  type FrpPeriodUnit,
+} from "@/lib/frp/api";
 import { mapQuoteRow } from "@/lib/quotient/map-quote-row";
-import { extractQuoteQuestions } from "@/lib/quotient/extract-questions";
-import { formatQuotientContact } from "@/lib/quotient/formatContact";
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import type { PageResponse } from "@/lib/frp/types";
 import { STATUS_THEME } from "@/lib/statusColors";
-import { estimatePaymentMode, estimatePayments } from "@/lib/crm/demo-payments";
+import { estimatePaymentMode } from "@/lib/crm/demo-payments";
 import type { Job } from "@/lib/types";
 
 // One distinct color per possible jobStageLabel() result — draft through
@@ -50,6 +59,18 @@ const JOB_STAGE_COLORS: Record<string, string> = {
   Cancelled: "#EF4444",
 };
 
+const PAYMENT_PERIODS: Record<FrpPeriodUnit, number[]> = {
+  DAYS: [7, 14, 30],
+  MONTHS: [1, 3, 6],
+};
+
+function paymentPeriodLabel(period: number, unit: FrpPeriodUnit): string {
+  if (unit === "DAYS") {
+    return period === 1 ? "Last 1 day" : `Last ${period} days`;
+  }
+  return period === 1 ? "Last 1 month" : `Last ${period} months`;
+}
+
 type Period = "1m" | "3m" | "6m";
 const PERIOD_MONTHS: Record<Period, number> = { "1m": 1, "3m": 3, "6m": 6 };
 const PERIOD_LABEL: Record<Period, string> = {
@@ -57,19 +78,6 @@ const PERIOD_LABEL: Record<Period, string> = {
   "3m": "Last 3 months",
   "6m": "Last 6 months",
 };
-
-const QUOTIENT_LABELS: Record<string, string> = {
-  sent: "Quote sent",
-  viewed: "Customer viewed",
-  question: "Customer question",
-  accepted: "Quote accepted",
-  declined: "Quote declined",
-  completed: "Quote completed",
-  unknown: "Unknown",
-};
-
-// One distinct color per event type — was reusing STATUS_THEME's 3 status
-// hues across all 7 bars, which made several of them indistinguishable.
 const QUOTIENT_COLORS: Record<string, string> = {
   sent: "#3B82F6",
   viewed: "#0EA5E9",
@@ -80,16 +88,13 @@ const QUOTIENT_COLORS: Record<string, string> = {
   unknown: "#94A3B8",
 };
 
-function isActiveJob(job: Job): boolean {
-  return job.status !== "Complete" && job.status !== "Cancelled";
-}
-
-interface QuestionPreview {
-  quoteNumber: string;
-  quoteTitle: string;
-  text: string;
-  askedBy: string;
-  date: string;
+const EVENT_TYPE_FILL: Record<string, string> = {
+  quote_sent: QUOTIENT_COLORS.sent,
+  customer_viewed: QUOTIENT_COLORS.viewed,
+  customer_question: QUOTIENT_COLORS.question,
+  quote_accepted: QUOTIENT_COLORS.accepted,
+  quote_declined: QUOTIENT_COLORS.declined,
+  quote_completed: QUOTIENT_COLORS.completed,
 }
 
 export function CrmPage({ company }: { company: string }) {
@@ -99,6 +104,10 @@ export function CrmPage({ company }: { company: string }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState<string | null>(null);
+  const [overview, setOverview] = useState<FrpCrmOverviewDTO | null>(null);
+  const [pipeline, setPipeline] = useState<FrpCrmJobPipelineDTO | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,52 +131,123 @@ export function CrmPage({ company }: { company: string }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+    setOverviewLoading(true);
+    setOverviewError(null);
+    Promise.all([getCrmOverview(company), getCrmJobPipeline(company)])
+      .then(([nextOverview, nextPipeline]) => {
+        if (!cancelled) {
+          setOverview(nextOverview);
+          setPipeline(nextPipeline);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setOverview(null);
+          setPipeline(null);
+          setOverviewError(
+            e instanceof Error ? e.message : "Could not load customer overview"
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setOverviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company]);
+
   const [quotesPage, setQuotesPage] = useState<PageResponse<
     Record<string, unknown>
   > | null>(null);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("3m");
-  const [questionPreviews, setQuestionPreviews] = useState<QuestionPreview[]>([]);
+  const [eventCounts, setEventCounts] = useState<{
+    total: number;
+    byType: { eventType: string; label: string; count: number }[];
+  } | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [questionPreviews, setQuestionPreviews] = useState<FrpCrmQuestionDTO[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState<FrpJobPaymentHistoryDTO | null>(null);
+  const [paymentUnit, setPaymentUnit] = useState<FrpPeriodUnit>("MONTHS");
+  const [paymentPeriod, setPaymentPeriod] = useState(6);
+
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+    getJobPaymentHistory({
+      companyName: company,
+      period: paymentPeriod,
+      unit: paymentUnit,
+    })
+      .then((dto) => {
+        if (!cancelled) setPaymentHistory(dto);
+      })
+      .catch(() => {
+        if (!cancelled) setPaymentHistory(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company, paymentPeriod, paymentUnit]);
 
   const companyJobs = useMemo(
     () => jobs.filter((job) => job.clientName === company),
     [jobs, company]
   );
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const totalJobs = companyJobs.length;
-  const completedJobs = companyJobs.filter((j) => j.status === "Complete").length;
-  const activeJobs = companyJobs.filter(isActiveJob).length;
-  const overdueJobs = companyJobs.filter(
-    (j) => isActiveJob(j) && j.dueDate && j.dueDate < today
-  ).length;
+  const fromCents = (cents?: number | null) => (cents ?? 0) / 100;
+  const fmtGbp = (amount: number) =>
+    `£${amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
 
-  // Pie slices: the real per-job stage (Draft / Drawing / Approval /
-  // Production / QC / Dispatch / Completed) — the same currentStageKey-based
-  // label shown as the stage badge on the real Jobs page — not the coarser
-  // legacy status. See lib/crm/job-stage-label.ts.
-  const statusChartData = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const job of companyJobs) {
-      const label = jobStageLabel(job);
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-    return JOB_STAGE_LABEL_ORDER.filter((label) => counts.has(label)).map((status) => ({
-      status,
-      count: counts.get(status) as number,
-      fill: JOB_STAGE_COLORS[status] ?? "#94A3B8",
-    }));
-  }, [companyJobs]);
+  const totalJobs = overview?.totalJobs ?? 0;
+  const completedJobs = overview?.completedJobs ?? 0;
+  const activeJobs = overview?.activeJobs ?? 0;
+  const overdueJobs = overview?.overdueJobs ?? 0;
+  const quotesTotalOverview = overview?.quoteEventCount ?? 0;
+  const quotesAcceptedOverview = overview?.quoteAcceptedCount ?? 0;
+  const paymentsReceived = fromCents(overview?.totalPaymentReceivedAmount);
+  const paymentsOutstanding = fromCents(overview?.outstandingAmount);
+
+  const statusChartData = useMemo(
+    () =>
+      (pipeline?.byStage ?? []).map((slice) => ({
+        status: slice.label,
+        count: slice.count,
+        fill: JOB_STAGE_COLORS[slice.label] ?? "#94A3B8",
+      })),
+    [pipeline]
+  );
 
   const jobTotalsData = useMemo(
     () => [
-      { name: "Active jobs", value: activeJobs, fill: STATUS_THEME.manufacturing.strong },
-      { name: "Completed jobs", value: completedJobs, fill: STATUS_THEME.delivered.strong },
-      { name: "Total jobs", value: totalJobs, fill: "#F97316" },
+      {
+        name: "Active jobs",
+        value: pipeline?.activeJobs ?? activeJobs,
+        fill: STATUS_THEME.manufacturing.strong,
+      },
+      {
+        name: "Completed jobs",
+        value: pipeline?.completedJobs ?? completedJobs,
+        fill: STATUS_THEME.delivered.strong,
+      },
+      {
+        name: "Cancelled jobs",
+        value: pipeline?.cancelledJobs ?? 0,
+        fill: JOB_STAGE_COLORS.Cancelled,
+      },
+      {
+        name: "Total jobs",
+        value: pipeline?.totalJobs ?? totalJobs,
+        fill: "#F97316",
+      },
     ],
-    [activeJobs, completedJobs, totalJobs]
+    [pipeline, activeJobs, completedJobs, totalJobs]
   );
 
   const recentJobs = useMemo(
@@ -180,18 +260,11 @@ export function CrmPage({ company }: { company: string }) {
     [companyJobs]
   );
 
-  const clientSince = useMemo(() => {
-    let earliest: string | null = null;
-    for (const j of companyJobs) {
-      const d = j.createdAt ?? j.date;
-      if (!d) continue;
-      if (!earliest || d < earliest) earliest = d;
-    }
-    return earliest ? formatShortDate(earliest) : "—";
-  }, [companyJobs]);
+  const clientSince = overview?.clientSince
+    ? formatShortDate(overview.clientSince)
+    : "—";
 
-  // `GET /quotes` supports a `company` filter (see listQuotes in lib/frp/api.ts),
-  // so unlike payments and the Quotient journey chart below, this is real backend data.
+  // `GET /quotes` supports a `company` filter (see listQuotes in lib/frp/api.ts).
   useEffect(() => {
     if (!company) return;
     let cancelled = false;
@@ -215,22 +288,30 @@ export function CrmPage({ company }: { company: string }) {
     };
   }, [company]);
 
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+    setEventsLoading(true);
+    getQuoteEventCounts({ companyName: company, months: PERIOD_MONTHS[period] })
+      .then((dto) => {
+        if (!cancelled) setEventCounts(dto);
+      })
+      .catch(() => {
+        if (!cancelled) setEventCounts(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company, period]);
+
   const quoteItems: QuoteListItem[] = useMemo(
     () => (quotesPage?.content ?? []).map(mapQuoteRow),
     [quotesPage]
   );
-  // `totalElements` is the authoritative count from the backend; `quoteItems`
-  // itself is capped at the 100-row page fetched above, so `quotesAccepted`
-  // is exact up to that cap and a floor beyond it.
   const quotesTotal = quotesPage?.totalElements ?? quoteItems.length;
-  const quotesAccepted = quoteItems.filter((q) => q.quote_status === "ACCEPTED").length;
-  const acceptedQuotesValue = useMemo(
-    () =>
-      quoteItems
-        .filter((q) => q.quote_status === "ACCEPTED")
-        .reduce((sum, q) => sum + (q.total_includes_tax ?? 0), 0),
-    [quoteItems]
-  );
 
   const recentQuotes = useMemo(
     () =>
@@ -240,98 +321,80 @@ export function CrmPage({ company }: { company: string }) {
     [quoteItems]
   );
 
-  // TODO(api): no payments/invoicing ledger API exists yet, and the one real
-  // signal (printDetails.accountYesNo) isn't on the jobs list projection —
-  // see lib/crm/demo-payments.ts for the full explanation. `acceptedQuotesValue`
-  // above is real; only the received/outstanding split and the monthly
-  // breakdown below are estimated from it.
-  const paymentMode = useMemo(() => estimatePaymentMode(company), [company]);
-  const payments = useMemo(
-    () => estimatePayments(acceptedQuotesValue),
-    [acceptedQuotesValue]
+  const estimatedPaymentMode = useMemo(() => estimatePaymentMode(company), [company]);
+  const paymentModeLabel =
+    overview?.paymentMode === "CASH"
+      ? "Cash"
+      : overview?.paymentMode === "ACCOUNT"
+        ? "Account"
+        : estimatedPaymentMode;
+
+  const paymentChartData = useMemo(
+    () =>
+      (paymentHistory?.byMonth ?? []).map((row) => {
+        const d = new Date(Date.UTC(row.year, row.month - 1, row.day ?? 1));
+        const label =
+          row.day != null
+            ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
+            : d.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" });
+        return {
+          month: label,
+          amount: (row.receivedAmount ?? 0) / 100,
+        };
+      }),
+    [paymentHistory]
   );
 
-  const paymentChartData = useMemo(() => {
-    const now = new Date();
-    return payments.monthlyReceived.map((amount, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-      return { month: d.toLocaleDateString("en-GB", { month: "short" }), amount };
-    });
-  }, [payments]);
+  const quoteJourneyData = useMemo(
+    () =>
+      (eventCounts?.byType ?? []).map((row) => ({
+        name: row.label,
+        eventType: row.eventType,
+        count: row.count,
+        fill: EVENT_TYPE_FILL[row.eventType] ?? QUOTIENT_COLORS.unknown,
+      })),
+    [eventCounts]
+  );
 
-  // TODO(api): GET /quotes/event-counts (see getQuoteEventCounts in
-  // lib/frp/api.ts) is org-wide only today — no `company` or date-range
-  // filter, so it can't back a per-customer, per-period chart yet. Until the
-  // backend adds one (e.g. GET /quotes/event-counts?company=&months=), this
-  // section estimates a plausible event breakdown from the real quote totals
-  // above so the chart still reacts to the period picker.
-  const quoteJourneyData = useMemo(() => {
-    const scale = PERIOD_MONTHS[period] / 6;
-    const round = (n: number) => Math.max(0, Math.round(n));
-    const declinedPool = Math.max(quotesTotal - quotesAccepted, 0);
-    const buckets: Record<string, number> = {
-      sent: round(quotesTotal * scale),
-      viewed: round(quotesTotal * 0.85 * scale),
-      question: round(quotesTotal * 0.4 * scale),
-      accepted: round(quotesAccepted * scale),
-      declined: round(declinedPool * 0.55 * scale),
-      completed: round(quotesAccepted * 0.65 * scale),
-      unknown: round(quotesTotal * 0.05 * scale),
-    };
-    return Object.entries(buckets).map(([key, count]) => ({
-      name: QUOTIENT_LABELS[key],
-      count,
-      fill: QUOTIENT_COLORS[key],
-    }));
-  }, [quotesTotal, quotesAccepted, period]);
-
-  const journeyTotal = quoteJourneyData.reduce((sum, d) => sum + d.count, 0);
-  const journeySent = quoteJourneyData.find((d) => d.name === QUOTIENT_LABELS.sent)?.count ?? 0;
+  const journeyTotal = eventCounts?.total ?? 0;
+  const journeySent =
+    eventCounts?.byType.find((row) => row.eventType === "quote_sent")?.count ?? 0;
   const journeyAccepted =
-    quoteJourneyData.find((d) => d.name === QUOTIENT_LABELS.accepted)?.count ?? 0;
+    eventCounts?.byType.find((row) => row.eventType === "quote_accepted")?.count ?? 0;
   const conversionPct =
     journeySent > 0 ? Math.round((journeyAccepted / journeySent) * 100) : null;
 
-  // Real: quotes with question_count > 0 are fetched in full (GET /quotes/{quoteNumber})
-  // to read their actual question text, then linked straight to the real quote detail
-  // page — the same "Customer questions (conversation)" UI QuoteDetailPage.tsx renders.
   useEffect(() => {
-    const candidates = [...quoteItems]
-      .filter((q) => q.question_count > 0)
-      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
-      .slice(0, 5);
-
-    if (candidates.length === 0) {
-      setQuestionPreviews([]);
-      return;
-    }
-
+    if (!company) return;
     let cancelled = false;
     setQuestionsLoading(true);
-    Promise.all(
-      candidates.map(async (q) => {
-        const raw = await getQuote(q.quote_number).catch(() => null);
-        if (!raw) return null;
-        const questions = extractQuoteQuestions(raw);
-        const latest = questions[questions.length - 1];
-        if (!latest) return null;
-        return {
-          quoteNumber: q.quote_number,
-          quoteTitle: q.title ?? "Untitled quote",
-          text: latest.question_text,
-          askedBy: formatQuotientContact(latest.asked_by) || "Customer",
-          date: latest.question_when ?? latest.created_at,
-        } satisfies QuestionPreview;
+    getCrmQuestions(company)
+      .then((rows) => {
+        if (!cancelled) setQuestionPreviews(rows);
       })
-    ).then((results) => {
-      if (cancelled) return;
-      setQuestionPreviews(results.filter((r): r is QuestionPreview => r !== null));
-      setQuestionsLoading(false);
-    });
+      .catch(() => {
+        if (!cancelled) setQuestionPreviews([]);
+      })
+      .finally(() => {
+        if (!cancelled) setQuestionsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [quoteItems]);
+  }, [company]);
+
+  const handlePaymentUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value as FrpPeriodUnit;
+    setPaymentUnit(next);
+    const options = PAYMENT_PERIODS[next];
+    if (!options.includes(paymentPeriod)) {
+      setPaymentPeriod(options[options.length - 1]);
+    }
+  };
+
+  const handlePaymentPeriodChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setPaymentPeriod(Number(e.target.value));
+  };
 
   const handlePeriodChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setPeriod(e.target.value as Period);
@@ -351,9 +414,9 @@ export function CrmPage({ company }: { company: string }) {
           </Link>
         </div>
 
-        {(jobsError || jobsLoading) && (
+        {(overviewError || overviewLoading) && (
           <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {jobsError ?? "Loading job data…"}
+            {overviewError ?? "Loading customer overview…"}
           </p>
         )}
 
@@ -374,12 +437,12 @@ export function CrmPage({ company }: { company: string }) {
                   Payment mode
                   <span
                     className={`mt-1 flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold ${
-                      paymentMode === "Cash"
+                      paymentModeLabel === "Cash"
                         ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                         : "border-violet-200 bg-violet-50 text-violet-700"
                     }`}
                   >
-                    {paymentMode}
+                    {paymentModeLabel}
                   </span>
                 </div>
                 <div className="text-sm text-slate-500">
@@ -393,40 +456,48 @@ export function CrmPage({ company }: { company: string }) {
           <section aria-label="Key metrics">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Overview</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <AnimatedStatTile label="Active jobs" value={activeJobs} hint="Not yet delivered" />
-              <AnimatedStatTile label="Total jobs" value={totalJobs} hint="All jobs on record" />
+              <AnimatedStatTile
+                label="Active jobs"
+                value={overviewLoading ? "…" : activeJobs}
+                hint="Not yet delivered"
+              />
+              <AnimatedStatTile
+                label="Total jobs"
+                value={overviewLoading ? "…" : totalJobs}
+                hint="All jobs on record"
+              />
               <AnimatedStatTile
                 label="Total payments"
-                value={`£${payments.received.toLocaleString("en-GB")}`}
+                value={overviewLoading ? "…" : fmtGbp(paymentsReceived)}
                 hint="Received to date"
                 accent="delivered"
               />
               <AnimatedStatTile
                 label="Outstanding"
-                value={`£${payments.outstanding.toLocaleString("en-GB")}`}
-                hint={payments.outstanding > 0 ? "Invoiced, not yet paid" : "Fully settled"}
-                accent={payments.outstanding > 0 ? "amber" : "slate"}
+                value={overviewLoading ? "…" : fmtGbp(paymentsOutstanding)}
+                hint={paymentsOutstanding > 0 ? "Invoiced, not yet paid" : "Fully settled"}
+                accent={paymentsOutstanding > 0 ? "amber" : "slate"}
               />
               <AnimatedStatTile
                 label="Completed jobs"
-                value={completedJobs}
+                value={overviewLoading ? "…" : completedJobs}
                 hint="Delivered to this account"
                 accent="delivered"
               />
               <AnimatedStatTile
                 label="Overdue"
-                value={overdueJobs}
+                value={overviewLoading ? "…" : overdueJobs}
                 hint={overdueJobs > 0 ? "Past due date, not complete" : "Nothing overdue"}
                 accent={overdueJobs > 0 ? "red" : "slate"}
               />
               <AnimatedStatTile
-                label="Total quotes"
-                value={quotesLoading ? "…" : quotesTotal}
-                hint="Issued to this account"
+                label="Total quote events"
+                value={overviewLoading ? "…" : quotesTotalOverview}
+                hint="Logged for this account"
               />
               <AnimatedStatTile
                 label="Quotes accepted"
-                value={quotesLoading ? "…" : quotesAccepted}
+                value={overviewLoading ? "…" : quotesAcceptedOverview}
                 hint="Converted into jobs"
                 accent="amber"
               />
@@ -473,7 +544,9 @@ export function CrmPage({ company }: { company: string }) {
                     </ResponsiveContainer>
                   ) : (
                     <p className="flex h-full items-center justify-center text-sm text-slate-500">
-                      No jobs on record for this account yet.
+                    {overviewLoading
+                      ? "Loading pipeline…"
+                      : "No jobs on record for this account yet."}
                     </p>
                   )}
                 </div>
@@ -483,7 +556,7 @@ export function CrmPage({ company }: { company: string }) {
                 <div className="shrink-0">
                   <h3 className="text-sm font-semibold text-slate-900">Job totals</h3>
                   <p className="text-xs text-slate-500">
-                    Active, completed and total jobs for this account
+                    Active, completed, cancelled and total jobs for this account
                   </p>
                 </div>
                 <div className="mt-2 flex min-h-[220px] flex-1 items-center">
@@ -498,7 +571,7 @@ export function CrmPage({ company }: { company: string }) {
                       <YAxis
                         type="category"
                         dataKey="name"
-                        width={96}
+                        width={110}
                         tick={{ fill: "#64748b", fontSize: 11 }}
                       />
                       <Tooltip formatter={(value: number) => [`${value} jobs`, "Count"]} />
@@ -520,10 +593,41 @@ export function CrmPage({ company }: { company: string }) {
           </section>
 
           <section aria-label="Payment history">
-            <h2 className="mb-3 text-lg font-semibold text-slate-900">Payment history</h2>
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-900">Payment history</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex h-9 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3 text-xs font-semibold text-slate-700">
+                  <select
+                    value={paymentUnit}
+                    onChange={handlePaymentUnitChange}
+                    className="bg-transparent text-xs font-semibold text-slate-900 outline-none"
+                    aria-label="Payment history unit"
+                  >
+                    <option value="DAYS">Days</option>
+                    <option value="MONTHS">Months</option>
+                  </select>
+                </label>
+                <label className="inline-flex h-9 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3 text-xs font-semibold text-slate-700">
+                  <select
+                    value={paymentPeriod}
+                    onChange={handlePaymentPeriodChange}
+                    className="bg-transparent text-xs font-semibold text-slate-900 outline-none"
+                    aria-label="Payment history period"
+                  >
+                    {PAYMENT_PERIODS[paymentUnit].map((value) => (
+                      <option key={`${paymentUnit}-${value}`} value={value}>
+                        {paymentPeriodLabel(value, paymentUnit)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
             <div className="analytics-chart-card">
-              <h3 className="text-sm font-semibold text-slate-900">Monthly payments received</h3>
-              <p className="text-xs text-slate-500">Last 6 months</p>
+              <h3 className="text-sm font-semibold text-slate-900">
+                {paymentUnit === "DAYS" ? "Daily payments received" : "Monthly payments received"}
+              </h3>
+              <p className="text-xs text-slate-500">{paymentPeriodLabel(paymentPeriod, paymentUnit)}</p>
               <div className="mt-2 h-56 sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={paymentChartData} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
@@ -619,7 +723,9 @@ export function CrmPage({ company }: { company: string }) {
                   </ResponsiveContainer>
                 ) : (
                   <p className="flex h-full items-center justify-center text-sm text-slate-500">
-                    {quotesLoading ? "Loading quotes…" : "No quotes on record for this account yet."}
+                    {eventsLoading
+                      ? "Loading quote events…"
+                      : "No quote events for this account in this period."}
                   </p>
                 )}
               </div>
@@ -634,7 +740,7 @@ export function CrmPage({ company }: { company: string }) {
               ) : questionPreviews.length > 0 ? (
                 <ul className="space-y-2">
                   {questionPreviews.map((q) => (
-                    <li key={q.quoteNumber}>
+                    <li key={`${q.quoteNumber}-${q.occurredAt ?? q.text}`}>
                       <Link
                         href={`/quotes/${encodeURIComponent(q.quoteNumber)}`}
                         className="block rounded-lg border border-violet-200 bg-violet-50/60 px-4 py-3 transition-colors hover:border-violet-300 hover:bg-violet-50"
@@ -644,7 +750,7 @@ export function CrmPage({ company }: { company: string }) {
                             #{q.quoteNumber} · {q.quoteTitle}
                           </span>
                           <span className="text-xs text-violet-500">
-                            {q.date ? formatShortDate(q.date) : "—"}
+                            {q.occurredAt ? formatShortDate(q.occurredAt) : "—"}
                           </span>
                         </div>
                         <p className="mt-1.5 text-sm text-slate-900">&ldquo;{q.text}&rdquo;</p>

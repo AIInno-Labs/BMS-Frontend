@@ -433,6 +433,7 @@ export interface FrpPoComparisonDTO {
 
 export type FrpPaymentKind = "DEPOSIT" | "PROGRESS" | "FINAL";
 export type FrpPaymentStatus = "DUE" | "RECEIVED" | "OVERDUE" | "WRITTEN_OFF";
+export type FrpPaymentMode = "CASH" | "ACCOUNT";
 
 /** `JobPaymentDTO` — nested on `GET /jobs/{id}` and returned by payment PUT. */
 export interface FrpJobPaymentDTO {
@@ -443,6 +444,7 @@ export interface FrpJobPaymentDTO {
   currency?: string;
   kind?: FrpPaymentKind;
   status?: FrpPaymentStatus;
+  paymentMode?: FrpPaymentMode;
   dueDate?: string;
   receivedAt?: string;
   reference?: string;
@@ -457,6 +459,7 @@ export interface FrpJobPaymentDTO {
 export interface FrpJobPaymentUpdateRequest {
   paid?: boolean;
   estimatedDate?: string;
+  paymentMode?: FrpPaymentMode;
 }
 
 /** `PUT /documents/{id}` — only non-null fields are applied. */

@@ -601,9 +601,44 @@ export async function listJobs(
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
-/** `GET /jobs/counts` — org-scoped aggregates for the dashboard tiles. */
-export async function getJobCounts(): Promise<FrpJobCountsDTO> {
-  return frpFetch<FrpJobCountsDTO>("/jobs/counts");
+/** `GET /jobs/counts` — org-wide, or one customer when `companyName` is set. */
+export async function getJobCounts(params?: {
+  companyName?: string;
+}): Promise<FrpJobCountsDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpJobCountsDTO>(`/jobs/counts${suffix}`);
+}
+
+export type FrpPeriodUnit = "DAYS" | "MONTHS";
+
+export type FrpJobPaymentMonthDTO = {
+  year: number;
+  month: number;
+  day?: number | null;
+  receivedAmount: number;
+};
+
+export type FrpJobPaymentHistoryDTO = {
+  unit: FrpPeriodUnit;
+  period: number;
+  byMonth: FrpJobPaymentMonthDTO[];
+  totalReceivedAmount: number;
+};
+
+/** `GET /jobs/payment-history` — received totals over DAYS or MONTHS. */
+export async function getJobPaymentHistory(params?: {
+  companyName?: string;
+  period?: number;
+  unit?: FrpPeriodUnit;
+}): Promise<FrpJobPaymentHistoryDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  if (params?.period != null && params.period > 0) q.set("period", String(params.period));
+  if (params?.unit) q.set("unit", params.unit);
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpJobPaymentHistoryDTO>(`/jobs/payment-history${suffix}`);
 }
 
 export type FrpQuoteEventCountDTO = {
@@ -618,20 +653,137 @@ export type FrpQuoteEventCountsSummaryDTO = {
   byType: FrpQuoteEventCountDTO[];
 };
 
-/** `GET /quotes/event-counts` — org-scoped quotient event totals by type. */
-export async function getQuoteEventCounts(): Promise<FrpQuoteEventCountsSummaryDTO> {
-  return frpFetch<FrpQuoteEventCountsSummaryDTO>("/quotes/event-counts");
+/** `GET /quotes/event-counts` — org rollup, or one customer when `companyName` is set. */
+export async function getQuoteEventCounts(params?: {
+  companyName?: string;
+  months?: number;
+}): Promise<FrpQuoteEventCountsSummaryDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  if (params?.months != null && params.months > 0) q.set("months", String(params.months));
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpQuoteEventCountsSummaryDTO>(`/quotes/event-counts${suffix}`);
 }
 
 export type FrpJobCompanyCountDTO = {
   rank: number;
   companyName: string;
   jobCount: number;
+  quoteAcceptedCount?: number;
+  quoteEventCount?: number;
+  activeJobsCount?: number;
+  totalPaymentReceivedCount?: number;
+  /** Sum of received payments (cash + account), in minor units (cents). */
+  totalPaymentReceivedAmount?: number;
+  /** Sum of received cash payments, in minor units (cents). */
+  cashCollectedPaymentAmount?: number;
+  paymentMode?: "CASH" | "ACCOUNT";
 };
 
 /** `GET /jobs/top-clients` — ranked clients by job count. */
 export async function getTopClients(limit = 5): Promise<FrpJobCompanyCountDTO[]> {
   return frpFetch<FrpJobCompanyCountDTO[]>(`/jobs/top-clients?limit=${limit}`);
+}
+
+/** `GET /jobs/clients` — paged CRM customer list. */
+export async function listClients(
+  page = 0,
+  size = 10,
+  filters?: { search?: string; paymentMode?: "CASH" | "ACCOUNT" }
+): Promise<PageResponse<FrpJobCompanyCountDTO>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const search = filters?.search?.trim();
+  if (search) {
+    params.set("search", search);
+  }
+  if (filters?.paymentMode) {
+    params.set("paymentMode", filters.paymentMode);
+  }
+  return frpFetch<PageResponse<FrpJobCompanyCountDTO>>(`/jobs/clients?${params}`);
+}
+
+export type FrpCrmOverviewDTO = {
+  companyName?: string;
+  paymentMode?: "CASH" | "ACCOUNT" | null;
+  clientSince?: string | null;
+  totalJobs?: number;
+  activeJobs?: number;
+  completedJobs?: number;
+  overdueJobs?: number;
+  quoteEventCount?: number;
+  quoteAcceptedCount?: number;
+  /** Received payments, minor units (cents). */
+  totalPaymentReceivedAmount?: number;
+  /** Open (due/overdue) payments, minor units (cents). */
+  outstandingAmount?: number;
+};
+
+export type FrpCrmPipelineSliceDTO = {
+  label: string;
+  stageKey: string;
+  count: number;
+};
+
+export type FrpCrmJobPipelineDTO = {
+  byStage?: FrpCrmPipelineSliceDTO[];
+  totalJobs?: number;
+  activeJobs?: number;
+  completedJobs?: number;
+  cancelledJobs?: number;
+};
+
+function crmCompanyPath(companyName: string): string {
+  return `/crm/${encodeURIComponent(companyName.trim())}`;
+}
+
+/** `GET /crm/{companyName}/overview` — KPI strip for one customer. */
+export async function getCrmOverview(companyName: string): Promise<FrpCrmOverviewDTO> {
+  return frpFetch<FrpCrmOverviewDTO>(`${crmCompanyPath(companyName)}/overview`);
+}
+
+/** `GET /crm/{companyName}/job-pipeline` — stage pie + job totals. */
+export async function getCrmJobPipeline(
+  companyName: string
+): Promise<FrpCrmJobPipelineDTO> {
+  return frpFetch<FrpCrmJobPipelineDTO>(`${crmCompanyPath(companyName)}/job-pipeline`);
+}
+
+export type FrpCrmQuestionDTO = {
+  quoteNumber: string;
+  quoteTitle: string;
+  text: string;
+  askedBy: string;
+  occurredAt?: string | null;
+};
+
+/** `GET /crm/{companyName}/questions` — latest customer_question events on this company's quotes. */
+export async function getCrmQuestions(
+  companyName: string
+): Promise<FrpCrmQuestionDTO[]> {
+  return frpFetch<FrpCrmQuestionDTO[]>(`${crmCompanyPath(companyName)}/questions`);
+}
+
+export type FrpOrganizationCountDTO = {
+  quoteCount: number;
+  jobCount: number;
+  activeJobsCount: number;
+  quoteEventCount: number;
+  quoteSentCount: number;
+  customerViewedCount: number;
+  customerQuestionCount: number;
+  quoteAcceptedCount: number;
+  quoteDeclinedCount: number;
+  quoteCompletedCount: number;
+  totalPaymentReceivedCount: number;
+  /** Sum of received payments (cash + account), in minor units (cents). */
+  totalPaymentReceivedAmount: number;
+  cashCollectedPaymentAmount: number;
+  accountCollectedPaymentAmount: number;
+};
+
+/** `GET /jobs/organization-count` — org dashboard rollup. */
+export async function getOrganizationCount(): Promise<FrpOrganizationCountDTO> {
+  return frpFetch<FrpOrganizationCountDTO>("/jobs/organization-count");
 }
 
 /** `GET /jobs/{id}` — full record including `jobCard`. */

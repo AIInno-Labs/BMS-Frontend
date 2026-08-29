@@ -508,7 +508,7 @@ export function AnalyticsPage() {
         <section className="app-card" aria-label="Quotient analytics">
           <h2 className="text-lg font-semibold text-slate-900">Quotient quote journey</h2>
           <p className="mt-1 text-base text-slate-600">
-            Webhook events aggregated from <code className="text-sm">quote_event_count</code>
+            Webhook events aggregated from <code className="text-sm">organization_count</code>
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <AnimatedStatTile

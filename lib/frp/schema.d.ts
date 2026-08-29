@@ -780,6 +780,8 @@ export interface components {
             kind: "DEPOSIT" | "PROGRESS" | "FINAL";
             /** @enum {string} */
             status?: "DUE" | "RECEIVED" | "OVERDUE" | "WRITTEN_OFF";
+            /** @enum {string} */
+            paymentMode?: "CASH" | "ACCOUNT";
             /** Format: date */
             dueDate?: string;
             /** Format: date-time */

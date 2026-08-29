@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Search } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { JobsPagination } from "@/components/JobsPagination";
-import { listQuotes } from "@/lib/frp/api";
-import { mapQuoteRow } from "@/lib/quotient/map-quote-row";
-import { estimatePaymentMode, estimatePayments } from "@/lib/crm/demo-payments";
-import { fetchAllJobs } from "@/lib/crm/fetch-all-jobs";
-import type { Job } from "@/lib/types";
+import {
+  getOrganizationCount,
+  listClients,
+  type FrpJobCompanyCountDTO,
+  type FrpOrganizationCountDTO,
+} from "@/lib/frp/api";
 
 const CUSTOMERS_PAGE_SIZE = 10;
 
@@ -17,16 +18,21 @@ const TH =
   "sticky top-0 z-10 bg-[#F8FAFC] whitespace-nowrap px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500 align-middle";
 const TD = "px-3 py-3.5 align-middle text-xs text-slate-700";
 
+type PaymentModeLabel = "Cash" | "Account";
+
 interface CustomerRow {
   name: string;
   activeJobs: number;
   totalJobs: number;
   quotesAccepted: number;
-  paymentMode: "Cash" | "Account";
+  paymentMode: PaymentModeLabel | null;
   paymentsReceived: number;
 }
 
-function PaymentModeBadge({ mode }: { mode: "Cash" | "Account" }) {
+function PaymentModeBadge({ mode }: { mode: PaymentModeLabel | null }) {
+  if (mode == null) {
+    return <span className="text-xs font-medium text-slate-400">—</span>;
+  }
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold ${
@@ -40,8 +46,8 @@ function PaymentModeBadge({ mode }: { mode: "Cash" | "Account" }) {
   );
 }
 
-function isActiveJob(job: Job): boolean {
-  return job.status !== "Complete" && job.status !== "Cancelled";
+function fromCents(cents: number | undefined): number {
+  return (cents ?? 0) / 100;
 }
 
 function fmtGBP(n: number): string {
@@ -53,146 +59,104 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
+function toPaymentModeLabel(mode: FrpJobCompanyCountDTO["paymentMode"]): PaymentModeLabel | null {
+  if (mode === "CASH") return "Cash";
+  if (mode === "ACCOUNT") return "Account";
+  return null;
+}
+
+function toCustomerRow(row: FrpJobCompanyCountDTO): CustomerRow {
+  return {
+    name: row.companyName,
+    activeJobs: row.activeJobsCount ?? 0,
+    totalJobs: row.jobCount,
+    quotesAccepted: row.quoteAcceptedCount ?? 0,
+    paymentMode: toPaymentModeLabel(row.paymentMode),
+    paymentsReceived: fromCents(row.totalPaymentReceivedAmount),
+  };
+}
+
 export function CustomersListPage() {
   const router = useRouter();
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [jobsLoading, setJobsLoading] = useState(true);
-  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [modeFilter, setModeFilter] = useState<"all" | "Cash" | "Account">("all");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [modeFilter, setModeFilter] = useState<"all" | PaymentModeLabel>("all");
   const [page, setPage] = useState(1);
-  const [quoteStats, setQuoteStats] = useState<
-    Record<string, { accepted: number; acceptedValue: number }>
-  >({});
-  const [quotesLoading, setQuotesLoading] = useState(false);
-  // Bumped by the Refresh button to force both effects below to re-run.
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [orgTotals, setOrgTotals] = useState<FrpOrganizationCountDTO | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
-  // Paged through in full — see fetch-all-jobs.ts for why this can't reuse
-  // JobsContext's single, 200-row-capped page.
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, modeFilter]);
+
   useEffect(() => {
     let cancelled = false;
-    setJobsLoading(true);
-    setJobsError(null);
-    fetchAllJobs()
-      .then((list) => {
-        if (!cancelled) setJobs(list);
+    setLoading(true);
+    setError(null);
+    const paymentMode =
+      modeFilter === "Cash" ? "CASH" : modeFilter === "Account" ? "ACCOUNT" : undefined;
+    listClients(page - 1, CUSTOMERS_PAGE_SIZE, {
+      search: debouncedSearch || undefined,
+      paymentMode,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        setCustomers((result.content ?? []).map(toCustomerRow));
+        setTotalPages(Math.max(1, result.totalPages ?? 1));
+        setTotalItems(result.totalElements ?? 0);
       })
       .catch((e) => {
-        if (!cancelled) {
-          setJobs([]);
-          setJobsError(e instanceof Error ? e.message : "Could not load jobs");
-        }
+        if (cancelled) return;
+        setCustomers([]);
+        setTotalPages(1);
+        setTotalItems(0);
+        setError(e instanceof Error ? e.message : "Could not load customers");
       })
       .finally(() => {
-        if (!cancelled) setJobsLoading(false);
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, debouncedSearch, modeFilter, reloadToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getOrganizationCount()
+      .then((totals) => {
+        if (!cancelled) setOrgTotals(totals);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgTotals(null);
       });
     return () => {
       cancelled = true;
     };
   }, [reloadToken]);
 
-  const companyNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const job of jobs) {
-      const name = job.clientName?.trim();
-      if (name) set.add(name);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [jobs]);
-
-  // Real per-customer accepted-quote counts/values — GET /quotes?company= already
-  // supports filtering by company (see listQuotes in lib/frp/api.ts), so this
-  // fetches every customer's quotes in parallel rather than estimating.
-  useEffect(() => {
-    if (companyNames.length === 0) return;
-    let cancelled = false;
-    setQuotesLoading(true);
-    Promise.all(
-      companyNames.map(async (name) => {
-        try {
-          const page = await listQuotes(0, 100, { company: name });
-          const items = (page.content ?? []).map(mapQuoteRow);
-          const accepted = items.filter((q) => q.quote_status === "ACCEPTED");
-          const acceptedValue = accepted.reduce(
-            (sum, q) => sum + (q.total_includes_tax ?? 0),
-            0
-          );
-          return [name, { accepted: accepted.length, acceptedValue }] as const;
-        } catch {
-          return [name, { accepted: 0, acceptedValue: 0 }] as const;
-        }
-      })
-    ).then((entries) => {
-      if (cancelled) return;
-      setQuoteStats(Object.fromEntries(entries));
-      setQuotesLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [companyNames, reloadToken]);
-
-  const refreshing = jobsLoading || quotesLoading;
   const handleRefresh = () => {
     setReloadToken((t) => t + 1);
   };
 
-  const customers: CustomerRow[] = useMemo(() => {
-    return companyNames.map((name) => {
-      const companyJobs = jobs.filter((j) => j.clientName === name);
-      const stats = quoteStats[name] ?? { accepted: 0, acceptedValue: 0 };
-      return {
-        name,
-        activeJobs: companyJobs.filter(isActiveJob).length,
-        totalJobs: companyJobs.length,
-        quotesAccepted: stats.accepted,
-        // TODO(api): payment mode and figures are placeholders — see lib/crm/demo-payments.ts.
-        paymentMode: estimatePaymentMode(name),
-        paymentsReceived: estimatePayments(stats.acceptedValue).received,
-      };
-    });
-  }, [companyNames, jobs, quoteStats]);
-
-  const orgTotals = useMemo(
-    () =>
-      customers.reduce(
-        (acc, c) => {
-          acc.activeJobs += c.activeJobs;
-          acc.totalJobs += c.totalJobs;
-          acc.quotesAccepted += c.quotesAccepted;
-          if (c.paymentMode === "Cash") acc.cashTotal += c.paymentsReceived;
-          else acc.accountTotal += c.paymentsReceived;
-          return acc;
-        },
-        { activeJobs: 0, totalJobs: 0, quotesAccepted: 0, cashTotal: 0, accountTotal: 0 }
-      ),
-    [customers]
-  );
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return customers.filter((c) => {
-      if (q && !c.name.toLowerCase().includes(q)) return false;
-      if (modeFilter !== "all" && c.paymentMode !== modeFilter) return false;
-      return true;
-    });
-  }, [customers, search, modeFilter]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, modeFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / CUSTOMERS_PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pagedCustomers = filtered.slice(
-    (safePage - 1) * CUSTOMERS_PAGE_SIZE,
-    safePage * CUSTOMERS_PAGE_SIZE
-  );
-
   const openCustomer = (name: string) => {
     router.push(`/crm/${encodeURIComponent(name)}`);
   };
+
+  const safePage = Math.min(page, totalPages);
+  const emptyMessage =
+    totalItems === 0 && !debouncedSearch && modeFilter === "all"
+      ? "No jobs on record yet — once jobs are raised, customers will appear here."
+      : "No customers match this search / filter.";
 
   return (
     <main className="app-mesh-bg relative flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -205,16 +169,16 @@ export function CustomersListPage() {
           <p className="text-sm text-slate-500">All accounts</p>
         </div>
 
-        {(jobsError || jobsLoading) && (
+        {(error || loading) && (
           <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {jobsError ?? "Loading job data…"}
+            {error ?? "Loading customers…"}
           </p>
         )}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <AnimatedStatTile
             label="Active jobs"
-            value={orgTotals.activeJobs}
+            value={orgTotals?.activeJobsCount ?? 0}
             hint="Across all accounts"
           />
           <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -225,7 +189,7 @@ export function CustomersListPage() {
               </p>
             </div>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900">
-              {fmtGBP(orgTotals.cashTotal + orgTotals.accountTotal)}
+              {fmtGBP(fromCents(orgTotals?.totalPaymentReceivedAmount))}
             </p>
             <div className="mt-2 space-y-1 text-xs text-slate-600">
               <div className="flex items-center justify-between">
@@ -233,7 +197,9 @@ export function CustomersListPage() {
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   Cash
                 </span>
-                <span className="font-semibold text-slate-900">{fmtGBP(orgTotals.cashTotal)}</span>
+                <span className="font-semibold text-slate-900">
+                  {fmtGBP(fromCents(orgTotals?.cashCollectedPaymentAmount))}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5">
@@ -241,19 +207,19 @@ export function CustomersListPage() {
                   Account
                 </span>
                 <span className="font-semibold text-slate-900">
-                  {fmtGBP(orgTotals.accountTotal)}
+                  {fmtGBP(fromCents(orgTotals?.accountCollectedPaymentAmount))}
                 </span>
               </div>
             </div>
           </div>
           <AnimatedStatTile
             label="Total jobs"
-            value={orgTotals.totalJobs}
+            value={orgTotals?.jobCount ?? 0}
             hint="All accounts, all time"
           />
           <AnimatedStatTile
             label="Quotes accepted"
-            value={orgTotals.quotesAccepted}
+            value={orgTotals?.quoteAcceptedCount ?? 0}
             hint="Converted into jobs"
             accent="amber"
           />
@@ -274,7 +240,7 @@ export function CustomersListPage() {
           <label className="inline-flex h-11 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-4 shadow-sm">
             <select
               value={modeFilter}
-              onChange={(e) => setModeFilter(e.target.value as "all" | "Cash" | "Account")}
+              onChange={(e) => setModeFilter(e.target.value as "all" | PaymentModeLabel)}
               aria-label="Filter by payment mode"
               className="bg-transparent text-sm font-semibold text-slate-900 outline-none"
             >
@@ -288,23 +254,20 @@ export function CustomersListPage() {
             onClick={handleRefresh}
             className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/40 hover:text-orange-700"
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
             Refresh
           </button>
         </div>
 
         <div className="mt-4 pb-10">
-          {filtered.length === 0 && !jobsLoading ? (
+          {customers.length === 0 && !loading ? (
             <p className="app-card text-center text-base font-medium text-slate-600">
-              {customers.length === 0
-                ? "No jobs on record yet — once jobs are raised, customers will appear here."
-                : "No customers match this search / filter."}
+              {emptyMessage}
             </p>
           ) : (
             <>
-              {/* Mobile: stacked cards, same pattern as JobsCards in JobsList.tsx */}
               <div className="flex min-w-0 flex-col gap-3 lg:hidden">
-                {pagedCustomers.map((c) => (
+                {customers.map((c) => (
                   <article
                     key={c.name}
                     role="link"
@@ -344,13 +307,13 @@ export function CustomersListPage() {
                       <div>
                         <dt className="text-xs font-medium text-slate-500">Quotes accepted</dt>
                         <dd className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
-                          {quotesLoading ? "…" : c.quotesAccepted}
+                          {c.quotesAccepted}
                         </dd>
                       </div>
                       <div>
                         <dt className="text-xs font-medium text-slate-500">Payments received</dt>
                         <dd className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
-                          {quotesLoading ? "…" : fmtGBP(c.paymentsReceived)}
+                          {fmtGBP(c.paymentsReceived)}
                         </dd>
                       </div>
                     </dl>
@@ -358,7 +321,6 @@ export function CustomersListPage() {
                 ))}
               </div>
 
-              {/* Desktop: table, same pattern as JobsTable in JobsList.tsx */}
               <div className="hidden min-w-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_20px_rgba(15,23,42,0.06)] lg:block">
                 <div className="overflow-auto">
                   <table className="w-full min-w-[760px] table-fixed border-collapse">
@@ -381,7 +343,7 @@ export function CustomersListPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {pagedCustomers.map((c, index) => (
+                      {customers.map((c, index) => (
                         <tr
                           key={c.name}
                           role="link"
@@ -410,11 +372,9 @@ export function CustomersListPage() {
                           </td>
                           <td className={`${TD} text-center tabular-nums`}>{c.activeJobs}</td>
                           <td className={`${TD} text-center tabular-nums`}>{c.totalJobs}</td>
+                          <td className={`${TD} text-center tabular-nums`}>{c.quotesAccepted}</td>
                           <td className={`${TD} text-center tabular-nums`}>
-                            {quotesLoading ? "…" : c.quotesAccepted}
-                          </td>
-                          <td className={`${TD} text-center tabular-nums`}>
-                            {quotesLoading ? "…" : fmtGBP(c.paymentsReceived)}
+                            {fmtGBP(c.paymentsReceived)}
                           </td>
                         </tr>
                       ))}
@@ -428,7 +388,7 @@ export function CustomersListPage() {
                   page={safePage}
                   totalPages={totalPages}
                   pageSize={CUSTOMERS_PAGE_SIZE}
-                  totalItems={filtered.length}
+                  totalItems={totalItems}
                   onPageChange={(next) => {
                     setPage(next);
                     window.scrollTo({ top: 0, behavior: "smooth" });
