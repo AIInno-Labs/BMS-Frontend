@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bell,
   Building2,
+  Contact,
   House,
   KeyRound,
   LayoutDashboard,
@@ -56,6 +57,11 @@ const orgUserManagerLinks: NavLink[] = [
     icon: BarChart3,
     accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
     hidden: true,
+  },
+  {
+    href: "/crm",
+    label: "Customers",
+    icon: Contact,
   },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
 ];
