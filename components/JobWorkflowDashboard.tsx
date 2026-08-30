@@ -2140,11 +2140,6 @@ export function JobWorkflowDashboard({
               ))}
             </select>
           </label>
-          {fileUploadDraft.milestoneId === "others" ? (
-            <p className="text-xs text-slate-500">
-              Saves on the job (SharePoint Other folder) — no stage required.
-            </p>
-          ) : null}
           {fileUploadError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {fileUploadError}

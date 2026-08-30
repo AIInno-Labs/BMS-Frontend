@@ -34,6 +34,8 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const searchParams = useSearchParams();
   const pageTitle = getPageTitle(pathname);
   const onJobsList = pathname === "/jobs";
+  // Job search lives only on dashboard and the jobs list — nowhere else.
+  const showJobSearch = pathname === "/" || onJobsList;
   const urlQuery = searchParams.get("q") ?? "";
 
   const [draft, setDraft] = useState(urlQuery);
@@ -60,11 +62,11 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         router.replace(qs ? `/jobs?${qs}` : "/jobs", { scroll: false });
         return;
       }
-      if (trimmed) {
+      if (pathname === "/" && trimmed) {
         router.push(`/jobs?q=${encodeURIComponent(trimmed)}`);
       }
     },
-    [onJobsList, router, searchParams]
+    [onJobsList, pathname, router, searchParams]
   );
 
   const handleSearchChange = (value: string) => {
@@ -97,27 +99,29 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         </h1>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:gap-3">
-          <label className="relative hidden min-w-0 max-w-md flex-1 sm:block">
-            <span className="sr-only">Search jobs</span>
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={draft}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (debounceRef.current) clearTimeout(debounceRef.current);
-                  commitSearch(draft);
-                }
-              }}
-              placeholder="Search by job, customer, or contact..."
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
-            />
-          </label>
+          {showJobSearch ? (
+            <label className="relative hidden min-w-0 max-w-md flex-1 sm:block">
+              <span className="sr-only">Search jobs</span>
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={draft}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (debounceRef.current) clearTimeout(debounceRef.current);
+                    commitSearch(draft);
+                  }
+                }}
+                placeholder="Search by job, customer, or contact..."
+                className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
+              />
+            </label>
+          ) : null}
           {canViewNotifications ? (
             <div className="relative shrink-0">
               <button
@@ -151,27 +155,29 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         </div>
       </div>
 
-      <label className="relative mt-2 block sm:hidden">
-        <span className="sr-only">Search jobs</span>
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={draft}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              if (debounceRef.current) clearTimeout(debounceRef.current);
-              commitSearch(draft);
-            }
-          }}
-          placeholder="Search by job, customer, or contact..."
-          className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
-        />
-      </label>
+      {showJobSearch ? (
+        <label className="relative mt-2 block sm:hidden">
+          <span className="sr-only">Search jobs</span>
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={draft}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (debounceRef.current) clearTimeout(debounceRef.current);
+                commitSearch(draft);
+              }
+            }}
+            placeholder="Search by job, customer, or contact..."
+            className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
+          />
+        </label>
+      ) : null}
     </header>
   );
 }

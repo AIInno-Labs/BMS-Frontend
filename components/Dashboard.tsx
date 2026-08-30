@@ -124,16 +124,17 @@ export function Dashboard() {
   };
 
   const deliveredCount = counts.delivered;
-  const manufacturingNowCount = counts.manufacturing;
-  const notStartedCount =
-    counts.notStarted + counts.awaitingApproval + counts.ready;
+  // Same buckets as the KPI cards — do not fold awaiting/ready into "not started".
+  const manufacturingNowCount = counts.manufacturing + counts.ready;
+  const notStartedCount = counts.notStarted;
   const breakdownTotal = Math.max(
     1,
-    deliveredCount + manufacturingNowCount + notStartedCount
+    deliveredCount + manufacturingNowCount + notStartedCount + counts.awaitingApproval
   );
   const breakdownSegments = [
     { label: "DELIVERED", value: deliveredCount, color: "#10B981" },
     { label: "MANUFACTURING", value: manufacturingNowCount, color: "#F59E0B" },
+    { label: "AWAITING", value: counts.awaitingApproval, color: "#8B5CF6" },
     { label: "NOT STARTED", value: notStartedCount, color: "#EF4444" },
   ];
   const donutRadius = 34;

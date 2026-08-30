@@ -99,6 +99,8 @@ export interface OrganizationDTO {
   mobileNumber?: string;
   email?: string;
   gstNo?: string;
+  /** ISO 4217 code from the org (e.g. AUD, GBP). */
+  currency?: string;
 }
 
 export interface CreateOrganizationRequest {
@@ -112,6 +114,7 @@ export interface CreateOrganizationRequest {
   mobileNumber?: string;
   email?: string;
   gstNo?: string;
+  currency?: string;
   adminPassword: string;
   adminEmail: string;
   adminDisplayName: string;

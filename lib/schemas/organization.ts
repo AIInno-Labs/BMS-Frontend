@@ -5,6 +5,17 @@ import {
   phoneField,
   requiredEmailField,
 } from "@/lib/schemas/shared";
+import { ORG_CURRENCY_OPTIONS } from "@/lib/frp/format-money";
+
+const currencyField = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .refine(
+    (code): code is (typeof ORG_CURRENCY_OPTIONS)[number] =>
+      (ORG_CURRENCY_OPTIONS as readonly string[]).includes(code),
+    { message: "Select a currency" }
+  );
 
 const orgFields = {
   companyName: z.string().trim().min(1, "Company name is required"),
@@ -17,6 +28,7 @@ const orgFields = {
   email: optionalEmailField,
   phone: phoneField,
   mobileNumber: phoneField,
+  currency: currencyField,
 };
 
 export const OrganizationSchema = z.object({

@@ -11,11 +11,6 @@ import {
 import { JobFilesDocumentStrip } from "@/components/JobFilesDocumentStrip";
 import type { JobFileRecord, JobFileSortMode } from "@/lib/jobFilesSort";
 import {
-  COLOUR_OPTIONS,
-  FINISH_OPTIONS,
-  MESH_OPTIONS,
-  SCOPE_TYPE_OPTIONS,
-  THICKNESS_OPTIONS,
   scopeLinesToText,
   textToScopeLines,
 } from "@/lib/jobCardFormDefaults";
@@ -35,7 +30,7 @@ import {
   type ProjectRequirementKind,
 } from "@/lib/frp/project-requirements";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import type { Job, JobCardPrintDetails, JobMaterialRow, JobProjectRequirement, JobWorkflowExtras } from "@/lib/types";
+import type { Job, JobCardPrintDetails, JobProjectRequirement, JobWorkflowExtras } from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
 
 interface JobWorkflowExtrasSectionProps {
@@ -114,13 +109,6 @@ export function JobWorkflowExtrasSection({
   });
   const [materialsDraft, setMaterialsDraft] = useState({
     materialsList: extras.materialsList ?? "",
-    scopeType: pd.scopeType ?? "",
-    thickness: pd.thickness ?? "",
-    mesh: pd.mesh ?? "",
-    colour: pd.colour ?? "",
-    finish: pd.finish ?? "",
-    materialRows: extras.materialRows ?? [],
-    customFields: extras.customFields ?? Array(9).fill(""),
     additionalNotes: extras.additionalNotes ?? "",
   });
 
@@ -141,13 +129,6 @@ export function JobWorkflowExtrasSection({
     });
     setMaterialsDraft({
       materialsList: x.materialsList ?? "",
-      scopeType: pd.scopeType ?? "",
-      thickness: pd.thickness ?? "",
-      mesh: pd.mesh ?? "",
-      colour: pd.colour ?? "",
-      finish: pd.finish ?? "",
-      materialRows: x.materialRows ?? [],
-      customFields: x.customFields ?? Array(9).fill(""),
       additionalNotes: x.additionalNotes ?? "",
     });
   }, [job, pd]);
@@ -221,34 +202,15 @@ export function JobWorkflowExtrasSection({
     const nextExtras: JobWorkflowExtras = {
       ...extras,
       materialsList: materialsDraft.materialsList,
-      materialRows: materialsDraft.materialRows,
-      customFields: materialsDraft.customFields,
       additionalNotes: materialsDraft.additionalNotes,
     };
     void saveExtras(
       nextExtras,
       {
-        scopeType: materialsDraft.scopeType,
-        thickness: materialsDraft.thickness,
-        mesh: materialsDraft.mesh,
-        colour: materialsDraft.colour,
-        finish: materialsDraft.finish,
         scopeLines: textToScopeLines(materialsDraft.materialsList),
       },
       "Materials & specifications updated"
     ).then(() => setShowMaterialsModal(false));
-  };
-
-  const updateMaterialRow = (
-    index: number,
-    patch: Partial<JobMaterialRow>
-  ) => {
-    setMaterialsDraft((prev) => ({
-      ...prev,
-      materialRows: prev.materialRows.map((row, i) =>
-        i === index ? { ...row, ...patch } : row
-      ),
-    }));
   };
 
   return (
@@ -316,16 +278,13 @@ export function JobWorkflowExtrasSection({
           icon={ClipboardList}
           onEdit={editsBlocked ? undefined : () => setShowMaterialsModal(true)}
         >
-          <p className="line-clamp-3 text-sm text-slate-600">
+          <p className="text-xs font-medium text-slate-500">List of materials</p>
+          <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm text-slate-600">
             {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No materials list."}
           </p>
-          <p className="mt-2 text-xs text-slate-500">
-            {pd.scopeType || "—"} · {pd.thickness || "—"} mm · {pd.mesh || "—"} ·{" "}
-            {pd.colour || "—"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {(extras.materialRows ?? []).filter((r) => r.qty?.trim()).length} material line(s) with
-            qty
+          <p className="mt-3 text-xs font-medium text-slate-500">Additional notes</p>
+          <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-slate-600">
+            {extras.additionalNotes?.trim() || "—"}
           </p>
         </WidgetCard>
 
@@ -462,110 +421,13 @@ export function JobWorkflowExtrasSection({
             label="List of materials for this job"
             value={materialsDraft.materialsList}
             onChange={(v) => setMaterialsDraft((p) => ({ ...p, materialsList: v }))}
-            rows={4}
+            rows={6}
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <SelectField
-              label="Type"
-              value={materialsDraft.scopeType}
-              options={[...SCOPE_TYPE_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, scopeType: v }))}
-            />
-            <SelectField
-              label="Thickness (mm)"
-              value={materialsDraft.thickness}
-              options={[...THICKNESS_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, thickness: v }))}
-            />
-            <SelectField
-              label="Mesh"
-              value={materialsDraft.mesh}
-              options={[...MESH_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, mesh: v }))}
-            />
-            <SelectField
-              label="Colour"
-              value={materialsDraft.colour}
-              options={[...COLOUR_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, colour: v }))}
-            />
-            <SelectField
-              label="Finish"
-              value={materialsDraft.finish}
-              options={[...FINISH_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, finish: v }))}
-            />
-          </div>
-          <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
-            <table className="w-full min-w-[420px] text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">Material</th>
-                  <th className="px-3 py-2 w-20">Qty</th>
-                  <th className="px-3 py-2 w-28">Availability</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materialsDraft.materialRows.map((row, index) => (
-                  <tr key={row.material} className="border-t border-[#E5E7EB]">
-                    <td className="px-3 py-2 font-medium text-slate-800">{row.material}</td>
-                    <td className="px-2 py-1">
-                      <input
-                        value={row.qty}
-                        onChange={(e) => updateMaterialRow(index, { qty: e.target.value })}
-                        className="w-full rounded border border-[#E5E7EB] px-2 py-1 text-sm"
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <select
-                        value={row.availability}
-                        onChange={(e) =>
-                          updateMaterialRow(index, { availability: e.target.value })
-                        }
-                        className="w-full rounded border border-[#E5E7EB] px-2 py-1 text-sm"
-                      >
-                        <option value="In stock">In stock</option>
-                        <option value="Low stock">Low stock</option>
-                        <option value="On order">On order</option>
-                        <option value="N/A">N/A</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Custom fields
-          </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {[0, 1, 2].map((col) => (
-              <div key={col} className="space-y-2">
-                <p className="text-xs font-medium text-slate-600">Field {col + 1}</p>
-                {[0, 1, 2].map((row) => {
-                  const idx = col * 3 + row;
-                  return (
-                    <input
-                      key={idx}
-                      value={materialsDraft.customFields[idx] ?? ""}
-                      onChange={(e) => {
-                        const next = [...materialsDraft.customFields];
-                        next[idx] = e.target.value;
-                        setMaterialsDraft((p) => ({ ...p, customFields: next }));
-                      }}
-                      placeholder={`Row ${row + 1}`}
-                      className="w-full rounded-lg border border-[#E5E7EB] px-2 py-1.5 text-sm"
-                    />
-                  );
-                })}
-              </div>
-            ))}
-          </div>
           <TextAreaField
             label="Additional notes"
             value={materialsDraft.additionalNotes}
             onChange={(v) => setMaterialsDraft((p) => ({ ...p, additionalNotes: v }))}
-            rows={3}
+            rows={4}
           />
           <button className="btn-primary w-full" onClick={saveMaterials} disabled={isSaving}>
             {isSaving ? "Saving…" : "Save materials"}
