@@ -17,6 +17,7 @@ import {
   type GroupChatDTO,
   type NotificationDTO,
   type NotificationSummaryDTO,
+  type JobEmailRecipientDTO,
 } from "@/lib/frp/types";
 import type {
   FrpDocumentDownloadDTO,
@@ -254,6 +255,24 @@ async function frpFetch<T>(
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+export async function listJobEmailRecipients(
+  organizationId?: number | null
+): Promise<JobEmailRecipientDTO[]> {
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
+  return frpFetch<JobEmailRecipientDTO[]>(`/job-email-recipients${q}`);
+}
+
+export async function updateJobEmailRecipients(
+  body: JobEmailRecipientDTO[],
+  organizationId?: number | null
+): Promise<JobEmailRecipientDTO[]> {
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
+  return frpFetch<JobEmailRecipientDTO[]>(`/job-email-recipients${q}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function authenticate(
@@ -508,8 +527,14 @@ export async function listRoles(
 
 export async function listUsers(
   page = 0,
-  size = 20
+  size = 20,
+  organizationId?: number | null
 ): Promise<PageResponse<UserDTO>> {
+  if (organizationId != null) {
+    return frpFetch<PageResponse<UserDTO>>(
+      `/job-email-recipients/users?organizationId=${organizationId}&page=${page}&size=${size}`
+    );
+  }
   return frpFetch<PageResponse<UserDTO>>(`/users?page=${page}&size=${size}`);
 }
 
