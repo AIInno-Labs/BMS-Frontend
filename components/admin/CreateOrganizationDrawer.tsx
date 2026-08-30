@@ -7,6 +7,7 @@ import type { CreateOrganizationRequest } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { OrganizationSchema } from "@/lib/schemas/organization";
 import { fieldErrorsFrom } from "@/lib/schemas/shared";
+import { ORG_CURRENCY_OPTIONS } from "@/lib/frp/format-money";
 
 const inputClass =
   "mt-2 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -30,6 +31,7 @@ const emptyForm: CreateOrganizationRequest = {
   mobileNumber: "",
   email: "",
   gstNo: "",
+  currency: "AUD",
   adminPassword: "",
   adminEmail: "",
   adminDisplayName: "",
@@ -84,6 +86,7 @@ export function CreateOrganizationDrawer({
         ...form,
         companyName: data.companyName,
         companyCode: data.companyCode,
+        currency: data.currency,
         adminEmail: data.adminEmail,
         adminDisplayName: data.adminDisplayName,
         email: data.email || undefined,
@@ -178,6 +181,25 @@ export function CreateOrganizationDrawer({
                 value={form.gstNo}
                 onChange={(e) => setField("gstNo", e.target.value)}
               />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor="currency">
+                Currency *
+              </label>
+              <select
+                id="currency"
+                className={inputClass}
+                required
+                value={form.currency ?? "AUD"}
+                onChange={(e) => setField("currency", e.target.value)}
+              >
+                {ORG_CURRENCY_OPTIONS.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+              <FieldError message={fieldErrors.currency} />
             </div>
             <div className="sm:col-span-2">
               <label className={labelClass} htmlFor="address">

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarDays, Layers, Sparkles } from "lucide-react";
 import { DashboardKpiCards } from "@/components/DashboardKpiCards";
@@ -8,6 +8,9 @@ import { LaborCommandCenterDrawer } from "@/components/LaborCommandCenterDrawer"
 import { ReadyToManufacturePieChart } from "@/components/ReadyToManufacturePieChart";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
+import { listJobs } from "@/lib/frp/api";
+import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
+import { formatShortDate } from "@/lib/jobData";
 import type { Job } from "@/lib/types";
 
 function pickRecentJobs(allJobs: Job[]): Job[] {
@@ -64,26 +67,15 @@ function isActiveJob(job: Job): boolean {
   return job.status !== "Complete" && job.status !== "Cancelled";
 }
 
-function parseDueDate(job: Job): number | null {
-  if (!job.dueDate) return null;
-  const ts = new Date(job.dueDate).getTime();
-  return Number.isFinite(ts) ? ts : null;
+/** ISO `yyyy-MM-dd` for today + days (local calendar). */
+function isoDatePlusDays(days: number): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
-function pickUpcomingJobs(allJobs: Job[]): Job[] {
-  const now = Date.now();
-  return [...allJobs]
-    .filter((job) => isActiveJob(job) && parseDueDate(job) != null)
-    .sort((a, b) => {
-      const aDue = parseDueDate(a) ?? Number.MAX_SAFE_INTEGER;
-      const bDue = parseDueDate(b) ?? Number.MAX_SAFE_INTEGER;
-      const aDelta = Math.abs(aDue - now);
-      const bDelta = Math.abs(bDue - now);
-      if (aDelta !== bDelta) return aDelta - bDelta;
-      return a.id.localeCompare(b.id);
-    })
-    .slice(0, 4);
-}
+const UPCOMING_DUE_LIMIT = 4;
 
 function pickPriorityQueue(allJobs: Job[]): Job[] {
   return [...allJobs]
@@ -99,11 +91,11 @@ function pickPriorityQueue(allJobs: Job[]): Job[] {
 export function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRebalanceFocus, setDrawerRebalanceFocus] = useState(false);
+  const [upcomingJobs, setUpcomingJobs] = useState<Job[]>([]);
   const { isManager } = usePersona();
   const { jobs, counts } = useJobs();
   const recentJobs = useMemo(() => pickRecentJobs(jobs), [jobs]);
   const recentUpdates = useMemo(() => recentJobs.slice(0, 3), [recentJobs]);
-  const upcomingJobs = useMemo(() => pickUpcomingJobs(jobs), [jobs]);
   const priorityQueue = useMemo(() => pickPriorityQueue(jobs), [jobs]);
   // Every count below is org-wide, from GET /jobs/counts — not a tally of the
   // page this browser happens to have loaded.
@@ -112,6 +104,36 @@ export function Dashboard() {
   const fabricationCount = counts.manufacturing;
   const awaitingCount = counts.awaitingApproval;
   const totalActive = counts.active || 1;
+
+  // Org-wide soonest due dates from GET /jobs?sort=DUE_DATE — due date only
+  // (never assignedTo). Includes overdue open jobs; excludes Complete/Cancelled.
+  useEffect(() => {
+    if (!isManager) {
+      setUpcomingJobs([]);
+      return;
+    }
+    let cancelled = false;
+    void listJobs(0, 200, {
+      sort: "DUE_DATE",
+      // Drops null due dates (NULL fails <=). Far horizon so near-term + overdue
+      // still qualify; ASC order puts soonest (incl. overdue) first.
+      dueBefore: isoDatePlusDays(365),
+    })
+      .then((page) => {
+        if (cancelled) return;
+        const next = (page.content ?? [])
+          .map(frpJobSummaryToUi)
+          .filter((job) => isActiveJob(job) && !!job.dueDate)
+          .slice(0, UPCOMING_DUE_LIMIT);
+        setUpcomingJobs(next);
+      })
+      .catch(() => {
+        if (!cancelled) setUpcomingJobs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isManager]);
 
   const openDrawer = (rebalance = false) => {
     setDrawerRebalanceFocus(rebalance);
@@ -124,16 +146,17 @@ export function Dashboard() {
   };
 
   const deliveredCount = counts.delivered;
-  const manufacturingNowCount = counts.manufacturing;
-  const notStartedCount =
-    counts.notStarted + counts.awaitingApproval + counts.ready;
+  // Same buckets as the KPI cards — do not fold awaiting/ready into "not started".
+  const manufacturingNowCount = counts.manufacturing + counts.ready;
+  const notStartedCount = counts.notStarted;
   const breakdownTotal = Math.max(
     1,
-    deliveredCount + manufacturingNowCount + notStartedCount
+    deliveredCount + manufacturingNowCount + notStartedCount + counts.awaitingApproval
   );
   const breakdownSegments = [
     { label: "DELIVERED", value: deliveredCount, color: "#10B981" },
     { label: "MANUFACTURING", value: manufacturingNowCount, color: "#F59E0B" },
+    { label: "AWAITING", value: counts.awaitingApproval, color: "#8B5CF6" },
     { label: "NOT STARTED", value: notStartedCount, color: "#EF4444" },
   ];
   const donutRadius = 34;
@@ -286,7 +309,7 @@ export function Dashboard() {
                             <p className="truncate text-[10px] text-slate-500">{job.clientName}</p>
                           </div>
                           <span className="shrink-0 text-[10px] font-semibold text-slate-600">
-                            {job.dueDate ?? "N/A"}
+                            {formatShortDate(job.dueDate)}
                           </span>
                         </div>
                       </Link>

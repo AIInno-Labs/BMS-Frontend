@@ -5,14 +5,18 @@ import { useRouter } from "next/navigation";
 import { RefreshCw, Search } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { JobsPagination } from "@/components/JobsPagination";
+import { useAuth } from "@/context/AuthContext";
 import {
-  getJobCounts,
-  getJobPaymentHistory,
-  getQuoteEventCounts,
+  getOrganizationCount,
   listClientNames,
   listClients,
   type FrpJobCompanyCountDTO,
 } from "@/lib/frp/api";
+import {
+  formatMoney,
+  formatMoneyFromCents,
+  fromCents,
+} from "@/lib/frp/format-money";
 
 const CUSTOMERS_PAGE_SIZE = 10;
 
@@ -27,14 +31,11 @@ interface CustomerRow {
   activeJobs: number;
   totalJobs: number;
   quotesAccepted: number;
-  paymentMode: PaymentModeLabel | null;
+  paymentMode: PaymentModeLabel;
   paymentsReceived: number;
 }
 
-function PaymentModeBadge({ mode }: { mode: PaymentModeLabel | null }) {
-  if (mode == null) {
-    return <span className="text-xs font-medium text-slate-400">—</span>;
-  }
+function PaymentModeBadge({ mode }: { mode: PaymentModeLabel }) {
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold ${
@@ -48,23 +49,16 @@ function PaymentModeBadge({ mode }: { mode: PaymentModeLabel | null }) {
   );
 }
 
-function fromCents(cents: number | undefined): number {
-  return (cents ?? 0) / 100;
-}
-
-function fmtGBP(n: number): string {
-  return "£" + Math.round(n).toLocaleString("en-GB");
-}
-
 function initials(name: string): string {
   const parts = name.replace(/&/g, " ").split(/\s+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-function toPaymentModeLabel(mode: FrpJobCompanyCountDTO["paymentMode"]): PaymentModeLabel | null {
-  if (mode === "CASH") return "Cash";
-  if (mode === "ACCOUNT") return "Account";
-  return null;
+/** Backend defaults unset payment rows to ACCOUNT — mirror that on the CRM list. */
+function toPaymentModeLabel(
+  mode: FrpJobCompanyCountDTO["paymentMode"]
+): PaymentModeLabel {
+  return mode === "CASH" ? "Cash" : "Account";
 }
 
 function toCustomerRow(row: FrpJobCompanyCountDTO): CustomerRow {
@@ -80,6 +74,8 @@ function toCustomerRow(row: FrpJobCompanyCountDTO): CustomerRow {
 
 export function CustomersListPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const currency = user?.organization?.currency;
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +92,8 @@ export function CustomersListPage() {
   const [totalJobs, setTotalJobs] = useState(0);
   const [quotesAccepted, setQuotesAccepted] = useState(0);
   const [paymentsReceivedCents, setPaymentsReceivedCents] = useState(0);
+  const [cashReceivedCents, setCashReceivedCents] = useState(0);
+  const [accountReceivedCents, setAccountReceivedCents] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -171,20 +169,15 @@ export function CustomersListPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      getJobCounts(),
-      getQuoteEventCounts(),
-      getJobPaymentHistory({ period: 24, unit: "MONTHS" }),
-    ])
-      .then(([counts, quotes, payments]) => {
+    getOrganizationCount()
+      .then((org) => {
         if (cancelled) return;
-        setActiveJobs(counts.active ?? 0);
-        setTotalJobs(counts.total ?? 0);
-        setQuotesAccepted(
-          quotes.byType.find((event) => event.eventType === "quote_accepted")
-            ?.count ?? 0
-        );
-        setPaymentsReceivedCents(payments.totalReceivedAmount ?? 0);
+        setActiveJobs(org.activeJobsCount ?? 0);
+        setTotalJobs(org.jobCount ?? 0);
+        setQuotesAccepted(org.quoteAcceptedCount ?? 0);
+        setPaymentsReceivedCents(org.totalPaymentReceivedAmount ?? 0);
+        setCashReceivedCents(org.cashCollectedPaymentAmount ?? 0);
+        setAccountReceivedCents(org.accountCollectedPaymentAmount ?? 0);
       })
       .catch(() => {
         if (cancelled) return;
@@ -192,6 +185,8 @@ export function CustomersListPage() {
         setTotalJobs(0);
         setQuotesAccepted(0);
         setPaymentsReceivedCents(0);
+        setCashReceivedCents(0);
+        setAccountReceivedCents(0);
       });
     return () => {
       cancelled = true;
@@ -249,9 +244,12 @@ export function CustomersListPage() {
               </p>
             </div>
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900">
-              {fmtGBP(fromCents(paymentsReceivedCents))}
+              {formatMoneyFromCents(paymentsReceivedCents, currency)}
             </p>
-            <p className="mt-2 text-xs text-slate-500">Last 24 months</p>
+            <div className="mt-2 space-y-0.5 text-xs tabular-nums text-slate-500">
+              <p>Cash {formatMoneyFromCents(cashReceivedCents, currency)}</p>
+              <p>Account {formatMoneyFromCents(accountReceivedCents, currency)}</p>
+            </div>
           </div>
           <AnimatedStatTile
             label="Total jobs"
@@ -383,7 +381,7 @@ export function CustomersListPage() {
                       <div>
                         <dt className="text-xs font-medium text-slate-500">Payments received</dt>
                         <dd className="mt-1 text-sm font-semibold tabular-nums text-slate-900">
-                          {fmtGBP(c.paymentsReceived)}
+                          {formatMoney(c.paymentsReceived, currency)}
                         </dd>
                       </div>
                     </dl>
@@ -444,7 +442,7 @@ export function CustomersListPage() {
                           <td className={`${TD} text-center tabular-nums`}>{c.totalJobs}</td>
                           <td className={`${TD} text-center tabular-nums`}>{c.quotesAccepted}</td>
                           <td className={`${TD} text-center tabular-nums`}>
-                            {fmtGBP(c.paymentsReceived)}
+                            {formatMoney(c.paymentsReceived, currency)}
                           </td>
                         </tr>
                       ))}

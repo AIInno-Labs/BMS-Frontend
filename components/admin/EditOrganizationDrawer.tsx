@@ -7,6 +7,7 @@ import type { OrganizationDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { EditOrganizationSchema } from "@/lib/schemas/organization";
 import { fieldErrorsFrom } from "@/lib/schemas/shared";
+import { ORG_CURRENCY_OPTIONS } from "@/lib/frp/format-money";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -61,6 +62,7 @@ export function EditOrganizationDrawer({
       email: form.email ?? "",
       phone: form.phone ?? "",
       mobileNumber: form.mobileNumber ?? "",
+      currency: form.currency ?? "AUD",
     });
     if (!parsed.success) {
       setFieldErrors(fieldErrorsFrom(parsed.error));
@@ -82,6 +84,7 @@ export function EditOrganizationDrawer({
         mobileNumber: data.mobileNumber || undefined,
         email: data.email || undefined,
         gstNo: data.gstNo || undefined,
+        currency: data.currency,
       });
       onUpdated();
       onClose();
@@ -162,6 +165,26 @@ export function EditOrganizationDrawer({
             value={form.gstNo ?? ""}
             onChange={(e) => setField("gstNo", e.target.value)}
           />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="edit-currency">
+            Currency
+          </label>
+          <select
+            id="edit-currency"
+            className={inputClass}
+            value={form.currency ?? "AUD"}
+            onChange={(e) => setField("currency", e.target.value)}
+          >
+            {ORG_CURRENCY_OPTIONS.map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
+          {fieldErrors.currency && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.currency}</p>
+          )}
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass} htmlFor="edit-address">

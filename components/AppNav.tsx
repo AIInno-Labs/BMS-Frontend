@@ -56,7 +56,6 @@ const orgUserManagerLinks: NavLink[] = [
     label: "Analytics",
     icon: BarChart3,
     accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
-    hidden: true,
   },
   {
     href: "/crm",

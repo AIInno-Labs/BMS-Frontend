@@ -38,7 +38,8 @@ import { mapQuoteRow } from "@/lib/quotient/map-quote-row";
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import type { PageResponse } from "@/lib/frp/types";
 import { STATUS_THEME } from "@/lib/statusColors";
-import { estimatePaymentMode } from "@/lib/crm/demo-payments";
+import { useAuth } from "@/context/AuthContext";
+import { formatMoney, fromCents } from "@/lib/frp/format-money";
 import type { Job } from "@/lib/types";
 
 // One distinct color per possible jobStageLabel() result — draft through
@@ -101,6 +102,8 @@ export function CrmPage({ company }: { company: string }) {
   // Paged through in full — see lib/crm/fetch-all-jobs.ts for why this
   // can't reuse JobsContext's single, 200-row-capped page: a customer whose
   // jobs are older than the 200 most recent would otherwise be under-counted.
+  const { user } = useAuth();
+  const currency = user?.organization?.currency;
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState<string | null>(null);
@@ -201,9 +204,7 @@ export function CrmPage({ company }: { company: string }) {
     [jobs, company]
   );
 
-  const fromCents = (cents?: number | null) => (cents ?? 0) / 100;
-  const fmtGbp = (amount: number) =>
-    `£${amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+  const fmtMoney = (amount: number) => formatMoney(amount, currency);
 
   const totalJobs = overview?.totalJobs ?? 0;
   const completedJobs = overview?.completedJobs ?? 0;
@@ -321,13 +322,9 @@ export function CrmPage({ company }: { company: string }) {
     [quoteItems]
   );
 
-  const estimatedPaymentMode = useMemo(() => estimatePaymentMode(company), [company]);
+  // Unset mode matches JobPayment's ACCOUNT default.
   const paymentModeLabel =
-    overview?.paymentMode === "CASH"
-      ? "Cash"
-      : overview?.paymentMode === "ACCOUNT"
-        ? "Account"
-        : estimatedPaymentMode;
+    overview?.paymentMode === "CASH" ? "Cash" : "Account";
 
   const paymentChartData = useMemo(
     () =>
@@ -468,13 +465,13 @@ export function CrmPage({ company }: { company: string }) {
               />
               <AnimatedStatTile
                 label="Total payments"
-                value={overviewLoading ? "…" : fmtGbp(paymentsReceived)}
+                value={overviewLoading ? "…" : fmtMoney(paymentsReceived)}
                 hint="Received to date"
                 accent="delivered"
               />
               <AnimatedStatTile
                 label="Outstanding"
-                value={overviewLoading ? "…" : fmtGbp(paymentsOutstanding)}
+                value={overviewLoading ? "…" : fmtMoney(paymentsOutstanding)}
                 hint={paymentsOutstanding > 0 ? "Invoiced, not yet paid" : "Fully settled"}
                 accent={paymentsOutstanding > 0 ? "amber" : "slate"}
               />
@@ -642,10 +639,10 @@ export function CrmPage({ company }: { company: string }) {
                     <YAxis
                       tick={{ fontSize: 10, fill: "#64748b" }}
                       width={56}
-                      tickFormatter={(v: number) => `£${v.toLocaleString("en-GB")}`}
+                      tickFormatter={(v: number) => fmtMoney(v)}
                     />
                     <Tooltip
-                      formatter={(value: number) => [`£${value.toLocaleString("en-GB")}`, "Received"]}
+                      formatter={(value: number) => [fmtMoney(value), "Received"]}
                     />
                     <Area
                       type="monotone"

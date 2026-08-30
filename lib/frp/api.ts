@@ -617,6 +617,10 @@ export interface ListJobsParams {
   assignedTo?: number;
   /** ISO date (`yyyy-MM-dd`). */
   dueBefore?: string;
+  /** Lookback count when paired with {@link #unit} (or alone → default MONTHS). */
+  period?: number;
+  /** DAYS or MONTHS — with {@link #period}, filters `createdDate` since that window. */
+  unit?: FrpPeriodUnit;
 }
 
 /**
@@ -641,6 +645,8 @@ export async function listJobs(
   if (params?.assignedTo != null)
     q.set("assignedTo", String(params.assignedTo));
   if (params?.dueBefore) q.set("dueBefore", params.dueBefore);
+  if (params?.period != null && params.period > 0) q.set("period", String(params.period));
+  if (params?.unit) q.set("unit", params.unit);
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
@@ -654,6 +660,29 @@ export async function getJobCounts(params?: {
   if (params?.resinCode?.trim()) q.set("resinCode", params.resinCode.trim());
   const suffix = q.size ? `?${q}` : "";
   return frpFetch<FrpJobCountsDTO>(`/jobs/counts${suffix}`);
+}
+
+/** Org dashboard rollup from `organization_count` (amounts in cents). */
+export type FrpOrganizationCountDTO = {
+  quoteCount?: number;
+  jobCount?: number;
+  activeJobsCount?: number;
+  quoteEventCount?: number;
+  quoteSentCount?: number;
+  customerViewedCount?: number;
+  customerQuestionCount?: number;
+  quoteAcceptedCount?: number;
+  quoteDeclinedCount?: number;
+  quoteCompletedCount?: number;
+  totalPaymentReceivedCount?: number;
+  totalPaymentReceivedAmount?: number;
+  cashCollectedPaymentAmount?: number;
+  accountCollectedPaymentAmount?: number;
+};
+
+/** `GET /jobs/organization-count` — single-row org KPI rollup. */
+export async function getOrganizationCount(): Promise<FrpOrganizationCountDTO> {
+  return frpFetch<FrpOrganizationCountDTO>("/jobs/organization-count");
 }
 
 /** `GET /jobs/resin-counts` — every resin category together. */
@@ -1241,6 +1270,32 @@ export async function listQuotes(
     if (c?.trim()) params.append("company", c.trim());
   }
   return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes?${params}`);
+}
+
+/**
+ * `GET /quotes/search` — free-text across company, title, quote number
+ * (like `GET /jobs?search=`). Separate from {@link listQuotes} multi-company filter.
+ */
+export async function searchQuotes(
+  page = 0,
+  size = 100,
+  filters?: {
+    search?: string;
+    status?: FrpQuoteStatus | FrpQuoteStatus[];
+  }
+): Promise<PageResponse<Record<string, unknown>>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const term = filters?.search?.trim();
+  if (term) params.set("search", term);
+  const statuses = filters?.status
+    ? Array.isArray(filters.status)
+      ? filters.status
+      : [filters.status]
+    : [];
+  for (const s of statuses) {
+    if (s) params.append("status", s);
+  }
+  return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes/search?${params}`);
 }
 
 /** Null when no quote exists with that number in the caller's organization. */
