@@ -1,203 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Search, X } from "lucide-react";
-import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
+import { JobEmailRulesEditor } from "@/components/notifications/JobEmailRulesEditor";
 import { useAuth } from "@/context/AuthContext";
-import { listUsers } from "@/lib/frp/api";
-import type { UserDTO } from "@/lib/frp/types";
-
-type NotificationCategory =
-  | "Job Lifecycle"
-  | "Documents & Approvals"
-  | "Financial";
-
-interface NotificationEvent {
-  id: string;
-  label: string;
-  description: string;
-  category: NotificationCategory;
-}
-
-/**
- * Client-side only — the backend has no event taxonomy for this yet
- * (see NotificationType.java's own "deliberately not anticipated" note).
- * Deliberately a fixed, developer-maintained list, not admin-editable: each
- * row has to correspond to a real moment a future backend hook can detect —
- * an admin-typed custom event would look configured while never firing.
- *
- * Job-lifecycle rows match `JobAuditEvent` (backend) and the Job page's real
- * actions.
- */
-const NOTIFICATION_EVENTS: NotificationEvent[] = [
-  // Job Lifecycle
-  {
-    id: "JOB_CREATED",
-    label: "Job Created",
-    description: "A new job is raised, manually or from an accepted quote.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "WORKER_ASSIGNED",
-    label: "Worker Assigned",
-    description: "A worker is assigned to the job.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_DRAFT",
-    label: "Stage reached: Draft",
-    description: "Job enters the draft / pending stage.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_DRAWING",
-    label: "Stage reached: Drawing",
-    description: "Job moves into the drawing stage.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_APPROVAL",
-    label: "Stage reached: Approval",
-    description: "Job moves into the approval stage.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_PRODUCTION",
-    label: "Stage reached: Production",
-    description: "Job is released to the shop floor.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_QC",
-    label: "Stage reached: QC",
-    description: "Job enters quality control.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_DISPATCH",
-    label: "Stage reached: Dispatch",
-    description: "Job is ready for dispatch.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "STAGE_COMPLETED",
-    label: "Stage reached: Completed",
-    description: "Job is marked complete.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "SUBSTAGE_CHANGED",
-    label: "Sub-stage Changed",
-    description: "A finer sub-stage within the current stage changes.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "JOB_ON_HOLD",
-    label: "Job On Hold",
-    description: "The job is placed on hold.",
-    category: "Job Lifecycle",
-  },
-  {
-    id: "JOB_CANCELLED",
-    label: "Job Cancelled",
-    description: "The job is cancelled.",
-    category: "Job Lifecycle",
-  },
-
-  // Documents & Approvals
-  {
-    id: "DRAWING_UPLOADED",
-    label: "Drawing Uploaded",
-    description: "A drawing document is uploaded to the job.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "PO_UPLOADED",
-    label: "PO Uploaded",
-    description: "A purchase order is uploaded or entered on the job.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "REVISION_UPLOADED",
-    label: "New Revision Uploaded",
-    description: "A revised drawing or PO replaces an earlier version.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "APPROVED",
-    label: "Approved",
-    description: "A drawing, PO, or requirement is approved.",
-    category: "Documents & Approvals",
-  },
-  {
-    id: "REJECTED",
-    label: "Rejected",
-    description: "A drawing, PO, or requirement is rejected.",
-    category: "Documents & Approvals",
-  },
-
-  // Financial
-  {
-    id: "PAYMENT_RECEIVED",
-    label: "Payment Received",
-    description: "Payment is marked received on the job.",
-    category: "Financial",
-  },
-];
-
-/** Category headers rendered in this fixed order, grouping NOTIFICATION_EVENTS. */
-const CATEGORY_ORDER: NotificationCategory[] = [
-  "Job Lifecycle",
-  "Documents & Approvals",
-  "Financial",
-];
-
-/**
- * Pinned, non-user recipient options. Selectable per event rather than
- * always-on: not every event is customer-facing (e.g. PO Uploaded often
- * carries internal pricing), and the assigned worker doesn't exist yet for
- * early events like Job Created.
- */
-const SPECIAL_RECIPIENTS: { id: string; label: string }[] = [
-  { id: "CUSTOMER_CONTACT", label: "Customer Contact" },
-  { id: "ASSIGNED_WORKER", label: "Assigned Worker" },
-];
-
-/** eventId -> selected recipient ids (either a UserDTO.id, or one of SPECIAL_RECIPIENTS' string ids). */
-type NotificationRules = Record<string, (number | string)[]>;
-
-function storageKey(organizationId: string | number): string {
-  return `bmsman-notification-rules-${organizationId}`;
-}
-
-function readRules(organizationId: string | number): NotificationRules {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(storageKey(organizationId));
-    return raw ? (JSON.parse(raw) as NotificationRules) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeRules(organizationId: string | number, rules: NotificationRules) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(storageKey(organizationId), JSON.stringify(rules));
-}
+import {
+  listJobEmailRecipients,
+  listUsers,
+  updateJobEmailRecipients,
+} from "@/lib/frp/api";
+import type { JobEmailRecipientDTO, UserDTO } from "@/lib/frp/types";
 
 export function NotificationRulesAdminPage() {
-  const { loading: authLoading, isAuthenticated, appRole, user } = useAuth();
+  const { loading: authLoading, isAuthenticated, appRole } = useAuth();
   const router = useRouter();
 
   const [users, setUsers] = useState<UserDTO[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
 
-  const [rules, setRules] = useState<NotificationRules>({});
-  const [drawerEvent, setDrawerEvent] = useState<NotificationEvent | null>(null);
-  const [drawerSelected, setDrawerSelected] = useState<(number | string)[]>([]);
-  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [rows, setRows] = useState<JobEmailRecipientDTO[]>([]);
+  const [rowsLoading, setRowsLoading] = useState(true);
+  const [rowsError, setRowsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -210,114 +34,42 @@ export function NotificationRulesAdminPage() {
     }
   }, [authLoading, isAuthenticated, appRole, router]);
 
-  const organizationId = user?.organization?.id;
-
+  const loadStartedRef = useRef(false);
   useEffect(() => {
     if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
-    if (organizationId == null) return;
-    setRules(readRules(organizationId));
-  }, [authLoading, isAuthenticated, appRole, organizationId]);
+    if (loadStartedRef.current) return;
+    loadStartedRef.current = true;
 
-  // Guarded by a ref, not just the empty dep array: React Strict Mode (dev
-  // only) mounts every component twice, and without this the initial load
-  // fires the users GET twice on every page load (same fix as JobsContext).
-  // No cleanup/cancelled flag here — JobsContext's own version of this fix
-  // doesn't use one either: with the ref guard, the effect only ever truly
-  // starts once, so there's nothing to cancel. Adding one back would just
-  // reintroduce a bug — Strict Mode still calls cleanup after the first
-  // (real) mount, which would mark that one real request "cancelled" and
-  // permanently discard its result, including the setUsersLoading(false).
-  const usersLoadStartedRef = useRef(false);
-  useEffect(() => {
-    if (authLoading || !isAuthenticated || appRole !== "orgadmin") return;
-    if (usersLoadStartedRef.current) return;
-    usersLoadStartedRef.current = true;
-    async function loadUsers() {
+    async function load() {
       setUsersLoading(true);
+      setRowsLoading(true);
       try {
-        const page = await listUsers(0, 200);
+        const [page, catalog] = await Promise.all([
+          listUsers(0, 200),
+          listJobEmailRecipients(),
+        ]);
         setUsers((page.content ?? []).filter((u) => u.enabled !== false));
         setUsersError(null);
+        setRows(catalog.filter((row) => row.eventDef != null));
+        setRowsError(null);
       } catch (e) {
         setUsers([]);
-        setUsersError(e instanceof Error ? e.message : "Could not load users");
+        setRows([]);
+        const message = e instanceof Error ? e.message : "Could not load notifications";
+        setUsersError(message);
+        setRowsError(message);
       } finally {
         setUsersLoading(false);
+        setRowsLoading(false);
       }
     }
-    void loadUsers();
+    void load();
   }, [authLoading, isAuthenticated, appRole]);
 
-  const usersById = useMemo(() => {
-    const map = new Map<number, UserDTO>();
-    for (const u of users) {
-      if (u.id != null) map.set(u.id, u);
-    }
-    return map;
-  }, [users]);
-
-  function openEdit(event: NotificationEvent) {
-    setDrawerEvent(event);
-    setDrawerSelected(rules[event.id] ?? []);
-    setUserSearchQuery("");
-  }
-
-  function closeDrawer() {
-    setDrawerEvent(null);
-  }
-
-  function toggleRecipient(id: number | string) {
-    setDrawerSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  }
-
-  function addUser(id: number) {
-    setDrawerSelected((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    setUserSearchQuery("");
-  }
-
-  function removeRecipient(id: number | string) {
-    setDrawerSelected((prev) => prev.filter((x) => x !== id));
-  }
-
-  // Team members already added to this event — the numeric ids in
-  // drawerSelected (the two special string ids live in their own section,
-  // unchanged, above this one).
-  const addedUsers = useMemo(() => {
-    const ids = drawerSelected.filter(
-      (id): id is number => typeof id === "number"
-    );
-    return ids
-      .map((id) => usersById.get(id))
-      .filter((u): u is UserDTO => u != null);
-  }, [drawerSelected, usersById]);
-
-  const userSearchResults = useMemo(() => {
-    const query = userSearchQuery.trim().toLowerCase();
-    if (!query) return [];
-    const addedIds = new Set(addedUsers.map((u) => u.id));
-    return users
-      .filter((u) => u.id != null && !addedIds.has(u.id))
-      .filter(
-        (u) =>
-          (u.displayName ?? "").toLowerCase().includes(query) ||
-          (u.email ?? "").toLowerCase().includes(query)
-      )
-      .slice(0, 8);
-  }, [users, userSearchQuery, addedUsers]);
-
-  function userRoleLabel(u: UserDTO): string {
-    if (u.roleCodes && u.roleCodes.length > 0) return u.roleCodes.join(", ");
-    return u.designation ?? "—";
-  }
-
-  function saveDrawer() {
-    if (!drawerEvent || organizationId == null) return;
-    const next = { ...rules, [drawerEvent.id]: drawerSelected };
-    setRules(next);
-    writeRules(organizationId, next);
-    closeDrawer();
+  async function saveRow(payload: JobEmailRecipientDTO) {
+    const next = await updateJobEmailRecipients([payload]);
+    setRows(next.filter((row) => row.eventDef != null));
+    return next;
   }
 
   if (authLoading || !isAuthenticated || appRole !== "orgadmin") {
@@ -338,262 +90,26 @@ export function NotificationRulesAdminPage() {
           <h2 className="mt-1 text-xl font-semibold text-[#111827]">
             Notifications
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Choose which team members — and, where appropriate, the
-            customer contact or assigned worker — get emailed when a job
-            reaches each event below.
+          <p className="mt-1 text-sm text-slate-600 sm:hidden">
+            Who gets emailed for each job event.
+          </p>
+          <p className="mt-1 hidden text-sm text-slate-600 sm:block">
+            Choose which team members — and, where appropriate, the customer
+            contact or assigned worker — get emailed when a job reaches each
+            event below.
           </p>
         </div>
 
-        {usersError ? (
-          <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {usersError}
-          </p>
-        ) : null}
-
-        <div className="space-y-6">
-          {CATEGORY_ORDER.map((category) => {
-            const rows = NOTIFICATION_EVENTS.filter(
-              (event) => event.category === category
-            );
-            if (rows.length === 0) return null;
-            return (
-              <CategorySection
-                key={category}
-                category={category}
-                events={rows}
-                rules={rules}
-                onEdit={openEdit}
-              />
-            );
-          })}
-        </div>
+        <JobEmailRulesEditor
+          rows={rows}
+          users={users}
+          usersLoading={usersLoading}
+          usersError={usersError}
+          rowsLoading={rowsLoading}
+          rowsError={rowsError}
+          onSave={saveRow}
+        />
       </div>
-
-      <EnterpriseDrawer
-        open={drawerEvent != null}
-        onClose={closeDrawer}
-        title={drawerEvent ? `Recipients — ${drawerEvent.label}` : "Recipients"}
-        footer={
-          <div className="flex justify-end gap-2">
-            <button type="button" className="btn-secondary" onClick={closeDrawer}>
-              Cancel
-            </button>
-            <button type="button" className="btn-primary" onClick={saveDrawer}>
-              Save
-            </button>
-          </div>
-        }
-      >
-        <fieldset>
-          <legend className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Recipients
-          </legend>
-          <div className="mt-2 max-h-80 space-y-3 overflow-y-auto rounded-xl border border-slate-200 p-3">
-            <div className="space-y-1.5 border-b border-slate-100 pb-3">
-              {SPECIAL_RECIPIENTS.map((r) => (
-                <label
-                  key={r.id}
-                  className="flex items-center gap-2 text-sm font-medium text-slate-800"
-                >
-                  <input
-                    type="checkbox"
-                    checked={drawerSelected.includes(r.id)}
-                    onChange={() => toggleRecipient(r.id)}
-                  />
-                  {r.label}
-                </label>
-              ))}
-            </div>
-            <div className="space-y-3">
-              <div className="relative">
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                  aria-hidden
-                />
-                <input
-                  type="text"
-                  value={userSearchQuery}
-                  onChange={(e) => setUserSearchQuery(e.target.value)}
-                  placeholder="Search by name or email to add…"
-                  autoComplete="off"
-                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                />
-                {userSearchQuery.trim() && (
-                  <div className="absolute z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                    {usersLoading ? (
-                      <p className="px-3 py-2 text-sm text-slate-500">
-                        Loading users…
-                      </p>
-                    ) : userSearchResults.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-slate-500">
-                        No matching users.
-                      </p>
-                    ) : (
-                      userSearchResults.map((u) => (
-                        <button
-                          key={u.id}
-                          type="button"
-                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
-                          onClick={() => addUser(u.id!)}
-                        >
-                          <span className="text-sm font-medium text-slate-800">
-                            {u.displayName || u.email}
-                          </span>
-                          {u.email && u.displayName ? (
-                            <span className="text-xs text-slate-500">
-                              {u.email}
-                            </span>
-                          ) : null}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Added ({addedUsers.length})
-                </p>
-                {addedUsers.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    No team members added yet.
-                  </p>
-                ) : (
-                  addedUsers.map((u) => (
-                    <div
-                      key={u.id}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-800">
-                          {u.displayName || u.email}
-                        </p>
-                        <p className="truncate text-xs text-slate-500">
-                          {u.email ?? "—"} · {userRoleLabel(u)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-red-600"
-                        onClick={() => removeRecipient(u.id!)}
-                        aria-label={`Remove ${u.displayName || u.email}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </fieldset>
-      </EnterpriseDrawer>
     </main>
-  );
-}
-
-function RecipientCount({ ids }: { ids: (number | string)[] }) {
-  if (ids.length === 0) {
-    return <span className="text-xs text-slate-400">0</span>;
-  }
-  return <span className="text-sm font-semibold text-slate-700">{ids.length}</span>;
-}
-
-interface CategorySectionProps {
-  category: NotificationCategory;
-  events: NotificationEvent[];
-  rules: NotificationRules;
-  onEdit: (event: NotificationEvent) => void;
-}
-
-/** One category = its own card, spaced apart from the others — not one
- *  continuous table with inline section-header rows. */
-function CategorySection({
-  category,
-  events,
-  rules,
-  onEdit,
-}: CategorySectionProps) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
-      <div className="border-b border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          {category}
-        </h3>
-      </div>
-
-      {/* Desktop / tablet: table */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full text-left text-sm">
-          <thead className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-2.5">Event</th>
-              <th className="px-4 py-2.5">Recipients</th>
-              <th className="px-4 py-2.5">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((event, idx) => {
-              const selected = rules[event.id] ?? [];
-              return (
-                <tr
-                  key={event.id}
-                  className={`border-t border-slate-100 ${
-                    idx % 2 === 0 ? "bg-white" : "bg-[#FAFBFC]"
-                  }`}
-                >
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-900">{event.label}</p>
-                    <p className="text-xs text-slate-500">{event.description}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <RecipientCount ids={selected} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
-                      onClick={() => onEdit(event)}
-                    >
-                      <Pencil className="h-3.5 w-3.5 shrink-0" />
-                      Edit recipients
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile: stacked cards, same pattern as the Jobs list */}
-      <div className="flex flex-col gap-3 p-3 md:hidden">
-        {events.map((event) => {
-          const selected = rules[event.id] ?? [];
-          return (
-            <article
-              key={event.id}
-              className="rounded-xl border border-[#E2E8F0] bg-white p-4 shadow-sm"
-            >
-              <p className="font-semibold text-slate-900">{event.label}</p>
-              <p className="mt-0.5 text-xs text-slate-500">{event.description}</p>
-              <div className="mt-3">
-                <RecipientCount ids={selected} />
-              </div>
-              <button
-                type="button"
-                className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-orange-50"
-                onClick={() => onEdit(event)}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit recipients
-              </button>
-            </article>
-          );
-        })}
-      </div>
-    </section>
   );
 }

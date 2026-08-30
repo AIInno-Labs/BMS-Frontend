@@ -512,7 +512,6 @@ export function JobStatusCard({
                             )}
                           </span>
                         ) : item.docRequired ? (
-                          // emailRequired is backend-only; no UI indicator.
                           <FileText
                             className="h-3.5 w-3.5 shrink-0 text-slate-400"
                             aria-label="Document required"

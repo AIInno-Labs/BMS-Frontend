@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, KeyRound, Settings2, ShieldCheck } from "lucide-react";
+import { Bell, Building2, KeyRound, Settings2, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export function SuperAdminDashboard() {
@@ -95,6 +95,25 @@ export function SuperAdminDashboard() {
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">
                   Platform and per-organization settings such as MFA_TOTP_ENABLED.
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
+            href="/admin/notifications"
+            className="app-card-interactive block !p-5"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                <Bell className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-[#111827]">
+                  Notifications
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Disable catalog events and set default Assigned Worker and
+                  Customer Contact flags.
                 </p>
               </div>
             </div>

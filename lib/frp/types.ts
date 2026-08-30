@@ -27,6 +27,34 @@ export interface ApplicationParameterDTO {
   inherited?: boolean;
 }
 
+export type JobEmailRecipientCategory =
+  | "JOB_LIFECYCLE"
+  | "DOCUMENTS"
+  | "APPROVALS"
+  | "FINANCE";
+
+export interface JobEmailEventDef {
+  category: JobEmailRecipientCategory;
+  eventKey: string;
+  event: string;
+  eventName?: string | null;
+  description?: string | null;
+}
+
+export interface JobEmailRecipientDTO {
+  id?: number | null;
+  eventDef?: JobEmailEventDef | null;
+  assigningTrigger?: boolean | null;
+  customerTriggered?: boolean | null;
+  otherUserIds?: string | null;
+  customerSideRecipients?: string | null;
+  clientSideRecipients?: string | null;
+  totalRecipients?: number | null;
+  orgEditable?: boolean | null;
+  enabled?: boolean | null;
+  inherited?: boolean | null;
+}
+
 /** Quotient integration setup (GET/PUT /integrations/quotient). */
 export interface QuotientIntegrationDTO {
   enabled?: boolean | null;
