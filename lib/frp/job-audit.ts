@@ -170,15 +170,22 @@ function mapAuditRow(row: FrpJobAuditHistoryDTO): JobAuditEntry {
         : "not set";
     title = `${title}: ${from} → ${to}`;
   } else if (code === "WORKER_ASSIGNED" && row.detail) {
+    // "to X by Y" — not "— X (Y)" which looks like two assignees.
     const assignee = formatAssigneePerson(row.detail);
-    if (assignee) title = `${title} — ${assignee}`;
+    if (assignee) title = `${title} to ${assignee}`;
   } else if (detail) {
     title = `${title} — ${detail}`;
   }
 
   const who = actorLabel(row);
   if (who) {
-    title = row.actorRole ? `${title} (${who}, ${row.actorRole})` : `${title} (${who})`;
+    if (code === "WORKER_ASSIGNED") {
+      title = `${title} by ${who}`;
+    } else {
+      title = row.actorRole
+        ? `${title} (${who}, ${row.actorRole})`
+        : `${title} (${who})`;
+    }
   }
 
   const at = row.occurredAt ?? new Date().toISOString();
