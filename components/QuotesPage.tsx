@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, MessageCircle, RefreshCw, X } from "lucide-react";
 import {
   factoryStatusLabel,
@@ -10,7 +11,7 @@ import {
 import type { QuoteListItem } from "@/lib/quotient/quote-types";
 import { mapQuoteRow } from "@/lib/quotient/map-quote-row";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
-import { listQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
+import { searchQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
 import { JobsPagination } from "@/components/JobsPagination";
 
 const QUOTES_PAGE_SIZE = 10;
@@ -48,32 +49,46 @@ function SystemLoggedBadge({ logged }: { logged: boolean }) {
 function QuoteMobileCard({ q }: { q: QuoteListItem }) {
   return (
     <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase text-blue-600">Quote</p>
-          <p className="text-lg font-semibold text-slate-900">
-            {q.quote_number}
-          </p>
+      <Link
+        href={`/quotes/${encodeURIComponent(q.quote_number)}`}
+        className="block rounded-lg outline-none transition-colors hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500/30"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase text-blue-600">Quote</p>
+            <p className="text-lg font-semibold text-slate-900">
+              {q.quote_number}
+            </p>
+          </div>
+          {q.question_count > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 text-xs text-violet-700"
+              title={`${q.question_count} customer question(s)`}
+            >
+              <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+              {q.question_count}
+            </span>
+          )}
         </div>
-      </div>
-      <p className="mt-2 line-clamp-2 text-sm font-medium text-slate-800">
-        {q.title ?? "—"}
-      </p>
-      <p className="mt-1 text-sm text-slate-600">{q.quote_for_company_name}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
-        <FactoryBadge item={q} />
-        {q.quote_status && (
-          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-            {q.quote_status}
-          </span>
-        )}
-      </div>
-      <p className="mt-2 text-xs text-slate-500">
-        Created {formatShortDate(q.created_at)}
-        {q.updated_at ? ` · Updated ${formatCreatedDate(q.updated_at)}` : ""}
-        {q.last_event_name ? ` · ${q.last_event_name.replace(/_/g, " ")}` : ""}
-      </p>
+        <p className="mt-2 line-clamp-2 text-sm font-medium text-slate-800">
+          {q.title ?? "—"}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">{q.quote_for_company_name}</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
+          <FactoryBadge item={q} />
+          {q.quote_status && (
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+              {q.quote_status}
+            </span>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          Created {formatShortDate(q.created_at)}
+          {q.updated_at ? ` · Updated ${formatCreatedDate(q.updated_at)}` : ""}
+          {q.last_event_name ? ` · ${q.last_event_name.replace(/_/g, " ")}` : ""}
+        </p>
+      </Link>
       <div className="mt-3 flex flex-wrap gap-2">
         <Link
           href={`/quotes/${encodeURIComponent(q.quote_number)}`}
@@ -225,6 +240,10 @@ function StatusFilterDropdown({
 }
 
 export function QuotesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchQuery = (searchParams.get("q") ?? "").trim();
+
   const [statusFilters, setStatusFilters] = useState<FrpQuoteStatus[]>([]);
   const [page, setPage] = useState(1);
   // Bumped by the Refresh button to force the effect below to re-run.
@@ -232,8 +251,7 @@ export function QuotesPage() {
 
   const statusFilterKey = statusFilters.join(",");
 
-  // Pagination is real, backend-driven — one GET /quotes?page=&size=10&status=
-  // request per page/status change, showing exactly what the backend returns.
+  // Pagination is real, backend-driven — GET /quotes/search per page/status/q.
   const [pageRows, setPageRows] = useState<QuoteListItem[]>([]);
   const [pageTotalItems, setPageTotalItems] = useState(0);
   const [pageTotalPages, setPageTotalPages] = useState(1);
@@ -245,7 +263,8 @@ export function QuotesPage() {
     setPageLoading(true);
     setPageError(null);
 
-    listQuotes(page - 1, QUOTES_PAGE_SIZE, {
+    searchQuotes(page - 1, QUOTES_PAGE_SIZE, {
+      search: searchQuery || undefined,
       status: statusFilters.length > 0 ? statusFilters : undefined,
     })
       .then((res) => {
@@ -270,15 +289,23 @@ export function QuotesPage() {
     return () => {
       cancelled = true;
     };
-  }, [statusFilterKey, page, reloadToken]);
+  }, [statusFilterKey, page, reloadToken, searchQuery]);
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilterKey]);
+  }, [statusFilterKey, searchQuery]);
 
-  const hasActiveFilters = statusFilters.length > 0;
+  const clearSearch = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("q");
+    const qs = params.toString();
+    router.replace(qs ? `/quotes?${qs}` : "/quotes", { scroll: false });
+  };
+
+  const hasActiveFilters = statusFilters.length > 0 || searchQuery.length > 0;
   const clearFilters = () => {
     setStatusFilters([]);
+    if (searchQuery) clearSearch();
   };
 
   const loading = pageLoading;
@@ -327,6 +354,12 @@ export function QuotesPage() {
 
           {hasActiveFilters && (
             <div className="flex flex-wrap items-center gap-2">
+              {searchQuery ? (
+                <FilterChip
+                  label={`Search: “${searchQuery.slice(0, 32)}${searchQuery.length > 32 ? "…" : ""}”`}
+                  onClear={clearSearch}
+                />
+              ) : null}
               {statusFilters.map((status) => (
                 <FilterChip
                   key={status}
@@ -368,7 +401,9 @@ export function QuotesPage() {
             </p>
           ) : totalItems === 0 ? (
             <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
-              No quotes found. Webhooks populate this list automatically.
+              {hasActiveFilters
+                ? "No quotes match your search. Clear filters or try another term."
+                : "No quotes found. Webhooks populate this list automatically."}
             </p>
           ) : (
             pagedQuotes.map((q) => <QuoteMobileCard key={q.quote_number} q={q} />)
@@ -396,7 +431,7 @@ export function QuotesPage() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={10}
                       className="px-4 py-8 text-center text-slate-500"
                     >
                       Loading quotes…
@@ -405,79 +440,92 @@ export function QuotesPage() {
                 ) : totalItems === 0 ? (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={10}
                       className="px-4 py-8 text-center text-slate-500"
                     >
-                      No quotes found. Webhooks populate this list
-                      automatically.
+                      {hasActiveFilters
+                        ? "No quotes match your search. Clear filters or try another term."
+                        : "No quotes found. Webhooks populate this list automatically."}
                     </td>
                   </tr>
                 ) : (
-                  pagedQuotes.map((q) => (
-                    <tr
-                      key={q.quote_number}
-                      className="border-b border-slate-100 transition-colors hover:bg-slate-50/80"
-                    >
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {q.quote_number}
-                      </td>
-                      <td className="max-w-[200px] truncate px-4 py-3 text-slate-800">
-                        {q.title ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-800">
-                        {q.quote_for_company_name}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {q.quote_status ?? "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <FactoryBadge item={q} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {q.last_event_name
-                          ? q.last_event_name
-                              .split("_")
-                              .map(
-                                (w) => w.charAt(0).toUpperCase() + w.slice(1)
-                              )
-                              .join(" ")
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {formatShortDate(q.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {formatCreatedDate(q.updated_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {q.question_count > 0 && (
-                            <span
-                              className="inline-flex items-center gap-0.5 text-xs text-violet-700"
-                              title={`${q.question_count} customer question(s)`}
-                            >
-                              <MessageCircle
-                                className="h-3.5 w-3.5"
-                                aria-hidden
-                              />
-                              {q.question_count}
-                            </span>
-                          )}
+                  pagedQuotes.map((q) => {
+                    const href = `/quotes/${encodeURIComponent(q.quote_number)}`;
+                    return (
+                      <tr
+                        key={q.quote_number}
+                        role="link"
+                        tabIndex={0}
+                        aria-label={`Open quote ${q.quote_number}`}
+                        onClick={() => router.push(href)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(href);
+                          }
+                        }}
+                        className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50/80"
+                      >
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          <span className="inline-flex items-center gap-1.5">
+                            {q.quote_number}
+                            {q.question_count > 0 && (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-xs font-medium text-violet-700"
+                                title={`${q.question_count} customer question(s)`}
+                              >
+                                <MessageCircle
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden
+                                />
+                                {q.question_count}
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="max-w-[200px] truncate px-4 py-3 text-slate-800">
+                          {q.title ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-800">
+                          {q.quote_for_company_name}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {q.quote_status ?? "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <SystemLoggedBadge logged={isSystemLogged(q.factory_job_status)} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <FactoryBadge item={q} />
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {q.last_event_name
+                            ? q.last_event_name
+                                .split("_")
+                                .map(
+                                  (w) => w.charAt(0).toUpperCase() + w.slice(1)
+                                )
+                                .join(" ")
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {formatShortDate(q.created_at)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {formatCreatedDate(q.updated_at)}
+                        </td>
+                        <td className="px-4 py-3">
                           <Link
-                            href={`/quotes/${encodeURIComponent(
-                              q.quote_number
-                            )}`}
+                            href={href}
+                            onClick={(e) => e.stopPropagation()}
                             className="text-sm font-semibold text-blue-600 hover:text-blue-800"
                           >
                             View
                           </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

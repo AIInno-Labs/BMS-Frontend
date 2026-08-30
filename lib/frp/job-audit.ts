@@ -163,12 +163,12 @@ function mapAuditRow(row: FrpJobAuditHistoryDTO): JobAuditEntry {
     const from =
       row.detail.from != null && row.detail.from !== ""
         ? String(row.detail.from)
-        : "not set";
+        : null;
     const to =
       row.detail.to != null && row.detail.to !== ""
         ? String(row.detail.to)
         : "not set";
-    title = `${title}: ${from} → ${to}`;
+    title = from == null ? `${title}: set to ${to}` : `${title}: ${from} → ${to}`;
   } else if (code === "WORKER_ASSIGNED" && row.detail) {
     // "to X by Y" — not "— X (Y)" which looks like two assignees.
     const assignee = formatAssigneePerson(row.detail);

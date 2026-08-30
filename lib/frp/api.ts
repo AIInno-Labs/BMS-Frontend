@@ -1266,6 +1266,32 @@ export async function listQuotes(
   return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes?${params}`);
 }
 
+/**
+ * `GET /quotes/search` — free-text across company, title, quote number
+ * (like `GET /jobs?search=`). Separate from {@link listQuotes} multi-company filter.
+ */
+export async function searchQuotes(
+  page = 0,
+  size = 100,
+  filters?: {
+    search?: string;
+    status?: FrpQuoteStatus | FrpQuoteStatus[];
+  }
+): Promise<PageResponse<Record<string, unknown>>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const term = filters?.search?.trim();
+  if (term) params.set("search", term);
+  const statuses = filters?.status
+    ? Array.isArray(filters.status)
+      ? filters.status
+      : [filters.status]
+    : [];
+  for (const s of statuses) {
+    if (s) params.append("status", s);
+  }
+  return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes/search?${params}`);
+}
+
 /** Null when no quote exists with that number in the caller's organization. */
 export async function getQuote(
   quoteNumber: string

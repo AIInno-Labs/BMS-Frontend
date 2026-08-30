@@ -34,8 +34,10 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const searchParams = useSearchParams();
   const pageTitle = getPageTitle(pathname);
   const onJobsList = pathname === "/jobs";
-  // Job search lives only on dashboard and the jobs list — nowhere else.
-  const showJobSearch = pathname === "/" || onJobsList;
+  const onQuotesList = pathname === "/quotes";
+  // Header search on dashboard (→ jobs), jobs list, and quotes list.
+  const showHeaderSearch = pathname === "/" || onJobsList || onQuotesList;
+  const onListWithSearch = onJobsList || onQuotesList;
   const urlQuery = searchParams.get("q") ?? "";
 
   const [draft, setDraft] = useState(urlQuery);
@@ -47,9 +49,14 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const unreadCount = notifications?.unreadCount ?? 0;
   const canViewNotifications = can(ACCESS_KEYS.NOTIFICATIONS_VIEW);
 
+  const searchPlaceholder = onQuotesList
+    ? "Search by quote, company, or title..."
+    : "Search by job, customer, or contact...";
+  const searchSrOnly = onQuotesList ? "Search quotes" : "Search jobs";
+
   useEffect(() => {
-    setDraft(onJobsList ? urlQuery : "");
-  }, [onJobsList, urlQuery]);
+    setDraft(onListWithSearch ? urlQuery : "");
+  }, [onListWithSearch, urlQuery]);
 
   const commitSearch = useCallback(
     (value: string) => {
@@ -58,20 +65,30 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         const params = new URLSearchParams(searchParams.toString());
         if (trimmed) params.set("q", trimmed);
         else params.delete("q");
+        params.delete("page");
         const qs = params.toString();
         router.replace(qs ? `/jobs?${qs}` : "/jobs", { scroll: false });
+        return;
+      }
+      if (onQuotesList) {
+        const params = new URLSearchParams(searchParams.toString());
+        if (trimmed) params.set("q", trimmed);
+        else params.delete("q");
+        params.delete("page");
+        const qs = params.toString();
+        router.replace(qs ? `/quotes?${qs}` : "/quotes", { scroll: false });
         return;
       }
       if (pathname === "/" && trimmed) {
         router.push(`/jobs?q=${encodeURIComponent(trimmed)}`);
       }
     },
-    [onJobsList, pathname, router, searchParams]
+    [onJobsList, onQuotesList, pathname, router, searchParams]
   );
 
   const handleSearchChange = (value: string) => {
     setDraft(value);
-    if (!onJobsList) return;
+    if (!onListWithSearch) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => commitSearch(value), 250);
   };
@@ -99,9 +116,9 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         </h1>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:gap-3">
-          {showJobSearch ? (
+          {showHeaderSearch ? (
             <label className="relative hidden min-w-0 max-w-md flex-1 sm:block">
-              <span className="sr-only">Search jobs</span>
+              <span className="sr-only">{searchSrOnly}</span>
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
                 aria-hidden
@@ -117,7 +134,7 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
                     commitSearch(draft);
                   }
                 }}
-                placeholder="Search by job, customer, or contact..."
+                placeholder={searchPlaceholder}
                 className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
               />
             </label>
@@ -155,9 +172,9 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         </div>
       </div>
 
-      {showJobSearch ? (
+      {showHeaderSearch ? (
         <label className="relative mt-2 block sm:hidden">
-          <span className="sr-only">Search jobs</span>
+          <span className="sr-only">{searchSrOnly}</span>
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
             aria-hidden
@@ -173,7 +190,7 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
                 commitSearch(draft);
               }
             }}
-            placeholder="Search by job, customer, or contact..."
+            placeholder={searchPlaceholder}
             className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] py-1.5 pl-9 pr-3 text-sm text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
           />
         </label>
