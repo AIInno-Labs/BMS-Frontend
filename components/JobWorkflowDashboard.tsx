@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ChevronUp,
@@ -28,7 +29,11 @@ import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
 import { WidgetCard } from "@/components/JobWidgetCard";
-import { EditModal, ModalCatalogField, ModalField } from "@/components/JobEditModal";
+import {
+  EditModal,
+  ModalCatalogField,
+  ModalField,
+} from "@/components/JobEditModal";
 import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
@@ -41,7 +46,10 @@ import {
   updateJobPayment,
   uploadJobDocument,
 } from "@/lib/frp/api";
-import { ensureWorkflowExtras, JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
+import {
+  ensureWorkflowExtras,
+  JOB_TYPE_OPTIONS,
+} from "@/lib/jobWorkflowExtras";
 import {
   normalizeJobFiles,
   sortJobFiles,
@@ -49,6 +57,9 @@ import {
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
 import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
+import { formatShortDate, jobPriorities } from "@/lib/mockData";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 import {
   combineCatalogMaterialGrade,
   combineCatalogSize,
@@ -65,7 +76,6 @@ import {
   type InventoryCatalogEntry,
 } from "@/lib/frp/inventory-catalog";
 import { useInventoryCatalog } from "@/lib/frp/inventory-catalog-store";
-import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
 import {
   type FrpJobDocumentDTO,
   type FrpJobStageDTO,
@@ -125,7 +135,10 @@ const SHAREPOINT_PENDING_TIMEOUT_MS = 90_000;
 const SHAREPOINT_FAILED_HINT =
   "SharePoint did not store this file. Delete it and upload again.";
 
-function formatDocUploadedAt(iso?: string): { time: string; uploadedAt?: number } {
+function formatDocUploadedAt(iso?: string): {
+  time: string;
+  uploadedAt?: number;
+} {
   if (!iso) return { time: "Uploaded" };
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return { time: iso.slice(0, 10) };
@@ -190,7 +203,14 @@ function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
 
 function isInventoryLineIncomplete(
   item: JobInventoryLine,
-  catalog: { productGroup: string; profileType: string; meshSpec: string; dimension: string; resin: string; colour: string }[]
+  catalog: {
+    productGroup: string;
+    profileType: string;
+    meshSpec: string;
+    dimension: string;
+    resin: string;
+    colour: string;
+  }[]
 ): boolean {
   if (!isValidInventoryQuantity(item.quantity)) return true;
   return matchingCatalogItems(catalog, item).length !== 1;
@@ -215,7 +235,9 @@ function inventoryLineTitle(item: JobInventoryLine): string {
 function summarizeInventoryLine(item: JobInventoryLine): string {
   const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
   const { resin, colour } = splitCatalogMaterialGrade(item.materialGrade ?? "");
-  const details = [meshSpec, dimension, resin, colour].filter(Boolean).join(" · ");
+  const details = [meshSpec, dimension, resin, colour]
+    .filter(Boolean)
+    .join(" · ");
   const qty =
     item.quantity != null && item.quantity >= 1 ? `Qty ${item.quantity}` : null;
   return [details, qty].filter(Boolean).join(" — ");
@@ -288,7 +310,11 @@ function autoFillInventoryLine(
   }
 
   const attr1 = getCatalogProfileTypes(catalog, next.category ?? "");
-  if ((next.category ?? "").trim() && !(next.profileType ?? "").trim() && attr1.length === 1) {
+  if (
+    (next.category ?? "").trim() &&
+    !(next.profileType ?? "").trim() &&
+    attr1.length === 1
+  ) {
     next = {
       ...next,
       profileType: attr1[0],
@@ -388,7 +414,8 @@ function orderItemFields(item: Record<string, unknown>): {
   qty: string;
   price: string;
 } {
-  const str = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  const str = (v: unknown) =>
+    v === null || v === undefined || v === "" ? "—" : String(v);
   // sourceCode: manual/PO-entered rows (lib/poLineItems.ts). item_code/itemCode:
   // Quotient's own selected_items shape.
   const priceRaw = item.unit_price ?? item.unitPrice ?? item.price;
@@ -437,18 +464,40 @@ export function JobWorkflowDashboard({
   const [cancelBusy, setCancelBusy] = useState(false);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
   const pendingSharePointSeenAt = useRef<Map<number, number>>(new Map());
-  const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<Set<number>>(
-    () => new Set()
-  );
+  const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<
+    Set<number>
+  >(() => new Set());
   const [failedFile, setFailedFile] = useState<JobFile | null>(null);
   const [failedFileBusy, setFailedFileBusy] = useState(false);
   const [versionsFocus, setVersionsFocus] = useState<{
     documentId: number;
     tab: "po" | "drawing";
   } | null>(null);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [noteDraft, setNoteDraft] = useState("");
+  const { can } = useAuth();
+  const canViewJobChat = can(ACCESS_KEYS.JOB_CHAT_VIEW);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Deep link from a notification (?openChat=1): open the drawer straight
+  // away instead of leaving the reader to find the CHAT tab themselves.
+  // Gated on canViewJobChat as defense in depth — the backend already never
+  // raises a notification for someone without MESSAGE_READ (see
+  // ChatRecipientResolver), so this should always be true when the param is
+  // present, but a stale/shared link should not conjure a drawer the viewer
+  // isn't privileged to see.
+  useEffect(() => {
+    if (searchParams.get("openChat") !== "1") return;
+    if (canViewJobChat) setChatDrawerOpen(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openChat");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // Intentionally only reacting to the param arriving, not to every
+    // identity change of router/pathname/searchParams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canViewJobChat]);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
   const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
@@ -480,8 +529,11 @@ export function JobWorkflowDashboard({
   );
   const [inventoryBusy, setInventoryBusy] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
-  const { items: inventoryCatalog, loading: catalogLoading, error: catalogError } =
-    useInventoryCatalog();
+  const {
+    items: inventoryCatalog,
+    loading: catalogLoading,
+    error: catalogError,
+  } = useInventoryCatalog();
   /** The one line shown expanded for editing; every other line that already
    *  has a category + profile type collapses to a one-line summary, so
    *  adding a 6th, 7th, 8th... line doesn't mean scrolling past five full
@@ -492,7 +544,9 @@ export function JobWorkflowDashboard({
   const inventoryCascadeKey = inventoryDraft
     .map(
       (line) =>
-        `${line.localKey}|${line.category ?? ""}|${line.profileType ?? ""}|${line.size ?? ""}|${line.materialGrade ?? ""}`
+        `${line.localKey}|${line.category ?? ""}|${line.profileType ?? ""}|${
+          line.size ?? ""
+        }|${line.materialGrade ?? ""}`
     )
     .join(";");
 
@@ -517,7 +571,9 @@ export function JobWorkflowDashboard({
     });
   }, [showInventoryModal, inventoryCatalog, inventoryCascadeKey]);
   const inventoryLineRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
+  const [jobCardNotesDraft, setJobCardNotesDraft] = useState(
+    extras.jobCardNotes ?? ""
+  );
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
@@ -532,15 +588,6 @@ export function JobWorkflowDashboard({
       savedSort === "category"
     ) {
       setFileSort(savedSort);
-    }
-    const raw = window.localStorage.getItem(`frp-notes-${job.id}`);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as string[];
-        if (Array.isArray(parsed)) setNotes(parsed);
-      } catch {
-        // Ignore malformed demo cache.
-      }
     }
   }, [job.id]);
 
@@ -562,7 +609,10 @@ export function JobWorkflowDashboard({
         setMilestones(nextMilestones);
         setFiles(normalizeJobFiles(docs.map(docToFileRecord)));
         setFileUploadDraft((prev) => {
-          if (prev.milestoneId !== "" && nextMilestones.some((m) => m.id === prev.milestoneId)) {
+          if (
+            prev.milestoneId !== "" &&
+            nextMilestones.some((m) => m.id === prev.milestoneId)
+          ) {
             return prev;
           }
           const fromJob =
@@ -584,10 +634,6 @@ export function JobWorkflowDashboard({
       cancelled = true;
     };
   }, [job.dbId, job.currentStageId, job.currentStageKey, documentsRefreshKey]);
-
-  useEffect(() => {
-    window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
-  }, [job.id, notes]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
@@ -631,19 +677,27 @@ export function JobWorkflowDashboard({
     [files, fileSort]
   );
 
+  // The synthesised "job created" chat line is gone: the thread now shows real
+  // messages only. That event already lives in the audit trail (JOB_CREATED),
+  // which is where a system event belongs.
   const filesWithSharePointTimeout = useMemo(() => {
     if (sharePointTimedOutIds.size === 0) return sortedFiles;
     return sortedFiles.map((file) =>
       file.documentId != null &&
       sharePointTimedOutIds.has(file.documentId) &&
       file.storageStatus === "PENDING"
-        ? { ...file, storageStatus: "FAILED" as const, remarks: SHAREPOINT_FAILED_HINT }
+        ? {
+            ...file,
+            storageStatus: "FAILED" as const,
+            remarks: SHAREPOINT_FAILED_HINT,
+          }
         : file
     );
   }, [sortedFiles, sharePointTimedOutIds]);
 
   const displayFiles = useMemo(() => {
-    if (!fileUploading || !fileUploadDraft.file) return filesWithSharePointTimeout;
+    if (!fileUploading || !fileUploadDraft.file)
+      return filesWithSharePointTimeout;
     const optimistic: JobFile = {
       name: fileUploadDraft.file.name,
       category: "Uploading",
@@ -728,20 +782,8 @@ export function JobWorkflowDashboard({
     return () => window.clearInterval(timer);
   }, [job.dbId, hasPendingSharePoint]);
 
-  const systemNote = job.createdAt
-    ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
-    : "Job created and added to the fabrication queue";
-
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
-
-  const postNote = () => {
-    if (!noteDraft.trim()) return;
-    setNotes((prev) =>
-      [`${new Date().toLocaleTimeString()} ${noteDraft.trim()}`, ...prev].slice(0, 24)
-    );
-    setNoteDraft("");
-  };
 
   const openFileUploadModal = () => {
     setFileUploadError(null);
@@ -766,8 +808,8 @@ export function JobWorkflowDashboard({
       input.documentType === "DRAWING"
         ? "drawing"
         : input.documentType === "PRODUCTION"
-          ? "po"
-          : null;
+        ? "po"
+        : null;
     if (!tab) return;
     setVersionsFocus({ documentId: input.documentId, tab });
     window.requestAnimationFrame(() => {
@@ -867,13 +909,18 @@ export function JobWorkflowDashboard({
       setFileUploadDraft({ file: null, milestoneId: milestones[0]?.id ?? "" });
       setDocumentsRefreshKey((k) => k + 1);
     } catch (e) {
-      setFileUploadError(e instanceof Error ? e.message : "Could not upload document");
+      setFileUploadError(
+        e instanceof Error ? e.message : "Could not upload document"
+      );
     } finally {
       setFileUploading(false);
     }
   };
 
-  const savePayment = async (body: { paid?: boolean; estimatedDate?: string }) => {
+  const savePayment = async (body: {
+    paid?: boolean;
+    estimatedDate?: string;
+  }) => {
     if (!job.dbId) return;
     setPaymentBusy(true);
     setPaymentError(null);
@@ -881,7 +928,9 @@ export function JobWorkflowDashboard({
       await updateJobPayment(job.dbId, body);
       await onJobChanged?.();
     } catch (e) {
-      setPaymentError(e instanceof Error ? e.message : "Could not update payment");
+      setPaymentError(
+        e instanceof Error ? e.message : "Could not update payment"
+      );
     } finally {
       setPaymentBusy(false);
     }
@@ -922,7 +971,9 @@ export function JobWorkflowDashboard({
   };
 
   const removeInventoryLine = (localKey: string) => {
-    setInventoryDraft((prev) => prev.filter((row) => row.localKey !== localKey));
+    setInventoryDraft((prev) =>
+      prev.filter((row) => row.localKey !== localKey)
+    );
     setInventoryError(null);
     setActiveInventoryLine((prev) => (prev === localKey ? null : prev));
   };
@@ -1032,7 +1083,10 @@ export function JobWorkflowDashboard({
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
           >
             {isExporting ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+              <Loader2
+                className="h-3.5 w-3.5 shrink-0 animate-spin"
+                aria-hidden
+              />
             ) : (
               <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
             )}
@@ -1066,7 +1120,7 @@ export function JobWorkflowDashboard({
         </p>
       ) : null}
 
-      {!chatDrawerOpen && (
+      {canViewJobChat && !chatDrawerOpen && (
         <button
           type="button"
           onClick={() => setChatDrawerOpen(true)}
@@ -1083,16 +1137,14 @@ export function JobWorkflowDashboard({
         </button>
       )}
 
-      <JobNotesChatDrawer
-        open={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
-        jobId={job.id}
-        systemNote={systemNote}
-        notes={notes}
-        noteDraft={noteDraft}
-        onNoteDraftChange={setNoteDraft}
-        onPostNote={postNote}
-      />
+      {canViewJobChat && (
+        <JobNotesChatDrawer
+          open={chatDrawerOpen}
+          onClose={() => setChatDrawerOpen(false)}
+          jobId={job.id}
+          dbId={job.dbId}
+        />
+      )}
 
       <JobWorkflowExtrasSection
         job={job}
@@ -1113,239 +1165,292 @@ export function JobWorkflowDashboard({
       />
 
       <div className="mt-4 space-y-4">
-      <section className="grid gap-4 lg:grid-cols-2">
-        <WidgetCard title="Customer Details" icon={User} onEdit={editsBlocked ? undefined : () => setShowCustomerModal(true)}>
-          <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
-          <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
-          <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
-        </WidgetCard>
-
-        <WidgetCard
-          title="Job Details"
-          icon={Settings}
-          onEdit={editsBlocked ? undefined : () => setShowJobModal(true)}
-        >
-          <p className="font-medium text-slate-800">{job.projectName}</p>
-          <p className="text-sm text-slate-600">
-            Assigned: {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
-          </p>
-          <p className="whitespace-pre-wrap text-sm text-slate-600">
-            {job.description?.trim() ||
-              job.manualInstructions?.trim() ||
-              "No description provided."}
-          </p>
-          <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-            {job.priority}
-          </span>
-          <p className="text-sm text-slate-500">
-            Type: {job.jobType || extras.jobType || "—"} · Stage:{" "}
-            {cancelled ? "Cancelled" : job.status}
-          </p>
-          <p className="text-sm text-slate-500">
-            Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
-            {extras.projectedStartDate
-              ? ` · Start: ${formatShortDate(extras.projectedStartDate)}`
-              : ""}
-          </p>
-          <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
-          {orderItems.length > 0 && (
-            <p className="text-sm text-slate-500">Order Items: {orderItems.length}</p>
-          )}
-        </WidgetCard>
-
-        <JobStatusCard
-          job={job}
-          onJobChanged={onJobChanged}
-          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
-          onOpenDocument={(doc) =>
-            openDocumentVersions({ documentId: doc.id, documentType: doc.documentType })
-          }
-          className="lg:col-span-2"
-        />
-
-        <JobDocumentRevisionsCard
-          job={job}
-          refreshKey={documentsRefreshKey}
-          focusDocument={versionsFocus}
-          onJobChanged={onJobChanged}
-          onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
-          className="lg:col-span-2"
-        />
-
-        <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
-          <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
-            <label className="mt-2 inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-                disabled={isSaving || editsBlocked}
-                onChange={(e) =>
-                  void onStatusChange(e.target.checked ? "In Fabrication" : "Pending")
-                }
-                className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-              />
-              Ready to Manufacture
-            </label>
-          </WidgetCard>
-
-          <WidgetCard title="Payment Status" icon={CircleDollarSign}>
-            {paymentError ? (
-              <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {paymentError}
-              </p>
-            ) : null}
-            <fieldset className="mt-2 space-y-2">
-              <legend className="text-sm text-slate-700">Payment received</legend>
-              <div className="flex flex-wrap gap-3">
-                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name={`payment-received-${job.id}`}
-                    checked={extras.paymentReceived === true}
-                    disabled={isSaving || paymentBusy || cancelled || !job.dbId}
-                    onChange={() => handlePaymentReceivedChange(true)}
-                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                  />
-                  Yes
-                </label>
-                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name={`payment-received-${job.id}`}
-                    checked={extras.paymentReceived === false}
-                    disabled={isSaving || paymentBusy || cancelled || !job.dbId}
-                    onChange={() => handlePaymentReceivedChange(false)}
-                    className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
-                  />
-                  No
-                </label>
-              </div>
-            </fieldset>
-            <label className="mt-3 block text-sm text-slate-700">
-              <span className="mb-1 block">Estimated due date for payment</span>
-              <input
-                type="date"
-                value={extras.paymentDueDate ?? ""}
-                disabled={isSaving || paymentBusy || cancelled || !job.dbId}
-                onChange={(e) => handlePaymentDueDateChange(e.target.value)}
-                className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
-              />
-            </label>
-          </WidgetCard>
-        </div>
-
-        <WidgetCard
-          title="Inventory"
-          icon={Package}
-          onEdit={editsBlocked ? undefined : openInventoryEditor}
-          className="lg:col-span-2"
-        >
-          {(job.inventory ?? []).length === 0 ? (
-            <p className="text-sm text-slate-400">No inventory lines yet.</p>
-          ) : (
-            <div className="-mx-1 overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {INVENTORY_TABLE_HEADERS.map((header, headerIndex) => (
-                      <th key={`${header}-${headerIndex}`} className="px-2 py-2 font-semibold">
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(job.inventory ?? []).map((item, index) => (
-                    <tr
-                      key={item.id ?? index}
-                      className="border-b border-[#E5E7EB] last:border-0"
-                    >
-                      <td className="px-2 py-2 font-medium text-slate-800">
-                        {inventoryCell(item.category)}
-                      </td>
-                      <td className="px-2 py-2">{inventoryCell(item.profileType)}</td>
-                      <td className="px-2 py-2">
-                        {inventoryCell(splitCatalogSize(item.size ?? "").meshSpec)}
-                      </td>
-                      <td className="px-2 py-2">
-                        {inventoryCell(splitCatalogSize(item.size ?? "").dimension)}
-                      </td>
-                      <td className="px-2 py-2">
-                        {inventoryCell(
-                          splitCatalogMaterialGrade(item.materialGrade ?? "").resin
-                        )}
-                      </td>
-                      <td className="px-2 py-2">
-                        {inventoryCell(
-                          splitCatalogMaterialGrade(item.materialGrade ?? "").colour
-                        )}
-                      </td>
-                      <td className="px-2 py-2 tabular-nums">
-                        {inventoryCell(item.quantity)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </WidgetCard>
-
-      </section>
-
-      <section className="app-card p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
-            <StickyNote className="h-4 w-4 text-[#F97316]" aria-hidden />
-            Job Card Notes
-          </p>
-          <button
-            type="button"
-            className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={saveJobCardNotes}
-            disabled={isSaving || editsBlocked || !jobCardNotesDirty}
+        <section className="grid gap-4 lg:grid-cols-2">
+          <WidgetCard
+            title="Customer Details"
+            icon={User}
+            onEdit={editsBlocked ? undefined : () => setShowCustomerModal(true)}
           >
-            {isSaving ? "Saving…" : "Save notes"}
-          </button>
-        </div>
-        <textarea
-          value={jobCardNotesDraft}
-          onChange={(e) => setJobCardNotesDraft(e.target.value)}
-          rows={5}
-          placeholder="Add notes for this job card…"
-          className="mt-3 min-h-[8rem] w-full resize-y rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:bg-white focus:ring-2 focus:ring-orange-200/40"
-        />
-      </section>
-
-      <section>
-        <div className="app-card overflow-hidden p-0">
-          <div className="border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
-            <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
-              <History className="h-4 w-4 text-[#F97316]" />
-              Audit History
-            </p>
-            <p className="text-xs text-slate-500">Recent actions and system events</p>
-          </div>
-          <div className="[&_section]:border-0 [&_section]:shadow-none [&_section]:rounded-none">
-            <ActivityAuditTrail
-              jobId={job.dbId ?? ""}
-              refreshKey={auditRefreshKey}
+            <CustomerRow
+              icon={User}
+              label="Contact"
+              value={job.clientContactName || "—"}
             />
-          </div>
-        </div>
-      </section>
+            <CustomerRow
+              icon={Phone}
+              label="Phone"
+              value={pd.contactPhone?.trim() || "—"}
+            />
+            <CustomerRow
+              icon={Mail}
+              label="Email"
+              value={pd.contactEmail?.trim() || "—"}
+            />
+          </WidgetCard>
 
-      {(saveError || saveSuccess) && (
-        <p
-          className={`rounded-xl border px-4 py-3 text-sm ${saveError ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
-          role="status"
-        >
-          {saveError ||
-            (job.status === "Cancelled"
-              ? "Job cancelled. It remains in the register for audit."
-              : "Saved. PDF export reflects updated fields.")}
-        </p>
-      )}
+          <WidgetCard
+            title="Job Details"
+            icon={Settings}
+            onEdit={editsBlocked ? undefined : () => setShowJobModal(true)}
+          >
+            <p className="font-medium text-slate-800">{job.projectName}</p>
+            <p className="text-sm text-slate-600">
+              Assigned:{" "}
+              {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
+            </p>
+            <p className="whitespace-pre-wrap text-sm text-slate-600">
+              {job.description?.trim() ||
+                job.manualInstructions?.trim() ||
+                "No description provided."}
+            </p>
+            <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+              {job.priority}
+            </span>
+            <p className="text-sm text-slate-500">
+              Type: {job.jobType || extras.jobType || "—"} · Stage:{" "}
+              {cancelled ? "Cancelled" : job.status}
+            </p>
+            <p className="text-sm text-slate-500">
+              Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
+              {extras.projectedStartDate
+                ? ` · Start: ${formatShortDate(extras.projectedStartDate)}`
+                : ""}
+            </p>
+            <p className="text-sm text-slate-500">
+              Raised by: {pd.raisedBy ?? "—"}
+            </p>
+            {orderItems.length > 0 && (
+              <p className="text-sm text-slate-500">
+                Order Items: {orderItems.length}
+              </p>
+            )}
+          </WidgetCard>
+
+          <JobStatusCard
+            job={job}
+            onJobChanged={onJobChanged}
+            onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+            onOpenDocument={(doc) =>
+              openDocumentVersions({
+                documentId: doc.id,
+                documentType: doc.documentType,
+              })
+            }
+            className="lg:col-span-2"
+          />
+
+          <JobDocumentRevisionsCard
+            job={job}
+            refreshKey={documentsRefreshKey}
+            focusDocument={versionsFocus}
+            onJobChanged={onJobChanged}
+            onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+            className="lg:col-span-2"
+          />
+
+          <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
+            <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
+              <label className="mt-2 inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={
+                    job.status === "In Fabrication" ||
+                    job.status === "Ready to Manufacture"
+                  }
+                  disabled={isSaving || editsBlocked}
+                  onChange={(e) =>
+                    void onStatusChange(
+                      e.target.checked ? "In Fabrication" : "Pending"
+                    )
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                />
+                Ready to Manufacture
+              </label>
+            </WidgetCard>
+
+            <WidgetCard title="Payment Status" icon={CircleDollarSign}>
+              {paymentError ? (
+                <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {paymentError}
+                </p>
+              ) : null}
+              <fieldset className="mt-2 space-y-2">
+                <legend className="text-sm text-slate-700">
+                  Payment received
+                </legend>
+                <div className="flex flex-wrap gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name={`payment-received-${job.id}`}
+                      checked={extras.paymentReceived === true}
+                      disabled={
+                        isSaving || paymentBusy || cancelled || !job.dbId
+                      }
+                      onChange={() => handlePaymentReceivedChange(true)}
+                      className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                    />
+                    Yes
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name={`payment-received-${job.id}`}
+                      checked={extras.paymentReceived === false}
+                      disabled={
+                        isSaving || paymentBusy || cancelled || !job.dbId
+                      }
+                      onChange={() => handlePaymentReceivedChange(false)}
+                      className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                    />
+                    No
+                  </label>
+                </div>
+              </fieldset>
+              <label className="mt-3 block text-sm text-slate-700">
+                <span className="mb-1 block">
+                  Estimated due date for payment
+                </span>
+                <input
+                  type="date"
+                  value={extras.paymentDueDate ?? ""}
+                  disabled={isSaving || paymentBusy || cancelled || !job.dbId}
+                  onChange={(e) => handlePaymentDueDateChange(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
+                />
+              </label>
+            </WidgetCard>
+          </div>
+
+          <WidgetCard
+            title="Inventory"
+            icon={Package}
+            onEdit={editsBlocked ? undefined : openInventoryEditor}
+            className="lg:col-span-2"
+          >
+            {(job.inventory ?? []).length === 0 ? (
+              <p className="text-sm text-slate-400">No inventory lines yet.</p>
+            ) : (
+              <div className="-mx-1 overflow-x-auto">
+                <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {INVENTORY_TABLE_HEADERS.map((header, headerIndex) => (
+                        <th
+                          key={`${header}-${headerIndex}`}
+                          className="px-2 py-2 font-semibold"
+                        >
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(job.inventory ?? []).map((item, index) => (
+                      <tr
+                        key={item.id ?? index}
+                        className="border-b border-[#E5E7EB] last:border-0"
+                      >
+                        <td className="px-2 py-2 font-medium text-slate-800">
+                          {inventoryCell(item.category)}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(item.profileType)}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogSize(item.size ?? "").meshSpec
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogSize(item.size ?? "").dimension
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogMaterialGrade(item.materialGrade ?? "")
+                              .resin
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogMaterialGrade(item.materialGrade ?? "")
+                              .colour
+                          )}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {inventoryCell(item.quantity)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </WidgetCard>
+        </section>
+
+        <section className="app-card p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
+              <StickyNote className="h-4 w-4 text-[#F97316]" aria-hidden />
+              Job Card Notes
+            </p>
+            <button
+              type="button"
+              className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={saveJobCardNotes}
+              disabled={isSaving || editsBlocked || !jobCardNotesDirty}
+            >
+              {isSaving ? "Saving…" : "Save notes"}
+            </button>
+          </div>
+          <textarea
+            value={jobCardNotesDraft}
+            onChange={(e) => setJobCardNotesDraft(e.target.value)}
+            rows={5}
+            placeholder="Add notes for this job card…"
+            className="mt-3 min-h-[8rem] w-full resize-y rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:bg-white focus:ring-2 focus:ring-orange-200/40"
+          />
+        </section>
+
+        <section>
+          <div className="app-card overflow-hidden p-0">
+            <div className="border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
+              <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
+                <History className="h-4 w-4 text-[#F97316]" />
+                Audit History
+              </p>
+              <p className="text-xs text-slate-500">
+                Recent actions and system events
+              </p>
+            </div>
+            <div className="[&_section]:border-0 [&_section]:shadow-none [&_section]:rounded-none">
+              <ActivityAuditTrail
+                jobId={job.dbId ?? ""}
+                refreshKey={auditRefreshKey}
+              />
+            </div>
+          </div>
+        </section>
+
+        {(saveError || saveSuccess) && (
+          <p
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              saveError
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+            role="status"
+          >
+            {saveError ||
+              (job.status === "Cancelled"
+                ? "Job cancelled. It remains in the register for audit."
+                : "Saved. PDF export reflects updated fields.")}
+          </p>
+        )}
       </div>
 
       <ConfirmDialog
@@ -1396,10 +1501,32 @@ export function JobWorkflowDashboard({
         onClose={() => setShowCustomerModal(false)}
       >
         <div className="space-y-3">
-          <ModalField label="Company Name" value={customerDraft.clientName} onChange={(v) => setCustomerDraft((p) => ({ ...p, clientName: v }))} />
-          <ModalField label="Contact Name" value={customerDraft.clientContactName} onChange={(v) => setCustomerDraft((p) => ({ ...p, clientContactName: v }))} />
-          <ModalField label="Phone" value={customerDraft.contactPhone} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactPhone: v }))} />
-          <ModalField label="Email" value={customerDraft.contactEmail} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactEmail: v }))} />
+          <ModalField
+            label="Company Name"
+            value={customerDraft.clientName}
+            onChange={(v) => setCustomerDraft((p) => ({ ...p, clientName: v }))}
+          />
+          <ModalField
+            label="Contact Name"
+            value={customerDraft.clientContactName}
+            onChange={(v) =>
+              setCustomerDraft((p) => ({ ...p, clientContactName: v }))
+            }
+          />
+          <ModalField
+            label="Phone"
+            value={customerDraft.contactPhone}
+            onChange={(v) =>
+              setCustomerDraft((p) => ({ ...p, contactPhone: v }))
+            }
+          />
+          <ModalField
+            label="Email"
+            value={customerDraft.contactEmail}
+            onChange={(v) =>
+              setCustomerDraft((p) => ({ ...p, contactEmail: v }))
+            }
+          />
           <button
             className="btn-primary w-full"
             onClick={() =>
@@ -1420,14 +1547,24 @@ export function JobWorkflowDashboard({
         </div>
       </EditModal>
 
-      <EditModal open={showJobModal} title="Edit Job Details" onClose={() => setShowJobModal(false)}>
+      <EditModal
+        open={showJobModal}
+        title="Edit Job Details"
+        onClose={() => setShowJobModal(false)}
+      >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          <ModalField label="Project Name" value={jobDraft.projectName} onChange={(v) => setJobDraft((p) => ({ ...p, projectName: v }))} />
+          <ModalField
+            label="Project Name"
+            value={jobDraft.projectName}
+            onChange={(v) => setJobDraft((p) => ({ ...p, projectName: v }))}
+          />
           <label className="block text-sm font-medium text-slate-700">
             Assigned Staff
             <select
               value={jobDraft.assignedWorkerId}
-              onChange={(e) => setJobDraft((p) => ({ ...p, assignedWorkerId: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, assignedWorkerId: e.target.value }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               <option value="">Unassigned</option>
@@ -1442,7 +1579,9 @@ export function JobWorkflowDashboard({
             Description
             <textarea
               value={jobDraft.description}
-              onChange={(e) => setJobDraft((p) => ({ ...p, description: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, description: e.target.value }))
+              }
               rows={3}
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
@@ -1451,7 +1590,12 @@ export function JobWorkflowDashboard({
             Priority
             <select
               value={jobDraft.priority}
-              onChange={(e) => setJobDraft((p) => ({ ...p, priority: e.target.value as JobPriority }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({
+                  ...p,
+                  priority: e.target.value as JobPriority,
+                }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               {jobPriorities.map((p) => (
@@ -1466,14 +1610,18 @@ export function JobWorkflowDashboard({
             <RaisedBySelect
               variant="compact"
               value={jobDraft.raisedBy}
-              onChange={(name) => setJobDraft((p) => ({ ...p, raisedBy: name }))}
+              onChange={(name) =>
+                setJobDraft((p) => ({ ...p, raisedBy: name }))
+              }
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Job type
             <select
               value={jobDraft.jobType}
-              onChange={(e) => setJobDraft((p) => ({ ...p, jobType: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, jobType: e.target.value }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               <option value="">Not set</option>
@@ -1490,7 +1638,10 @@ export function JobWorkflowDashboard({
               type="date"
               value={jobDraft.projectedStartDate}
               onChange={(e) =>
-                setJobDraft((p) => ({ ...p, projectedStartDate: e.target.value }))
+                setJobDraft((p) => ({
+                  ...p,
+                  projectedStartDate: e.target.value,
+                }))
               }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
@@ -1499,11 +1650,18 @@ export function JobWorkflowDashboard({
             Stage / status
             <select
               value={jobDraft.status}
-              onChange={(e) => setJobDraft((p) => ({ ...p, status: e.target.value as Job["status"] }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({
+                  ...p,
+                  status: e.target.value as Job["status"],
+                }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               <option value="Pending">Pending</option>
-              <option value="Awaiting Manager Approval">Awaiting Manager Approval</option>
+              <option value="Awaiting Manager Approval">
+                Awaiting Manager Approval
+              </option>
               <option value="Ready to Manufacture">Ready to Manufacture</option>
               <option value="In Fabrication">In Fabrication</option>
               <option value="Complete">Complete</option>
@@ -1516,7 +1674,9 @@ export function JobWorkflowDashboard({
             <input
               type="date"
               value={jobDraft.dueDate}
-              onChange={(e) => setJobDraft((p) => ({ ...p, dueDate: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, dueDate: e.target.value }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
           </label>
@@ -1534,7 +1694,11 @@ export function JobWorkflowDashboard({
                       <th className="pb-1 pr-2 font-medium">Qty</th>
                       <th className="pb-1 font-medium">
                         Price
-                        {job.currency ? ` (${CURRENCY_SYMBOLS[job.currency] ?? job.currency})` : ""}
+                        {job.currency
+                          ? ` (${
+                              CURRENCY_SYMBOLS[job.currency] ?? job.currency
+                            })`
+                          : ""}
                       </th>
                     </tr>
                   </thead>
@@ -1543,7 +1707,9 @@ export function JobWorkflowDashboard({
                       const f = orderItemFields(item);
                       return (
                         <tr key={i} className="border-t border-[#E5E7EB]/70">
-                          <td className="py-1 pr-2 font-mono text-slate-600">{f.code}</td>
+                          <td className="py-1 pr-2 font-mono text-slate-600">
+                            {f.code}
+                          </td>
                           <td className="py-1 pr-2 text-slate-800">{f.name}</td>
                           <td className="py-1 pr-2 text-slate-600">{f.qty}</td>
                           <td className="py-1 text-slate-600">{f.price}</td>
@@ -1631,7 +1797,9 @@ export function JobWorkflowDashboard({
               const group = item.category ?? "";
               const attr1 = item.profileType ?? "";
               const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
-              const { resin } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+              const { resin } = splitCatalogMaterialGrade(
+                item.materialGrade ?? ""
+              );
               const desc2Options = getCatalogDesc2Options(
                 inventoryCatalog,
                 group,
@@ -1708,165 +1876,175 @@ export function JobWorkflowDashboard({
               }
 
               return (
-              <div
-                key={item.localKey}
-                ref={(el) => {
-                  if (el) inventoryLineRefs.current.set(item.localKey, el);
-                  else inventoryLineRefs.current.delete(item.localKey);
-                }}
-                className="space-y-3 rounded-lg border border-[#E5E7EB] p-3"
-              >
-                {item.id != null || inventoryDraft.length > 1 ? (
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-[#111827]">
-                      {inventoryLineTitle(item)}
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      {!isInventoryLineIncomplete(item, inventoryCatalog) ? (
+                <div
+                  key={item.localKey}
+                  ref={(el) => {
+                    if (el) inventoryLineRefs.current.set(item.localKey, el);
+                    else inventoryLineRefs.current.delete(item.localKey);
+                  }}
+                  className="space-y-3 rounded-lg border border-[#E5E7EB] p-3"
+                >
+                  {item.id != null || inventoryDraft.length > 1 ? (
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-[#111827]">
+                        {inventoryLineTitle(item)}
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        {!isInventoryLineIncomplete(item, inventoryCatalog) ? (
+                          <button
+                            type="button"
+                            aria-label="Collapse inventory line"
+                            disabled={inventoryBusy}
+                            className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
+                            onClick={() => setActiveInventoryLine(null)}
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          aria-label="Collapse inventory line"
+                          aria-label="Remove inventory line"
                           disabled={inventoryBusy}
-                          className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
-                          onClick={() => setActiveInventoryLine(null)}
+                          className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                          onClick={() => removeInventoryLine(item.localKey)}
                         >
-                          <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                          <X className="h-3.5 w-3.5" aria-hidden />
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        aria-label="Remove inventory line"
-                        disabled={inventoryBusy}
-                        className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-                        onClick={() => removeInventoryLine(item.localKey)}
-                      >
-                        <X className="h-3.5 w-3.5" aria-hidden />
-                      </button>
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-                <ModalCatalogField
-                  label="Product Group"
-                  value={item.category ?? ""}
-                  options={getCatalogProductGroups(inventoryCatalog)}
-                  disabled={inventoryBusy}
-                  onChange={(category) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        category,
-                        profileType: "",
-                        size: "",
-                        materialGrade: "",
-                        masterInventoryId: undefined,
-                      })
-                    )
-                  }
-                />
-                <ModalCatalogField
-                  key={`${item.localKey}-profileType-${item.category}`}
-                  label="Attribute 1"
-                  value={item.profileType ?? ""}
-                  options={getCatalogProfileTypes(inventoryCatalog, item.category ?? "")}
-                  disabled={inventoryBusy}
-                  onChange={(profileType) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        profileType,
-                        size: "",
-                        materialGrade: "",
-                        masterInventoryId: undefined,
-                      })
-                    )
-                  }
-                />
-                <ModalCatalogField
-                  key={`${item.localKey}-desc2-${item.category}-${item.profileType}`}
-                  label="Attribute 2"
-                  value={meshSpec}
-                  options={desc2Options}
-                  allowBlank={attr2Ready && desc2Options.length === 0}
-                  disabled={inventoryBusy}
-                  onChange={(nextMeshSpec) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        size: nextMeshSpec,
-                        materialGrade: "",
-                      })
-                    )
-                  }
-                />
-                <ModalCatalogField
-                  key={`${item.localKey}-desc3-${item.category}-${item.profileType}-${meshSpec}`}
-                  label="Attribute 3"
-                  value={dimension}
-                  options={desc3Options}
-                  allowBlank={attr3Ready && desc3Options.length === 0}
-                  disabled={inventoryBusy}
-                  onChange={(nextDimension) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        size: combineCatalogSize(meshSpec, nextDimension),
-                        materialGrade: "",
-                      })
-                    )
-                  }
-                />
-                <ModalCatalogField
-                  key={`${item.localKey}-grade-${item.category}-${item.profileType}-${item.size}`}
-                  label="Resin / Material"
-                  value={splitCatalogMaterialGrade(item.materialGrade ?? "").resin}
-                  options={resinOptions}
-                  allowBlank={materialReady && resinOptions.length === 0}
-                  disabled={inventoryBusy}
-                  onChange={(resin) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        materialGrade: resin,
-                      })
-                    )
-                  }
-                />
-                <ModalCatalogField
-                  key={`${item.localKey}-colour-${item.category}-${item.profileType}-${item.size}-${
-                    splitCatalogMaterialGrade(item.materialGrade ?? "").resin
-                  }`}
-                  label="Primary Colour"
-                  value={splitCatalogMaterialGrade(item.materialGrade ?? "").colour}
-                  options={colourOptions}
-                  allowBlank={colourReady && colourOptions.length === 0}
-                  disabled={inventoryBusy}
-                  onChange={(colour) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        materialGrade: combineCatalogMaterialGrade(
-                          splitCatalogMaterialGrade(item.materialGrade ?? "").resin,
-                          colour
-                        ),
-                      })
-                    )
-                  }
-                />
-                <ModalField
-                  label="Quantity"
-                  value={item.quantity != null ? String(item.quantity) : ""}
-                  disabled={inventoryBusy}
-                  type="number"
-                  min={1}
-                  step={1}
-                  error={
-                    item.quantity != null && item.quantity < 1
-                      ? "Quantity must be at least 1"
-                      : undefined
-                  }
-                  onChange={(qty) =>
-                    setInventoryDraft((prev) =>
-                      patchInventoryLine(prev, item.localKey, {
-                        quantity: parseInventoryQuantity(qty),
-                      })
-                    )
-                  }
-                />
-              </div>
+                  ) : null}
+                  <ModalCatalogField
+                    label="Product Group"
+                    value={item.category ?? ""}
+                    options={getCatalogProductGroups(inventoryCatalog)}
+                    disabled={inventoryBusy}
+                    onChange={(category) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          category,
+                          profileType: "",
+                          size: "",
+                          materialGrade: "",
+                          masterInventoryId: undefined,
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-profileType-${item.category}`}
+                    label="Attribute 1"
+                    value={item.profileType ?? ""}
+                    options={getCatalogProfileTypes(
+                      inventoryCatalog,
+                      item.category ?? ""
+                    )}
+                    disabled={inventoryBusy}
+                    onChange={(profileType) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          profileType,
+                          size: "",
+                          materialGrade: "",
+                          masterInventoryId: undefined,
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-desc2-${item.category}-${item.profileType}`}
+                    label="Attribute 2"
+                    value={meshSpec}
+                    options={desc2Options}
+                    allowBlank={attr2Ready && desc2Options.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(nextMeshSpec) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          size: nextMeshSpec,
+                          materialGrade: "",
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-desc3-${item.category}-${item.profileType}-${meshSpec}`}
+                    label="Attribute 3"
+                    value={dimension}
+                    options={desc3Options}
+                    allowBlank={attr3Ready && desc3Options.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(nextDimension) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          size: combineCatalogSize(meshSpec, nextDimension),
+                          materialGrade: "",
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-grade-${item.category}-${item.profileType}-${item.size}`}
+                    label="Resin / Material"
+                    value={
+                      splitCatalogMaterialGrade(item.materialGrade ?? "").resin
+                    }
+                    options={resinOptions}
+                    allowBlank={materialReady && resinOptions.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(resin) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          materialGrade: resin,
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-colour-${item.category}-${
+                      item.profileType
+                    }-${item.size}-${
+                      splitCatalogMaterialGrade(item.materialGrade ?? "").resin
+                    }`}
+                    label="Primary Colour"
+                    value={
+                      splitCatalogMaterialGrade(item.materialGrade ?? "").colour
+                    }
+                    options={colourOptions}
+                    allowBlank={colourReady && colourOptions.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(colour) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          materialGrade: combineCatalogMaterialGrade(
+                            splitCatalogMaterialGrade(item.materialGrade ?? "")
+                              .resin,
+                            colour
+                          ),
+                        })
+                      )
+                    }
+                  />
+                  <ModalField
+                    label="Quantity"
+                    value={item.quantity != null ? String(item.quantity) : ""}
+                    disabled={inventoryBusy}
+                    type="number"
+                    min={1}
+                    step={1}
+                    error={
+                      item.quantity != null && item.quantity < 1
+                        ? "Quantity must be at least 1"
+                        : undefined
+                    }
+                    onChange={(qty) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          quantity: parseInventoryQuantity(qty),
+                        })
+                      )
+                    }
+                  />
+                </div>
               );
             })}
           </div>
@@ -1892,7 +2070,8 @@ export function JobWorkflowDashboard({
         <div className="space-y-3">
           {!job.dbId ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              This job is not linked to the backend yet — documents cannot be uploaded.
+              This job is not linked to the backend yet — documents cannot be
+              uploaded.
             </p>
           ) : null}
           <label className="block text-sm font-medium text-slate-700">
@@ -1912,7 +2091,11 @@ export function JobWorkflowDashboard({
           <label className="block text-sm font-medium text-slate-700">
             Milestone
             <select
-              value={fileUploadDraft.milestoneId === "" ? "" : String(fileUploadDraft.milestoneId)}
+              value={
+                fileUploadDraft.milestoneId === ""
+                  ? ""
+                  : String(fileUploadDraft.milestoneId)
+              }
               disabled={!job.dbId || fileUploading || milestones.length === 0}
               onChange={(e) =>
                 setFileUploadDraft((prev) => ({
@@ -1981,10 +2164,11 @@ function CustomerRow({
     <div className="flex items-start gap-2">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </p>
         <p className="break-words text-sm text-slate-700">{value}</p>
       </div>
     </div>
   );
 }
-

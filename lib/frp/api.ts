@@ -14,6 +14,9 @@ import {
   type RoleDTO,
   type UpdateUserRequest,
   type UserDTO,
+  type GroupChatDTO,
+  type NotificationDTO,
+  type NotificationSummaryDTO,
   type JobEmailRecipientDTO,
 } from "@/lib/frp/types";
 import type {
@@ -1104,4 +1107,144 @@ export async function getQuoteEvent(
     }
     throw err;
   }
+}
+
+/* --------------------------------------------------------------- job chat */
+
+/**
+ * `GET /jobs/{id}/messages` — the thread, newest first.
+ *
+ * History only: read backwards a page at a time. Polling for new messages is
+ * `getNewJobMessages`.
+ */
+export async function listJobMessages(
+  dbId: string | number,
+  opts?: { page?: number; size?: number }
+): Promise<PageResponse<GroupChatDTO>> {
+  const params = new URLSearchParams({
+    page: String(opts?.page ?? 0),
+    size: String(opts?.size ?? 20),
+  });
+  return frpFetch<PageResponse<GroupChatDTO>>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages?${params.toString()}`
+  );
+}
+
+/**
+ * `GET /jobs/{id}/messages/new` — everything after a message already held,
+ * oldest first.
+ *
+ * Keyed on an id, not a timestamp. Two messages posted in the same
+ * millisecond share a `sentAt`, so a time cursor either re-sends them on every
+ * poll or skips one permanently, and the client cannot tell which. An id is
+ * unique and monotonic, so `afterId` has exactly one answer.
+ *
+ * Returns a plain array: a poll appends to a thread the caller already holds,
+ * so there is nothing to page through.
+ */
+export async function getNewJobMessages(
+  dbId: string | number,
+  afterId: number,
+  limit = 50
+): Promise<GroupChatDTO[]> {
+  const params = new URLSearchParams({
+    afterId: String(afterId),
+    limit: String(limit),
+  });
+  return frpFetch<GroupChatDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/new?${params.toString()}`
+  );
+}
+
+/**
+ * `POST /jobs/{id}/messages`.
+ *
+ * `clientMsgId` is optional to the server but should always be sent: the
+ * unique index on it turns a retry after a dropped connection into a no-op
+ * that returns the original message, instead of posting twice.
+ *
+ * `@all` in the body is detected server-side and notifies every other
+ * MESSAGE_READ holder in the organization.
+ */
+export async function postJobMessage(
+  dbId: string | number,
+  body: string,
+  opts?: { clientMsgId?: string; tag?: GroupChatDTO["tag"] }
+): Promise<GroupChatDTO> {
+  return frpFetch<GroupChatDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        body,
+        clientMsgId: opts?.clientMsgId ?? null,
+        tag: opts?.tag ?? null,
+      }),
+    }
+  );
+}
+
+/**
+ * `POST /jobs/{id}/messages/read` — advance this user's watermark.
+ *
+ * Also clears their notifications for the job up to that message, so reading
+ * the thread puts the red dot out without a second trip to the panel.
+ */
+export async function markThreadRead(
+  dbId: string | number,
+  lastReadMessageId: number
+): Promise<void> {
+  await frpFetch<void>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/read`,
+    { method: "POST", body: JSON.stringify({ lastReadMessageId }) }
+  );
+}
+
+/* ----------------------------------------------------------- notifications */
+
+/**
+ * `GET /notifications/summary` — the badge poll.
+ *
+ * Every signed-in user calls this every 45 seconds, so it returns two numbers
+ * and nothing else. The caller is always the current user; there is no way to
+ * request someone else's inbox.
+ */
+export async function getNotificationSummary(): Promise<NotificationSummaryDTO> {
+  return frpFetch<NotificationSummaryDTO>("/notifications/summary");
+}
+
+/** `GET /notifications` — the panel. Read and unread together by default. */
+export async function listNotifications(opts?: {
+  unreadOnly?: boolean;
+  page?: number;
+  size?: number;
+}): Promise<PageResponse<NotificationDTO>> {
+  const params = new URLSearchParams({
+    unreadOnly: String(opts?.unreadOnly ?? false),
+    page: String(opts?.page ?? 0),
+    size: String(opts?.size ?? 20),
+  });
+  return frpFetch<PageResponse<NotificationDTO>>(
+    `/notifications?${params.toString()}`
+  );
+}
+
+/**
+ * `POST /notifications/read` — mark specific rows, or everything up to an id.
+ *
+ * Only the caller's own notifications are affected: passing an id belonging to
+ * a colleague updates zero rows server-side.
+ */
+export async function markNotificationsRead(
+  target: { ids: number[] } | { upToId: number }
+): Promise<void> {
+  await frpFetch<void>("/notifications/read", {
+    method: "POST",
+    body: JSON.stringify(target),
+  });
+}
+
+/** `POST /notifications/read-all`. */
+export async function markAllNotificationsRead(): Promise<void> {
+  await frpFetch<void>("/notifications/read-all", { method: "POST" });
 }
