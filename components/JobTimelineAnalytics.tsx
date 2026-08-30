@@ -153,7 +153,13 @@ function subStagesFromReal(
       completionPct: op.percentComplete ?? (state === "complete" ? 100 : 0),
       durationLabel,
       notes: op.notes?.trim() || "",
-      assignedTeam: op.assignedTeam?.trim() || "",
+      assignedTeam:
+        op.assignees
+          ?.map((u) => u.displayName?.trim() || u.username?.trim() || (u.id != null ? String(u.id) : ""))
+          .filter(Boolean)
+          .join(", ") ||
+        op.assignedTeam?.trim() ||
+        "",
       startDate: formatStageInstant(op.startedAt),
       endDate: formatStageInstant(op.completedAt),
       statusLabel: statusLabelOf(op.status),
@@ -569,12 +575,40 @@ export function JobTimelineAnalytics({
     for (const s of stages) {
       const real = byKey.get(s.id);
       if (!real) continue;
+      const start = formatStageInstant(real.startedAt);
+      const end =
+        real.status === "COMPLETE" || real.status === "SKIPPED"
+          ? formatStageInstant(real.completedAt)
+          : real.completedAt
+            ? formatStageInstant(real.completedAt)
+            : real.status === "PENDING"
+              ? "—"
+              : "TBD";
       stageDetails[s.id] = {
         ...stageDetails[s.id],
+        startDate: start,
+        endDate: end,
+        status: statusLabelOf(real.status),
         notes: notesFromRealStage(real),
         ownNotes: real.notes?.trim() || "",
-        assignedTeam: real.assignedTeam?.trim() || stageDetails[s.id].assignedTeam,
+        assignedTeam:
+          real.assignees
+            ?.map((u) => u.displayName?.trim() || u.username?.trim() || (u.id != null ? String(u.id) : ""))
+            .filter(Boolean)
+            .join(", ") ||
+          real.assignedTeam?.trim() ||
+          stageDetails[s.id].assignedTeam,
       };
+      // Node date under the milestone icon — use real start when present.
+      if (real.startedAt) {
+        const idx = stages.findIndex((x) => x.id === s.id);
+        if (idx >= 0) {
+          stages[idx] = {
+            ...stages[idx],
+            dateLabel: formatStageInstant(real.startedAt),
+          };
+        }
+      }
     }
 
     return { ...baseData, stages, stageDetails, overallProgress, activeIndex };

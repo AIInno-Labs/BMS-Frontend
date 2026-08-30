@@ -293,11 +293,8 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   }, [jobs]);
 
   /**
-   * Create the job, attach any files using `currentStageId` from the create
-   * response, then save the job card.
-   *
-   * `POST /jobs` seeds stages and returns `currentStageId`. Files go to
-   * `POST /jobs/{id}/documents` with that id as `jobStageId`.
+   * Create the job, attach any create-drawer files as job-level Others
+   * (`attachToJob=true` → SharePoint Other folder), then save the job card.
    */
   const createJobFromUi = useCallback(async (job: Job, files: File[] = []): Promise<Job> => {
     const created = await createJob(uiJobToCreateRequest(job));
@@ -307,13 +304,10 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
 
     let uploadError: string | null = null;
     if (files.length > 0) {
-      if (created.currentStageId == null) {
-        throw new Error("Job was created without a currentStageId, so files cannot be attached.");
-      }
       const uploads = await Promise.allSettled(
         files.map((file) =>
           uploadJobDocument(created.id as number, {
-            jobStageId: created.currentStageId as number,
+            attachToJob: true,
             file,
             documentName: file.name,
           })

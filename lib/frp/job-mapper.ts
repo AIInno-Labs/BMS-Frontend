@@ -282,6 +282,19 @@ export interface FrpJobCardPayload {
   manualInstructions?: string;
 }
 
+/** One resin category from `GET /jobs/resin-counts`. */
+export interface FrpJobResinCountDTO {
+  resinCode?: string | null;
+  label?: string;
+  count?: number;
+}
+
+/** `JobResinCountsDTO` — `GET /jobs/resin-counts`. */
+export interface FrpJobResinCountsDTO {
+  total?: number;
+  byResin?: FrpJobResinCountDTO[];
+}
+
 /** `JobCountsDTO` — `GET /jobs/counts`. */
 export interface FrpJobCountsDTO {
   total?: number;
@@ -303,10 +316,21 @@ export interface FrpJobAuditHistoryDTO {
   eventCode?: string;
   statusFrom?: string | null;
   statusTo?: string | null;
+  /** User id string, or a machine actor such as `system:quotient`. */
   actor?: string | null;
+  /** Resolved when `actor` is a numeric user id. */
+  actorUser?: FrpAssignedUserDTO | null;
   actorRole?: string | null;
   detail?: Record<string, unknown> | null;
   occurredAt?: string;
+}
+
+/** Lightweight assignee on a stage response. */
+export interface FrpAssignedUserDTO {
+  id?: number;
+  displayName?: string | null;
+  email?: string | null;
+  username?: string | null;
 }
 
 /** `JobStageDTO` — the stage tree, children nested under their milestone. */
@@ -325,7 +349,10 @@ export interface FrpJobStageDTO {
   completedAt?: string | null;
   notes?: string | null;
   dependsOnStageId?: number | null;
+  /** Comma-joined user ids (write / storage mirror). */
   assignedTeam?: string | null;
+  /** Resolved assignees from `assignedTeam`. */
+  assignees?: FrpAssignedUserDTO[];
   percentComplete?: number | null;
   children?: FrpJobStageDTO[];
   /** Documents uploaded against this stage — populated server-side on every
@@ -432,6 +459,7 @@ export interface FrpPoComparisonDTO {
 
 export type FrpPaymentKind = "DEPOSIT" | "PROGRESS" | "FINAL";
 export type FrpPaymentStatus = "DUE" | "RECEIVED" | "OVERDUE" | "WRITTEN_OFF";
+export type FrpPaymentMode = "CASH" | "ACCOUNT";
 
 /** `JobPaymentDTO` — nested on `GET /jobs/{id}` and returned by payment PUT. */
 export interface FrpJobPaymentDTO {
@@ -442,6 +470,7 @@ export interface FrpJobPaymentDTO {
   currency?: string;
   kind?: FrpPaymentKind;
   status?: FrpPaymentStatus;
+  paymentMode?: FrpPaymentMode;
   dueDate?: string;
   receivedAt?: string;
   reference?: string;
@@ -456,6 +485,7 @@ export interface FrpJobPaymentDTO {
 export interface FrpJobPaymentUpdateRequest {
   paid?: boolean;
   estimatedDate?: string;
+  paymentMode?: FrpPaymentMode;
 }
 
 /** `PUT /documents/{id}` — only non-null fields are applied. */

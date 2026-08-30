@@ -32,9 +32,15 @@ import {
   type AnalyticsSnapshot,
 } from "@/lib/analytics/types";
 import { formatCreatedDate } from "@/lib/jobData";
-import { getQuoteEventCounts, getTopClients } from "@/lib/frp/api";
+import { getJobResinCounts, getQuoteEventCounts, getTopClients } from "@/lib/frp/api";
 import { STATUS_THEME } from "@/lib/statusColors";
 import { journeyOutcomeLabel } from "@/lib/quotes/labels";
+
+const RESIN_CHART_COLORS = [
+  STATUS_THEME.notStarted.strong,
+  STATUS_THEME.manufacturing.strong,
+  STATUS_THEME.delivered.strong,
+];
 
 const STATUS_COLORS: Record<string, string> = {
   Pending: STATUS_THEME.notStarted.strong,
@@ -108,6 +114,9 @@ export function AnalyticsPage() {
     withAlerts: null,
   });
   const [quotientDelta, setQuotientDelta] = useState<number | null>(null);
+  const [resinChartData, setResinChartData] = useState<
+    { resin: string; count: number; fill: string }[]
+  >([]);
 
   const prevJobsRef = useRef<ReturnType<typeof computeJobAnalytics> | null>(null);
   const prevQuotientRef = useRef<number | null>(null);
@@ -123,10 +132,19 @@ export function AnalyticsPage() {
     setError(null);
     try {
       const empty = emptyAnalyticsSnapshot();
-      const [quoteCounts, topClients] = await Promise.all([
+      const [quoteCounts, topClients, resinCounts] = await Promise.all([
         getQuoteEventCounts().catch(() => null),
         getTopClients(5).catch(() => null),
+        getJobResinCounts().catch(() => null),
       ]);
+
+      setResinChartData(
+        (resinCounts?.byResin ?? []).map((row, index) => ({
+          resin: (row.label ?? row.resinCode ?? "Other").split(" ")[0],
+          count: row.count ?? 0,
+          fill: RESIN_CHART_COLORS[index % RESIN_CHART_COLORS.length],
+        }))
+      );
 
       const data: AnalyticsSnapshot = {
         ...empty,
@@ -225,20 +243,6 @@ export function AnalyticsPage() {
         fill: STATUS_COLORS[status] ?? STATUS_THEME.notStarted.soft,
       })),
     [jobStats.byStatus]
-  );
-
-  const resinChartData = useMemo(
-    () =>
-      Object.entries(jobStats.resinMix).map(([resin, count], index) => ({
-        resin: resin.split(" ")[0],
-        count,
-        fill: [
-          STATUS_THEME.notStarted.strong,
-          STATUS_THEME.manufacturing.strong,
-          STATUS_THEME.delivered.strong,
-        ][index % 3],
-      })),
-    [jobStats.resinMix]
   );
 
   const quotientChartData = useMemo(
@@ -461,9 +465,8 @@ export function AnalyticsPage() {
               <div className="shrink-0">
                 <h2 className="text-sm font-semibold text-slate-900">Resin mix</h2>
                 <p className="text-xs text-slate-500">
-                  Programs by resin system — bottom scale is{" "}
-                  <span className="font-medium text-slate-600">job count</span> (0, 15, 30…
-                  = number of active jobs using that resin).
+                  Jobs by resin system — bottom scale is{" "}
+                  <span className="font-medium text-slate-600">job count</span>.
                 </p>
               </div>
               <div className="mt-1 min-h-[120px] flex-1">
@@ -508,7 +511,7 @@ export function AnalyticsPage() {
         <section className="app-card" aria-label="Quotient analytics">
           <h2 className="text-lg font-semibold text-slate-900">Quotient quote journey</h2>
           <p className="mt-1 text-base text-slate-600">
-            Webhook events aggregated from <code className="text-sm">quote_event_count</code>
+            Quote activity across sent, viewed, accepted, and declined events
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <AnimatedStatTile

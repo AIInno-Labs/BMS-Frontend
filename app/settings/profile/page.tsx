@@ -196,14 +196,6 @@ export default function ProfileSettingsPage() {
         <form onSubmit={onSave} className="app-card mt-6 space-y-4 !p-5">
           <h3 className="text-sm font-semibold text-[#111827]">Personal details</h3>
 
-          {!editable && (
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-              Editing your own details is not available yet — the backend has no
-              self-service profile endpoint. Ask an organization admin to update
-              them for you in the meantime.
-            </p>
-          )}
-
           {error && (
             <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}

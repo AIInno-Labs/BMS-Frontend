@@ -92,7 +92,11 @@ import {
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import {
+  isCancelledJob,
+  needsDraftDueDateWarning,
+  DRAFT_DUE_DATE_WARNING,
+} from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
@@ -447,9 +451,14 @@ export function JobWorkflowDashboard({
   onStatusChange,
   onJobChanged,
 }: JobWorkflowDashboardProps) {
+  const { user, can } = useAuth();
   const cancelled = isCancelledJob(job.status);
   const cashPaymentLocked = isJobLockedForCashPayment(job);
   const editsBlocked = cancelled || cashPaymentLocked;
+  const assignedToMe =
+    user?.id != null &&
+    job.assignedWorkerId != null &&
+    job.assignedWorkerId === String(user.id);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.measurement ?? [];
@@ -473,7 +482,6 @@ export function JobWorkflowDashboard({
     documentId: number;
     tab: "po" | "drawing";
   } | null>(null);
-  const { can } = useAuth();
   const canViewJobChat = can(ACCESS_KEYS.JOB_CHAT_VIEW);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
   const router = useRouter();
@@ -503,7 +511,7 @@ export function JobWorkflowDashboard({
   const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
   const [fileUploadDraft, setFileUploadDraft] = useState<{
     file: File | null;
-    milestoneId: number | "";
+    milestoneId: number | "others" | "";
   }>({ file: null, milestoneId: "" });
   const [fileUploading, setFileUploading] = useState(false);
   const [fileUploadError, setFileUploadError] = useState<string | null>(null);
@@ -609,18 +617,21 @@ export function JobWorkflowDashboard({
         setMilestones(nextMilestones);
         setFiles(normalizeJobFiles(docs.map(docToFileRecord)));
         setFileUploadDraft((prev) => {
+          // "others" is not a stage, so it never appears in nextMilestones —
+          // keep it rather than resetting the user's choice out from under them.
+          if (prev.milestoneId === "others") {
+            return prev;
+          }
           if (
             prev.milestoneId !== "" &&
             nextMilestones.some((m) => m.id === prev.milestoneId)
           ) {
             return prev;
           }
-          const fromJob =
-            job.currentStageId != null &&
-            nextMilestones.some((m) => m.id === job.currentStageId)
-              ? job.currentStageId
-              : nextMilestones.find((m) => m.stageKey === job.currentStageKey)?.id;
-          return { ...prev, milestoneId: fromJob ?? nextMilestones[0]?.id ?? "" };
+          // Deliberately blank, not the job's current stage: the picker leads
+          // with "Select folder…" so the upload target is always an explicit
+          // choice between a stage folder and "Others".
+          return { ...prev, milestoneId: "" };
         });
       } catch {
         if (!cancelled) {
@@ -787,14 +798,9 @@ export function JobWorkflowDashboard({
 
   const openFileUploadModal = () => {
     setFileUploadError(null);
-    const fromJob =
-      job.currentStageId != null &&
-      milestones.some((m) => m.id === job.currentStageId)
-        ? job.currentStageId
-        : milestones.find((m) => m.stageKey === job.currentStageKey)?.id;
     setFileUploadDraft({
       file: null,
-      milestoneId: fromJob ?? milestones[0]?.id ?? "",
+      milestoneId: "",
     });
     setShowFileModal(true);
   };
@@ -892,21 +898,24 @@ export function JobWorkflowDashboard({
 
   const handleUploadProjectDocument = async () => {
     if (!job.dbId || !fileUploadDraft.file) return;
+    // "others" attaches to the job itself, so it resolves to no stage — it must
+    // skip the stage lookup entirely rather than fail the guard below.
+    const attachToJob = fileUploadDraft.milestoneId === "others";
     const jobStageId = milestones.find((m) => m.id === fileUploadDraft.milestoneId)?.id;
-    if (jobStageId == null) {
-      setFileUploadError("Choose a milestone to attach this file to.");
+    if (!attachToJob && jobStageId == null) {
+      setFileUploadError("Choose a folder to attach this file to.");
       return;
     }
     setFileUploading(true);
     setFileUploadError(null);
     try {
       await uploadJobDocument(job.dbId, {
-        jobStageId,
+        ...(attachToJob ? { attachToJob: true } : { jobStageId }),
         file: fileUploadDraft.file,
         documentName: fileUploadDraft.file.name,
       });
       setShowFileModal(false);
-      setFileUploadDraft({ file: null, milestoneId: milestones[0]?.id ?? "" });
+      setFileUploadDraft({ file: null, milestoneId: "" });
       setDocumentsRefreshKey((k) => k + 1);
     } catch (e) {
       setFileUploadError(
@@ -1075,6 +1084,16 @@ export function JobWorkflowDashboard({
           Back to Jobs
         </Link>
         <div className="flex flex-wrap items-center gap-1.5">
+          {needsDraftDueDateWarning(job) && (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+              {DRAFT_DUE_DATE_WARNING}
+            </span>
+          )}
+          {assignedToMe && (
+            <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
+              Assigned to you
+            </span>
+          )}
           <button
             type="button"
             onClick={onPrint}
@@ -2089,33 +2108,43 @@ export function JobWorkflowDashboard({
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
-            Milestone
+            Folder
             <select
               value={
                 fileUploadDraft.milestoneId === ""
                   ? ""
                   : String(fileUploadDraft.milestoneId)
               }
-              disabled={!job.dbId || fileUploading || milestones.length === 0}
+              // Not gated on milestones.length: "Others" is always a valid
+              // target, so the picker stays usable on a job with no stages.
+              disabled={!job.dbId || fileUploading}
               onChange={(e) =>
                 setFileUploadDraft((prev) => ({
                   ...prev,
-                  milestoneId: e.target.value ? Number(e.target.value) : "",
+                  milestoneId:
+                    e.target.value === ""
+                      ? ""
+                      : e.target.value === "others"
+                        ? "others"
+                        : Number(e.target.value),
                 }))
               }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm disabled:opacity-60"
             >
-              {milestones.length === 0 ? (
-                <option value="">No milestones available</option>
-              ) : (
-                milestones.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
-                  </option>
-                ))
-              )}
+              <option value="">Select folder…</option>
+              <option value="others">Others</option>
+              {milestones.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
+                </option>
+              ))}
             </select>
           </label>
+          {fileUploadDraft.milestoneId === "others" ? (
+            <p className="text-xs text-slate-500">
+              Saves on the job (SharePoint Other folder) — no stage required.
+            </p>
+          ) : null}
           {fileUploadError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {fileUploadError}
