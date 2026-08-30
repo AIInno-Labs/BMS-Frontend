@@ -36,14 +36,80 @@ function iconForEvent(code: string): JobAuditEntry["icon"] {
 /**
  * Flatten the structured `detail` map into a readable clause.
  *
- * The backend stores `Map<String,Object>` — e.g. `{"stageKey": "production",
- * "via": "scan"}` — not a string, so it is rendered rather than dropped.
+ * Field diffs are stored as `{ from, to }` objects — not bare scalars — so
+ * those must be expanded (`8 → 9`) rather than `String(obj)` → `[object Object]`.
  */
+function formatDetailValue(value: unknown): string {
+  if (value == null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    if ("from" in rec || "to" in rec) {
+      const from =
+        rec.from == null || rec.from === "null" || rec.from === ""
+          ? "—"
+          : String(rec.from);
+      const to =
+        rec.to == null || rec.to === "null" || rec.to === ""
+          ? "—"
+          : String(rec.to);
+      return `${from} → ${to}`;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+  return String(value);
+}
+
+/** `assignedUserId: 9 (frp User, MANAGER)` when name/role were stored with the event. */
+function formatAssignedUserDetail(
+  value: unknown,
+  detail: Record<string, unknown>
+): string {
+  const name =
+    (typeof detail.displayName === "string" && detail.displayName.trim()) ||
+    (typeof detail.assignedUserName === "string" &&
+      detail.assignedUserName.trim()) ||
+    "";
+  const role =
+    (typeof detail.role === "string" && detail.role.trim()) ||
+    (typeof detail.assignedUserRole === "string" &&
+      detail.assignedUserRole.trim()) ||
+    "";
+  const who = [name, role].filter(Boolean).join(", ");
+
+  if (typeof value === "object" && value != null) {
+    const base = formatDetailValue(value);
+    return who ? `${base} (${who})` : base;
+  }
+  const id = String(value);
+  return who ? `${id} (${who})` : id;
+}
+
 function describeDetail(detail?: Record<string, unknown> | null): string {
   if (!detail) return "";
+  const skip = new Set([
+    "displayName",
+    "role",
+    "assignedUserName",
+    "assignedUserRole",
+  ]);
   return Object.entries(detail)
-    .filter(([, v]) => v != null && v !== "")
-    .map(([k, v]) => `${k}: ${String(v)}`)
+    .filter(([k, v]) => v != null && v !== "" && !skip.has(k))
+    .map(([k, v]) =>
+      k === "assignedUserId"
+        ? `assignedUserId: ${formatAssignedUserDetail(v, detail)}`
+        : `${k}: ${formatDetailValue(v)}`
+    )
     .join(", ");
 }
 
@@ -61,6 +127,27 @@ function actorLabel(row: FrpJobAuditHistoryDTO): string | null {
   return raw || null;
 }
 
+/** Assignee shown as a person: `frp User (MANAGER)`. */
+function formatAssigneePerson(detail: Record<string, unknown>): string | null {
+  const name =
+    (typeof detail.displayName === "string" && detail.displayName.trim()) ||
+    (typeof detail.assignedUserName === "string" &&
+      detail.assignedUserName.trim()) ||
+    "";
+  const role =
+    (typeof detail.role === "string" && detail.role.trim()) ||
+    (typeof detail.assignedUserRole === "string" &&
+      detail.assignedUserRole.trim()) ||
+    "";
+  if (name && role) return `${name} (${role})`;
+  if (name) return name;
+
+  const id = detail.assignedUserId;
+  if (id == null || id === "") return null;
+  if (typeof id === "object") return formatDetailValue(id);
+  return `user ${id}`;
+}
+
 function mapAuditRow(row: FrpJobAuditHistoryDTO): JobAuditEntry {
   const code = row.eventCode ?? "UPDATED";
   let title = JOB_AUDIT_EVENT_LABELS[code] ?? code;
@@ -71,14 +158,23 @@ function mapAuditRow(row: FrpJobAuditHistoryDTO): JobAuditEntry {
     title = `${title}: ${from} → ${to}`;
   }
 
-    const detail = describeDetail(row.detail);
-    if (code === "DUE_DATE_CHANGED" && row.detail) {
-      const from = row.detail.from != null && row.detail.from !== "" ? String(row.detail.from) : "not set";
-      const to = row.detail.to != null && row.detail.to !== "" ? String(row.detail.to) : "not set";
-      title = `${title}: ${from} → ${to}`;
-    } else if (detail) {
-      title = `${title} — ${detail}`;
-    }
+  const detail = describeDetail(row.detail);
+  if (code === "DUE_DATE_CHANGED" && row.detail) {
+    const from =
+      row.detail.from != null && row.detail.from !== ""
+        ? String(row.detail.from)
+        : "not set";
+    const to =
+      row.detail.to != null && row.detail.to !== ""
+        ? String(row.detail.to)
+        : "not set";
+    title = `${title}: ${from} → ${to}`;
+  } else if (code === "WORKER_ASSIGNED" && row.detail) {
+    const assignee = formatAssigneePerson(row.detail);
+    if (assignee) title = `${title} — ${assignee}`;
+  } else if (detail) {
+    title = `${title} — ${detail}`;
+  }
 
   const who = actorLabel(row);
   if (who) {

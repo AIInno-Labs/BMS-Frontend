@@ -6,9 +6,7 @@ import { RefreshCw, Search } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { JobsPagination } from "@/components/JobsPagination";
 import {
-  getJobCounts,
-  getJobPaymentHistory,
-  getQuoteEventCounts,
+  getOrganizationCount,
   listClientNames,
   listClients,
   type FrpJobCompanyCountDTO,
@@ -96,6 +94,8 @@ export function CustomersListPage() {
   const [totalJobs, setTotalJobs] = useState(0);
   const [quotesAccepted, setQuotesAccepted] = useState(0);
   const [paymentsReceivedCents, setPaymentsReceivedCents] = useState(0);
+  const [cashReceivedCents, setCashReceivedCents] = useState(0);
+  const [accountReceivedCents, setAccountReceivedCents] = useState(0);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -171,20 +171,15 @@ export function CustomersListPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      getJobCounts(),
-      getQuoteEventCounts(),
-      getJobPaymentHistory({ period: 24, unit: "MONTHS" }),
-    ])
-      .then(([counts, quotes, payments]) => {
+    getOrganizationCount()
+      .then((org) => {
         if (cancelled) return;
-        setActiveJobs(counts.active ?? 0);
-        setTotalJobs(counts.total ?? 0);
-        setQuotesAccepted(
-          quotes.byType.find((event) => event.eventType === "quote_accepted")
-            ?.count ?? 0
-        );
-        setPaymentsReceivedCents(payments.totalReceivedAmount ?? 0);
+        setActiveJobs(org.activeJobsCount ?? 0);
+        setTotalJobs(org.jobCount ?? 0);
+        setQuotesAccepted(org.quoteAcceptedCount ?? 0);
+        setPaymentsReceivedCents(org.totalPaymentReceivedAmount ?? 0);
+        setCashReceivedCents(org.cashCollectedPaymentAmount ?? 0);
+        setAccountReceivedCents(org.accountCollectedPaymentAmount ?? 0);
       })
       .catch(() => {
         if (cancelled) return;
@@ -192,6 +187,8 @@ export function CustomersListPage() {
         setTotalJobs(0);
         setQuotesAccepted(0);
         setPaymentsReceivedCents(0);
+        setCashReceivedCents(0);
+        setAccountReceivedCents(0);
       });
     return () => {
       cancelled = true;
@@ -251,7 +248,10 @@ export function CustomersListPage() {
             <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-slate-900">
               {fmtGBP(fromCents(paymentsReceivedCents))}
             </p>
-            <p className="mt-2 text-xs text-slate-500">Last 24 months</p>
+            <div className="mt-2 space-y-0.5 text-xs tabular-nums text-slate-500">
+              <p>Cash {fmtGBP(fromCents(cashReceivedCents))}</p>
+              <p>Account {fmtGBP(fromCents(accountReceivedCents))}</p>
+            </div>
           </div>
           <AnimatedStatTile
             label="Total jobs"

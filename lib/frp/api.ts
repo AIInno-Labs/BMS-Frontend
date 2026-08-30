@@ -656,6 +656,29 @@ export async function getJobCounts(params?: {
   return frpFetch<FrpJobCountsDTO>(`/jobs/counts${suffix}`);
 }
 
+/** Org dashboard rollup from `organization_count` (amounts in cents). */
+export type FrpOrganizationCountDTO = {
+  quoteCount?: number;
+  jobCount?: number;
+  activeJobsCount?: number;
+  quoteEventCount?: number;
+  quoteSentCount?: number;
+  customerViewedCount?: number;
+  customerQuestionCount?: number;
+  quoteAcceptedCount?: number;
+  quoteDeclinedCount?: number;
+  quoteCompletedCount?: number;
+  totalPaymentReceivedCount?: number;
+  totalPaymentReceivedAmount?: number;
+  cashCollectedPaymentAmount?: number;
+  accountCollectedPaymentAmount?: number;
+};
+
+/** `GET /jobs/organization-count` — single-row org KPI rollup. */
+export async function getOrganizationCount(): Promise<FrpOrganizationCountDTO> {
+  return frpFetch<FrpOrganizationCountDTO>("/jobs/organization-count");
+}
+
 /** `GET /jobs/resin-counts` — every resin category together. */
 export async function getJobResinCounts(params?: {
   companyName?: string;
