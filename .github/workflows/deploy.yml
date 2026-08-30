@@ -25,8 +25,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fail fast on TypeScript errors before Vercel build/deploy.
+  hygiene:
+    name: Typecheck (hygiene)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'milestone'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NEXT_PUBLIC_FRP_API_BASE_URL: https://frp-684387770054.asia-south1.run.app/api/v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
   production:
     name: Production
+    needs: hygiene
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'milestone'))
     runs-on: ubuntu-latest
     permissions:
