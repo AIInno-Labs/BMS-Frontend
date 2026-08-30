@@ -617,6 +617,10 @@ export interface ListJobsParams {
   assignedTo?: number;
   /** ISO date (`yyyy-MM-dd`). */
   dueBefore?: string;
+  /** Lookback count when paired with {@link #unit} (or alone → default MONTHS). */
+  period?: number;
+  /** DAYS or MONTHS — with {@link #period}, filters `createdDate` since that window. */
+  unit?: FrpPeriodUnit;
 }
 
 /**
@@ -641,6 +645,8 @@ export async function listJobs(
   if (params?.assignedTo != null)
     q.set("assignedTo", String(params.assignedTo));
   if (params?.dueBefore) q.set("dueBefore", params.dueBefore);
+  if (params?.period != null && params.period > 0) q.set("period", String(params.period));
+  if (params?.unit) q.set("unit", params.unit);
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
