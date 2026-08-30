@@ -1,6 +1,7 @@
 import { formatAuditWhen } from "@/lib/audit/quotient-event-audit";
 import type { JobAuditEntry } from "@/lib/audit/job-audit-types";
 import { listJobAudit } from "@/lib/frp/api";
+import type { FrpJobAuditHistoryDTO } from "@/lib/frp/job-mapper";
 import { statusToUi } from "@/lib/frp/job-status";
 
 /**
@@ -17,6 +18,7 @@ const JOB_AUDIT_EVENT_LABELS: Record<string, string> = {
   JOB_CARD_DOWNLOADED: "Job card downloaded",
   STAGE_COMPLETED: "Stage completed",
   WORKER_ASSIGNED: "Worker assigned",
+  DUE_DATE_CHANGED: "Due date changed",
   PAYMENT_RECORDED: "Payment recorded",
   DOCUMENT_UPLOADED: "Document uploaded",
   JOB_CANCELLED: "Job cancelled",
@@ -45,6 +47,81 @@ function describeDetail(detail?: Record<string, unknown> | null): string {
     .join(", ");
 }
 
+/** Prefer resolved display name; fall back to raw actor (id or machine label). */
+function actorLabel(row: FrpJobAuditHistoryDTO): string | null {
+  const user = row.actorUser;
+  if (user) {
+    const name =
+      user.displayName?.trim() ||
+      user.username?.trim() ||
+      (user.id != null ? String(user.id) : "");
+    if (name) return name;
+  }
+  const raw = row.actor?.trim();
+  return raw || null;
+}
+
+function mapAuditRow(row: FrpJobAuditHistoryDTO): JobAuditEntry {
+  const code = row.eventCode ?? "UPDATED";
+  let title = JOB_AUDIT_EVENT_LABELS[code] ?? code;
+
+  if (row.statusFrom || row.statusTo) {
+    const from = row.statusFrom ? statusToUi(row.statusFrom) : "—";
+    const to = row.statusTo ? statusToUi(row.statusTo) : "—";
+    title = `${title}: ${from} → ${to}`;
+  }
+
+    const detail = describeDetail(row.detail);
+    if (code === "DUE_DATE_CHANGED" && row.detail) {
+      const from = row.detail.from != null && row.detail.from !== "" ? String(row.detail.from) : "not set";
+      const to = row.detail.to != null && row.detail.to !== "" ? String(row.detail.to) : "not set";
+      title = `${title}: ${from} → ${to}`;
+    } else if (detail) {
+      title = `${title} — ${detail}`;
+    }
+
+  const who = actorLabel(row);
+  if (who) {
+    title = row.actorRole ? `${title} (${who}, ${row.actorRole})` : `${title} (${who})`;
+  }
+
+  const at = row.occurredAt ?? new Date().toISOString();
+  return {
+    id: row.id != null ? `audit-${row.id}` : `audit-${at}-${code}`,
+    icon: iconForEvent(code),
+    title,
+    timestamp: formatAuditWhen(at),
+    at,
+  };
+}
+
+export type JobAuditTrailPage = {
+  entries: JobAuditEntry[];
+  totalElements: number;
+  hasMore: boolean;
+};
+
+/**
+ * Paginated audit fetch for job-card timeline (newest first).
+ *
+ * @param dbId Spring Boot job primary key — `GET /jobs/{id}/audit`.
+ */
+export async function getJobAuditTrailPage(
+  dbId: string | number,
+  page: number,
+  size: number
+): Promise<JobAuditTrailPage> {
+  const res = await listJobAudit(dbId, page, size);
+  const entries = (res.content ?? []).map(mapAuditRow);
+  const totalElements = res.totalElements ?? entries.length;
+  const loaded = (page + 1) * size;
+  return {
+    entries,
+    totalElements,
+    hasMore: loaded < totalElements,
+  };
+}
+
 /**
  * @param dbId Spring Boot job primary key. The route is
  *   `GET /jobs/{id}/audit` with a numeric path variable, not the job number.
@@ -52,39 +129,18 @@ function describeDetail(detail?: Record<string, unknown> | null): string {
 export async function getJobAuditTrail(
   dbId: string | number
 ): Promise<JobAuditEntry[]> {
-  const page = await listJobAudit(dbId, 0, 100);
-  return (page.content ?? []).map((row) => {
-    const code = row.eventCode ?? "UPDATED";
-    let title = JOB_AUDIT_EVENT_LABELS[code] ?? code;
-
-    if (row.statusFrom || row.statusTo) {
-      const from = row.statusFrom ? statusToUi(row.statusFrom) : "—";
-      const to = row.statusTo ? statusToUi(row.statusTo) : "—";
-      title = `${title}: ${from} → ${to}`;
-    }
-
-    const detail = describeDetail(row.detail);
-    if (detail) title = `${title} — ${detail}`;
-
-    if (row.actor) {
-      title = row.actorRole
-        ? `${title} (${row.actor}, ${row.actorRole})`
-        : `${title} (${row.actor})`;
-    }
-
-    const at = row.occurredAt ?? new Date().toISOString();
-    return {
-      id: row.id != null ? `audit-${row.id}` : `audit-${at}-${code}`,
-      icon: iconForEvent(code),
-      title,
-      timestamp: formatAuditWhen(at),
-      at,
-    };
-  });
+  const { entries } = await getJobAuditTrailPage(dbId, 0, 100);
+  return entries;
 }
 
 /** Job-card footer version: total rows on GET /jobs/{id}/audit (job events only). */
 export async function getJobAuditCount(dbId: string | number): Promise<number> {
   const page = await listJobAudit(dbId, 0, 1);
   return page.totalElements ?? 0;
+}
+
+/** Initial audit rows shown before "Show more" — 5 on narrow screens, 8 from sm up. */
+export function auditTrailPageSize(): number {
+  if (typeof window === "undefined") return 8;
+  return window.matchMedia("(min-width: 640px)").matches ? 8 : 5;
 }

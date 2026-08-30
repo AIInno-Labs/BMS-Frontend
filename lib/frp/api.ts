@@ -966,14 +966,19 @@ export async function listJobDocuments(
 export async function uploadJobDocument(
   dbId: string | number,
   params: {
-    jobStageId: number;
+    jobStageId?: number;
+    attachToJob?: boolean;
     file: File;
     documentName?: string;
     remarks?: string;
   }
 ): Promise<FrpJobDocumentDTO> {
   const form = new FormData();
-  form.set("jobStageId", String(params.jobStageId));
+  if (params.attachToJob) {
+    form.set("attachToJob", "true");
+  } else if (params.jobStageId != null) {
+    form.set("jobStageId", String(params.jobStageId));
+  }
   form.set("file", params.file);
   if (params.documentName) form.set("documentName", params.documentName);
   if (params.remarks) form.set("remarks", params.remarks);

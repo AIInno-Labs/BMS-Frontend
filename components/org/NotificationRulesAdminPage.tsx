@@ -45,6 +45,12 @@ const NOTIFICATION_EVENTS: NotificationEvent[] = [
     category: "Job Lifecycle",
   },
   {
+    id: "DUE_DATE_CHANGED",
+    label: "Due Date Changed",
+    description: "The factory due date is set or updated on the job.",
+    category: "Job Lifecycle",
+  },
+  {
     id: "STAGE_DRAFT",
     label: "Stage reached: Draft",
     description: "Job enters the draft / pending stage.",

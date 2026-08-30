@@ -82,11 +82,12 @@ import {
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import { isCancelledJob, needsDraftDueDateWarning, DRAFT_DUE_DATE_WARNING } from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
 } from "@/lib/frp/job-cash-payment-gate";
+import { useAuth } from "@/context/AuthContext";
 
 interface JobWorkflowDashboardProps {
   job: Job;
@@ -420,9 +421,14 @@ export function JobWorkflowDashboard({
   onStatusChange,
   onJobChanged,
 }: JobWorkflowDashboardProps) {
+  const { user } = useAuth();
   const cancelled = isCancelledJob(job.status);
   const cashPaymentLocked = isJobLockedForCashPayment(job);
   const editsBlocked = cancelled || cashPaymentLocked;
+  const assignedToMe =
+    user?.id != null &&
+    job.assignedWorkerId != null &&
+    job.assignedWorkerId === String(user.id);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.measurement ?? [];
@@ -454,7 +460,7 @@ export function JobWorkflowDashboard({
   const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
   const [fileUploadDraft, setFileUploadDraft] = useState<{
     file: File | null;
-    milestoneId: number | "";
+    milestoneId: number | "others" | "";
   }>({ file: null, milestoneId: "" });
   const [fileUploading, setFileUploading] = useState(false);
   const [fileUploadError, setFileUploadError] = useState<string | null>(null);
@@ -562,10 +568,13 @@ export function JobWorkflowDashboard({
         setMilestones(nextMilestones);
         setFiles(normalizeJobFiles(docs.map(docToFileRecord)));
         setFileUploadDraft((prev) => {
+          if (prev.milestoneId === "others") {
+            return prev;
+          }
           if (prev.milestoneId !== "" && nextMilestones.some((m) => m.id === prev.milestoneId)) {
             return prev;
           }
-          return { ...prev, milestoneId: nextMilestones[0]?.id ?? "" };
+          return { ...prev, milestoneId: "" };
         });
       } catch {
         if (!cancelled) {
@@ -742,7 +751,7 @@ export function JobWorkflowDashboard({
     setFileUploadError(null);
     setFileUploadDraft({
       file: null,
-      milestoneId: milestones[0]?.id ?? "",
+      milestoneId: "",
     });
     setShowFileModal(true);
   };
@@ -843,13 +852,21 @@ export function JobWorkflowDashboard({
     setFileUploading(true);
     setFileUploadError(null);
     try {
-      await uploadJobDocument(job.dbId, {
-        jobStageId: fileUploadDraft.milestoneId,
-        file: fileUploadDraft.file,
-        documentName: fileUploadDraft.file.name,
-      });
+      if (fileUploadDraft.milestoneId === "others") {
+        await uploadJobDocument(job.dbId, {
+          attachToJob: true,
+          file: fileUploadDraft.file,
+          documentName: fileUploadDraft.file.name,
+        });
+      } else {
+        await uploadJobDocument(job.dbId, {
+          jobStageId: fileUploadDraft.milestoneId,
+          file: fileUploadDraft.file,
+          documentName: fileUploadDraft.file.name,
+        });
+      }
       setShowFileModal(false);
-      setFileUploadDraft({ file: null, milestoneId: milestones[0]?.id ?? "" });
+      setFileUploadDraft({ file: null, milestoneId: "" });
       setDocumentsRefreshKey((k) => k + 1);
     } catch (e) {
       setFileUploadError(e instanceof Error ? e.message : "Could not upload document");
@@ -1009,6 +1026,16 @@ export function JobWorkflowDashboard({
           Back to Jobs
         </Link>
         <div className="flex flex-wrap items-center gap-1.5">
+          {needsDraftDueDateWarning(job) && (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+              {DRAFT_DUE_DATE_WARNING}
+            </span>
+          )}
+          {assignedToMe && (
+            <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
+              Assigned to you
+            </span>
+          )}
           <button
             type="button"
             onClick={onPrint}
@@ -1895,29 +1922,37 @@ export function JobWorkflowDashboard({
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
-            Milestone
+            Folder
             <select
               value={fileUploadDraft.milestoneId === "" ? "" : String(fileUploadDraft.milestoneId)}
-              disabled={!job.dbId || fileUploading || milestones.length === 0}
+              disabled={!job.dbId || fileUploading}
               onChange={(e) =>
                 setFileUploadDraft((prev) => ({
                   ...prev,
-                  milestoneId: e.target.value ? Number(e.target.value) : "",
+                  milestoneId:
+                    e.target.value === ""
+                      ? ""
+                      : e.target.value === "others"
+                        ? "others"
+                        : Number(e.target.value),
                 }))
               }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm disabled:opacity-60"
             >
-              {milestones.length === 0 ? (
-                <option value="">No milestones available</option>
-              ) : (
-                milestones.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
-                  </option>
-                ))
-              )}
+              <option value="">Select folder…</option>
+              <option value="others">Others</option>
+              {milestones.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
+                </option>
+              ))}
             </select>
           </label>
+          {fileUploadDraft.milestoneId === "others" ? (
+            <p className="text-xs text-slate-500">
+              Saves on the job (SharePoint Other folder) — no stage required.
+            </p>
+          ) : null}
           {fileUploadError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {fileUploadError}

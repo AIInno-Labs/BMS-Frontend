@@ -316,10 +316,21 @@ export interface FrpJobAuditHistoryDTO {
   eventCode?: string;
   statusFrom?: string | null;
   statusTo?: string | null;
+  /** User id string, or a machine actor such as `system:quotient`. */
   actor?: string | null;
+  /** Resolved when `actor` is a numeric user id. */
+  actorUser?: FrpAssignedUserDTO | null;
   actorRole?: string | null;
   detail?: Record<string, unknown> | null;
   occurredAt?: string;
+}
+
+/** Lightweight assignee on a stage response. */
+export interface FrpAssignedUserDTO {
+  id?: number;
+  displayName?: string | null;
+  email?: string | null;
+  username?: string | null;
 }
 
 /** `JobStageDTO` — the stage tree, children nested under their milestone. */
@@ -339,7 +350,10 @@ export interface FrpJobStageDTO {
   completedAt?: string | null;
   notes?: string | null;
   dependsOnStageId?: number | null;
+  /** Comma-joined user ids (write / storage mirror). */
   assignedTeam?: string | null;
+  /** Resolved assignees from `assignedTeam`. */
+  assignees?: FrpAssignedUserDTO[];
   percentComplete?: number | null;
   children?: FrpJobStageDTO[];
   /** Documents uploaded against this stage — populated server-side on every

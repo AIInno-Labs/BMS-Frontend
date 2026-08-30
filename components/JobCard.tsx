@@ -48,7 +48,11 @@ import {
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
 import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import {
+  DRAFT_DUE_DATE_WARNING,
+  isCancelledJob,
+  needsDraftDueDateWarning,
+} from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
@@ -823,6 +827,18 @@ export function JobCard({ jobId }: JobCardProps) {
                   )}
                 </div>
               )}
+              {needsDraftDueDateWarning(display) && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <p className="flex items-start gap-2 text-sm font-semibold text-amber-900 sm:text-base">
+                      <span className="shrink-0" aria-hidden>
+                        ⚠️
+                      </span>
+                      <span className="min-w-0 break-words">
+                        {DRAFT_DUE_DATE_WARNING}
+                      </span>
+                    </p>
+                  </div>
+                )}
               {saveError && !isEditing && (
                 <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                   {saveError}

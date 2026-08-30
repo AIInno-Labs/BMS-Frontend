@@ -254,3 +254,18 @@ export function jobTypeToBackend(value?: string | null): BackendJobType | null {
   }
   return null;
 }
+
+/**
+ * Missing factory due date — page-level warning (same placement as cancelled).
+ * Shown for any active job; skipped when cancelled.
+ */
+export function needsDraftDueDateWarning(job: {
+  status?: string | null;
+  dueDate?: string | null;
+}): boolean {
+  if (job.dueDate) return false;
+  if (isCancelledJob(job.status)) return false;
+  return true;
+}
+
+export const DRAFT_DUE_DATE_WARNING = "Due date is missing";
