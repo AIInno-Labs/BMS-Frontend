@@ -74,6 +74,7 @@ export function CreateRoleDrawer({
             (p) =>
               Boolean(p.privilegeCode) &&
               !p.platformOnly &&
+              p.privilegeCode !== "JOB_EMAIL_RECIPIENT_MANAGE" &&
               ASSIGNABLE_TYPES.has((p.privilegeType ?? "").toUpperCase()),
           ),
         );

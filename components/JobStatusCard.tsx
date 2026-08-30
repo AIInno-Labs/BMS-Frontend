@@ -280,6 +280,11 @@ export function JobStatusCard({
     }
     const notes = draftRemarks.trim();
     const stage = modalStage;
+    const jobStageId = stage.id ?? job.currentStageId;
+    if (jobStageId == null) {
+      setError("This job has no stage id to attach a document to.");
+      return;
+    }
 
     if (manualPoActive) {
       // No file — JSON POST /jobs/{id}/documents/po (best-effort, same as
@@ -287,7 +292,7 @@ export function JobStatusCard({
       if (job.dbId) {
         try {
           await createManualPoDocument(job.dbId, {
-            jobStageId: stage.id as number,
+            jobStageId,
             documentName: manualPoDocumentNameFromRows(poDetails.orderNo, poItems),
             orderNo: poDetails.orderNo.trim() || undefined,
             orderDate: poDetails.orderDate.trim() || undefined,
@@ -312,7 +317,7 @@ export function JobStatusCard({
       const results = await Promise.allSettled(
         draftFiles.map((file) =>
           uploadJobDocument(job.dbId as string | number, {
-            jobStageId: stage.id as number,
+            jobStageId,
             file,
             remarks: notes,
           })
@@ -507,7 +512,6 @@ export function JobStatusCard({
                             )}
                           </span>
                         ) : item.docRequired ? (
-                          // emailRequired is backend-only; no UI indicator.
                           <FileText
                             className="h-3.5 w-3.5 shrink-0 text-slate-400"
                             aria-label="Document required"

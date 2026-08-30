@@ -56,6 +56,7 @@ const orgUserManagerLinks: NavLink[] = [
     label: "Analytics",
     icon: BarChart3,
     accessKey: ACCESS_KEYS.ANALYTICS_VIEW,
+    hidden: true,
   },
   {
     href: "/crm",
@@ -70,6 +71,7 @@ const superAdminLinks: NavLink[] = [
   { href: "/admin/organizations", label: "Organizations", icon: Building2 },
   { href: "/admin/privileges", label: "Privileges", icon: KeyRound },
   { href: "/admin/parameters", label: "Parameters", icon: Settings2 },
+  { href: "/admin/notifications", label: "Notifications", icon: Bell },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
 ];
 

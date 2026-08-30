@@ -27,6 +27,34 @@ export interface ApplicationParameterDTO {
   inherited?: boolean;
 }
 
+export type JobEmailRecipientCategory =
+  | "JOB_LIFECYCLE"
+  | "DOCUMENTS"
+  | "APPROVALS"
+  | "FINANCE";
+
+export interface JobEmailEventDef {
+  category: JobEmailRecipientCategory;
+  eventKey: string;
+  event: string;
+  eventName?: string | null;
+  description?: string | null;
+}
+
+export interface JobEmailRecipientDTO {
+  id?: number | null;
+  eventDef?: JobEmailEventDef | null;
+  assigningTrigger?: boolean | null;
+  customerTriggered?: boolean | null;
+  otherUserIds?: string | null;
+  customerSideRecipients?: string | null;
+  clientSideRecipients?: string | null;
+  totalRecipients?: number | null;
+  orgEditable?: boolean | null;
+  enabled?: boolean | null;
+  inherited?: boolean | null;
+}
+
 /** Quotient integration setup (GET/PUT /integrations/quotient). */
 export interface QuotientIntegrationDTO {
   enabled?: boolean | null;
@@ -163,6 +191,62 @@ export interface PrivilegeDTO {
   platformOnly?: boolean;
   systemManaged?: boolean;
   active?: boolean;
+}
+
+/* ------------------------------------------------- job chat & notifications */
+
+/** `com.argus.frp.Enum.MessageTag`. */
+export type MessageTag = "QUESTION" | "BLOCKER" | "UPDATE" | "HANDOVER";
+
+/** One message on a job thread — `GET/POST /jobs/{id}/messages`. */
+export interface GroupChatDTO {
+  id?: number;
+  jobId?: number;
+  body: string;
+  tag?: MessageTag | null;
+  /**
+   * Read-only. The server parses `@all` from the body at post time; a value
+   * sent on a request is ignored.
+   */
+  mentionsAll?: boolean;
+  /**
+   * Client-minted idempotency key. Send one on every post: without it a retry
+   * after a dropped connection posts the message twice.
+   */
+  clientMsgId?: string | null;
+  sentBy?: number;
+  /** Resolved server-side, so the client never has to look users up. */
+  sentByName?: string | null;
+  sentByInitials?: string | null;
+  /** ISO-8601. */
+  sentAt?: string;
+}
+
+/** `com.argus.frp.Enum.NotificationType`. One value today. */
+export type NotificationType = "CHAT_MENTION_ALL";
+
+/** One row in the notification panel. */
+export interface NotificationDTO {
+  id: number;
+  type: NotificationType;
+  jobId?: number | null;
+  /** Human-facing job number, for the deep link. */
+  jobNumber?: string | null;
+  messageId?: number | null;
+  actorUserId?: number | null;
+  actorName?: string | null;
+  title: string;
+  bodyPreview?: string | null;
+  /** Null means unread — what the red dot reflects. */
+  readAt?: string | null;
+  createdAt?: string;
+}
+
+/** The badge poll's whole payload. Deliberately tiny. */
+export interface NotificationSummaryDTO {
+  unreadCount: number;
+  /** Highest unread id; null when nothing is unread. */
+  latestId?: number | null;
 }
 
 export class FrpApiError extends Error {

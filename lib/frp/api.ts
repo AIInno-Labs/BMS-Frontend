@@ -14,6 +14,10 @@ import {
   type RoleDTO,
   type UpdateUserRequest,
   type UserDTO,
+  type GroupChatDTO,
+  type NotificationDTO,
+  type NotificationSummaryDTO,
+  type JobEmailRecipientDTO,
 } from "@/lib/frp/types";
 import type {
   FrpDocumentDownloadDTO,
@@ -187,20 +191,25 @@ export async function refreshTokens(
   };
 }
 
+function isFormDataBody(body: unknown): boolean {
+  if (body == null || typeof body !== "object") return false;
+  if (typeof FormData !== "undefined" && body instanceof FormData) return true;
+  return Object.prototype.toString.call(body) === "[object FormData]";
+}
+
 async function frpFetch<T>(
   path: string,
   init: RequestInit = {},
   opts?: { auth?: boolean; retried?: boolean }
 ): Promise<T> {
   const useAuth = opts?.auth !== false;
+  const multipart = isFormDataBody(init.body);
   const headers = new Headers(init.headers);
-  // FormData bodies must keep the browser-generated multipart boundary —
-  // setting Content-Type ourselves would drop it and break the upload.
-  if (
-    !headers.has("Content-Type") &&
-    init.body &&
-    !(init.body instanceof FormData)
-  ) {
+  // FormData must keep the browser-generated multipart boundary. Setting
+  // Content-Type: application/json here makes Spring see no `file` part.
+  if (multipart) {
+    headers.delete("Content-Type");
+  } else if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
@@ -212,9 +221,18 @@ async function frpFetch<T>(
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
+  // Plain object so fetch does not inherit a JSON Content-Type from Headers.
+  const headerInit: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    if (multipart && key.toLowerCase() === "content-type") return;
+    headerInit[key] = value;
+  });
+
   const res = await fetch(`${getFrpApiBase()}${path}`, {
-    ...init,
-    headers,
+    method: init.method,
+    body: init.body,
+    signal: init.signal,
+    headers: headerInit,
   });
 
   if (
@@ -238,6 +256,24 @@ async function frpFetch<T>(
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+export async function listJobEmailRecipients(
+  organizationId?: number | null
+): Promise<JobEmailRecipientDTO[]> {
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
+  return frpFetch<JobEmailRecipientDTO[]>(`/job-email-recipients${q}`);
+}
+
+export async function updateJobEmailRecipients(
+  body: JobEmailRecipientDTO[],
+  organizationId?: number | null
+): Promise<JobEmailRecipientDTO[]> {
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
+  return frpFetch<JobEmailRecipientDTO[]>(`/job-email-recipients${q}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function authenticate(
@@ -492,8 +528,14 @@ export async function listRoles(
 
 export async function listUsers(
   page = 0,
-  size = 20
+  size = 20,
+  organizationId?: number | null
 ): Promise<PageResponse<UserDTO>> {
+  if (organizationId != null) {
+    return frpFetch<PageResponse<UserDTO>>(
+      `/job-email-recipients/users?organizationId=${organizationId}&page=${page}&size=${size}`
+    );
+  }
   return frpFetch<PageResponse<UserDTO>>(`/users?page=${page}&size=${size}`);
 }
 
@@ -979,12 +1021,23 @@ export async function uploadJobDocument(
   } else if (params.jobStageId != null) {
     form.set("jobStageId", String(params.jobStageId));
   }
-  form.set("file", params.file);
+  form.append("file", params.file, params.file.name);
   if (params.documentName) form.set("documentName", params.documentName);
   if (params.remarks) form.set("remarks", params.remarks);
 
+  // Query string as well: Spring binds `@RequestParam` from the URL even when
+  // multipart text fields are not exposed as request parameters. Mirrors the
+  // form body exactly — an attachToJob upload has no stage, so jobStageId is
+  // omitted rather than sent as the string "undefined".
+  const q = new URLSearchParams();
+  if (params.attachToJob) {
+    q.set("attachToJob", "true");
+  } else if (params.jobStageId != null) {
+    q.set("jobStageId", String(params.jobStageId));
+  }
+  const query = q.toString();
   return frpFetch<FrpJobDocumentDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/documents`,
+    `/jobs/${encodeURIComponent(String(dbId))}/documents${query ? `?${query}` : ""}`,
     { method: "POST", body: form }
   );
 }
@@ -1221,4 +1274,144 @@ export async function getQuoteEvent(
     }
     throw err;
   }
+}
+
+/* --------------------------------------------------------------- job chat */
+
+/**
+ * `GET /jobs/{id}/messages` — the thread, newest first.
+ *
+ * History only: read backwards a page at a time. Polling for new messages is
+ * `getNewJobMessages`.
+ */
+export async function listJobMessages(
+  dbId: string | number,
+  opts?: { page?: number; size?: number }
+): Promise<PageResponse<GroupChatDTO>> {
+  const params = new URLSearchParams({
+    page: String(opts?.page ?? 0),
+    size: String(opts?.size ?? 20),
+  });
+  return frpFetch<PageResponse<GroupChatDTO>>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages?${params.toString()}`
+  );
+}
+
+/**
+ * `GET /jobs/{id}/messages/new` — everything after a message already held,
+ * oldest first.
+ *
+ * Keyed on an id, not a timestamp. Two messages posted in the same
+ * millisecond share a `sentAt`, so a time cursor either re-sends them on every
+ * poll or skips one permanently, and the client cannot tell which. An id is
+ * unique and monotonic, so `afterId` has exactly one answer.
+ *
+ * Returns a plain array: a poll appends to a thread the caller already holds,
+ * so there is nothing to page through.
+ */
+export async function getNewJobMessages(
+  dbId: string | number,
+  afterId: number,
+  limit = 50
+): Promise<GroupChatDTO[]> {
+  const params = new URLSearchParams({
+    afterId: String(afterId),
+    limit: String(limit),
+  });
+  return frpFetch<GroupChatDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/new?${params.toString()}`
+  );
+}
+
+/**
+ * `POST /jobs/{id}/messages`.
+ *
+ * `clientMsgId` is optional to the server but should always be sent: the
+ * unique index on it turns a retry after a dropped connection into a no-op
+ * that returns the original message, instead of posting twice.
+ *
+ * `@all` in the body is detected server-side and notifies every other
+ * MESSAGE_READ holder in the organization.
+ */
+export async function postJobMessage(
+  dbId: string | number,
+  body: string,
+  opts?: { clientMsgId?: string; tag?: GroupChatDTO["tag"] }
+): Promise<GroupChatDTO> {
+  return frpFetch<GroupChatDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        body,
+        clientMsgId: opts?.clientMsgId ?? null,
+        tag: opts?.tag ?? null,
+      }),
+    }
+  );
+}
+
+/**
+ * `POST /jobs/{id}/messages/read` — advance this user's watermark.
+ *
+ * Also clears their notifications for the job up to that message, so reading
+ * the thread puts the red dot out without a second trip to the panel.
+ */
+export async function markThreadRead(
+  dbId: string | number,
+  lastReadMessageId: number
+): Promise<void> {
+  await frpFetch<void>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/read`,
+    { method: "POST", body: JSON.stringify({ lastReadMessageId }) }
+  );
+}
+
+/* ----------------------------------------------------------- notifications */
+
+/**
+ * `GET /notifications/summary` — the badge poll.
+ *
+ * Every signed-in user calls this every 45 seconds, so it returns two numbers
+ * and nothing else. The caller is always the current user; there is no way to
+ * request someone else's inbox.
+ */
+export async function getNotificationSummary(): Promise<NotificationSummaryDTO> {
+  return frpFetch<NotificationSummaryDTO>("/notifications/summary");
+}
+
+/** `GET /notifications` — the panel. Read and unread together by default. */
+export async function listNotifications(opts?: {
+  unreadOnly?: boolean;
+  page?: number;
+  size?: number;
+}): Promise<PageResponse<NotificationDTO>> {
+  const params = new URLSearchParams({
+    unreadOnly: String(opts?.unreadOnly ?? false),
+    page: String(opts?.page ?? 0),
+    size: String(opts?.size ?? 20),
+  });
+  return frpFetch<PageResponse<NotificationDTO>>(
+    `/notifications?${params.toString()}`
+  );
+}
+
+/**
+ * `POST /notifications/read` — mark specific rows, or everything up to an id.
+ *
+ * Only the caller's own notifications are affected: passing an id belonging to
+ * a colleague updates zero rows server-side.
+ */
+export async function markNotificationsRead(
+  target: { ids: number[] } | { upToId: number }
+): Promise<void> {
+  await frpFetch<void>("/notifications/read", {
+    method: "POST",
+    body: JSON.stringify(target),
+  });
+}
+
+/** `POST /notifications/read-all`. */
+export async function markAllNotificationsRead(): Promise<void> {
+  await frpFetch<void>("/notifications/read-all", { method: "POST" });
 }
