@@ -1,4 +1,5 @@
-# Hygiene checks on pull requests into milestone* / del-*. Does not deploy.
+# Hygiene checks — typecheck (and lint) before any deploy.
+# Catches TypeScript compile errors on PRs and feature pushes.
 #
 # API: https://frp-684387770054.asia-south1.run.app/api/v1
 name: Checks
@@ -8,6 +9,12 @@ on:
     branches:
       - "milestone*"
       - "del-*"
+      - "main"
+  push:
+    branches:
+      - "milestone*"
+      - "feature/**"
+  workflow_dispatch:
 
 concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +22,7 @@ concurrency:
 
 jobs:
   check:
+    name: Typecheck (hygiene)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,3 +43,7 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
