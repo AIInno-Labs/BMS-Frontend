@@ -970,7 +970,7 @@ export type FrpExportKind = "JOB_CARD" | "LOC";
  * type — call this after printing/exporting so the export is tracked;
  * there is nothing meaningful in the response.
  */
-export async function recordJobExport(
+export async function recordJobAudit(
   dbId: string | number,
   type: FrpExportKind
 ): Promise<void> {
