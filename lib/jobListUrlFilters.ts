@@ -1,4 +1,4 @@
-export type JobListDuePreset = "any" | "7d" | "1m" | "overdue";
+export type JobListDuePreset = "any" | "1w" | "2w" | "1m" | "overdue";
 
 /** ISO yyyy-MM-dd + calendar day delta at local noon. */
 export function isoDatePlusDaysFrom(todayIso: string, days: number): string {
@@ -19,7 +19,9 @@ export function parseAssignedToParam(raw: string | null): number | undefined {
 }
 
 export function parseDuePresetParam(raw: string | null): JobListDuePreset {
-  if (raw === "7d" || raw === "1m" || raw === "overdue") return raw;
+  // `7d` kept as alias for older bookmarked URLs.
+  if (raw === "7d" || raw === "1w") return "1w";
+  if (raw === "2w" || raw === "1m" || raw === "overdue") return raw;
   return "any";
 }
 
@@ -29,7 +31,8 @@ export function duePresetToDueBefore(
   todayIso: string
 ): string | undefined {
   if (preset === "any") return undefined;
-  if (preset === "7d") return isoDatePlusDaysFrom(todayIso, 7);
+  if (preset === "1w") return isoDatePlusDaysFrom(todayIso, 7);
+  if (preset === "2w") return isoDatePlusDaysFrom(todayIso, 14);
   if (preset === "1m") return isoDatePlusDaysFrom(todayIso, 30);
   // overdue: dueDate <= yesterday
   return isoDatePlusDaysFrom(todayIso, -1);
@@ -37,7 +40,7 @@ export function duePresetToDueBefore(
 
 /**
  * Client keep after `dueBefore` page load.
- * For 7d/1m, drop past-due rows (API upper-bound only).
+ * For week/month presets, drop past-due rows (API upper-bound only).
  * For overdue/any, keep all returned rows.
  */
 export function shouldKeepJobForDuePreset(

@@ -16,6 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { useAnimatedNumber } from "@/components/analytics/useAnimatedNumber";
+import { useAuth } from "@/context/AuthContext";
+import { useJobs } from "@/context/JobsContext";
 import {
   buildJobTimelineAnalytics,
   timelineStageInfo,
@@ -27,9 +29,12 @@ import {
 } from "@/lib/jobTimelineAnalytics";
 import { listJobStages } from "@/lib/frp/api";
 import type { FrpJobStageDTO } from "@/lib/frp/job-mapper";
+import { isCancelledJob } from "@/lib/frp/job-status";
+import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job } from "@/lib/types";
+import { resolveWorkerNameFromId } from "@/lib/workers";
 
 const STAGE_ICONS: Record<
   TimelineStageId,
@@ -92,6 +97,8 @@ function jobStageClass(status: Job["status"]): string {
 interface JobTimelineAnalyticsProps {
   job: Job;
   drawingDoneCount?: number;
+  /** Refetch parent job after Assign to me (PUT /jobs). */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -480,7 +487,39 @@ function renderDetailContent(
 export function JobTimelineAnalytics({
   job,
   drawingDoneCount = 0,
+  onJobChanged,
 }: JobTimelineAnalyticsProps) {
+  const { user } = useAuth();
+  const { updateJob } = useJobs();
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const editsBlocked =
+    isCancelledJob(job.status) || isJobLockedForCashPayment(job);
+  const assignedToMe =
+    user?.id != null &&
+    job.assignedWorkerId != null &&
+    job.assignedWorkerId === String(user.id);
+
+  const assignJobToMe = async () => {
+    if (editsBlocked || assignBusy || user?.id == null || job.dbId == null) return;
+    const myId = String(user.id);
+    if (job.assignedWorkerId === myId) return;
+    setAssignBusy(true);
+    setAssignError(null);
+    try {
+      await updateJob({
+        ...job,
+        assignedWorkerId: myId,
+        assignedWorkerName: resolveWorkerNameFromId(myId),
+      });
+      await onJobChanged?.();
+    } catch (e) {
+      setAssignError(e instanceof Error ? e.message : "Could not assign job");
+    } finally {
+      setAssignBusy(false);
+    }
+  };
+
   // The mock, still used for the parts that have no server backing (dates,
   // insights, risk/efficiency). Progress and per-stage completion are replaced
   // below with the real stage tree.
@@ -676,25 +715,45 @@ export function JobTimelineAnalytics({
             {formatDueLine(job)}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className={jobStageClass(job.status)}>{jobStageLabel(job)}</span>
-          <button
-            type="button"
-            onClick={() => toggle({ type: "health" })}
-            className={`cursor-pointer rounded-lg border px-3 py-2 text-center transition-colors ${
-              selected?.type === "health"
-                ? "border-orange-300 bg-orange-50 ring-2 ring-orange-200/50"
-                : "border-[#E5E7EB] bg-[#FAFBFC] hover:border-orange-200 hover:bg-orange-50/50"
-            }`}
-            aria-expanded={selected?.type === "health"}
-          >
-            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-              Job Progress
-            </p>
-            <p className="mt-0.5 font-mono text-lg font-semibold leading-none text-orange-600">
-              {progressDisplay}%
-            </p>
-          </button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex shrink-0 items-center gap-2">
+            {!editsBlocked && user?.id != null && !assignedToMe ? (
+              <button
+                type="button"
+                onClick={() => void assignJobToMe()}
+                disabled={assignBusy}
+                className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900 transition-colors hover:border-sky-300 hover:bg-sky-100 disabled:opacity-60"
+              >
+                {assignBusy ? "Assigning…" : "Assign to me"}
+              </button>
+            ) : null}
+            {assignedToMe ? (
+              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
+                Assigned to you
+              </span>
+            ) : null}
+            <span className={jobStageClass(job.status)}>{jobStageLabel(job)}</span>
+            <button
+              type="button"
+              onClick={() => toggle({ type: "health" })}
+              className={`cursor-pointer rounded-lg border px-3 py-2 text-center transition-colors ${
+                selected?.type === "health"
+                  ? "border-orange-300 bg-orange-50 ring-2 ring-orange-200/50"
+                  : "border-[#E5E7EB] bg-[#FAFBFC] hover:border-orange-200 hover:bg-orange-50/50"
+              }`}
+              aria-expanded={selected?.type === "health"}
+            >
+              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                Job Progress
+              </p>
+              <p className="mt-0.5 font-mono text-lg font-semibold leading-none text-orange-600">
+                {progressDisplay}%
+              </p>
+            </button>
+          </div>
+          {assignError ? (
+            <p className="max-w-xs text-right text-xs text-red-600">{assignError}</p>
+          ) : null}
         </div>
       </div>
 

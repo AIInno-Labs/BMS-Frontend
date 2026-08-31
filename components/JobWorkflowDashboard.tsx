@@ -461,14 +461,10 @@ export function JobWorkflowDashboard({
   onStatusChange,
   onJobChanged,
 }: JobWorkflowDashboardProps) {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const cancelled = isCancelledJob(job.status);
   const cashPaymentLocked = isJobLockedForCashPayment(job);
   const editsBlocked = cancelled || cashPaymentLocked;
-  const assignedToMe =
-    user?.id != null &&
-    job.assignedWorkerId != null &&
-    job.assignedWorkerId === String(user.id);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.selectedItems ?? [];
@@ -1100,11 +1096,6 @@ export function JobWorkflowDashboard({
               {DRAFT_DUE_DATE_WARNING}
             </span>
           )}
-          {assignedToMe && (
-            <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
-              Assigned to you
-            </span>
-          )}
           {onPrintLoc && qcCompleted && (
             <button
               type="button"
@@ -1189,7 +1180,7 @@ export function JobWorkflowDashboard({
         </p>
       )}
 
-      <JobTimelineAnalytics job={job} />
+      <JobTimelineAnalytics job={job} onJobChanged={onJobChanged} />
 
       {cashPaymentLocked && !cancelled ? (
         <p

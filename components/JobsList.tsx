@@ -720,8 +720,9 @@ export function JobsList({ jobs }: JobsListProps) {
               aria-label="Filter due date"
             >
               <option value="">Any</option>
-              <option value="7d">Next 7 days</option>
-              <option value="1m">Next 1 month</option>
+              <option value="1w">1 week</option>
+              <option value="2w">2 weeks</option>
+              <option value="1m">1 month</option>
               <option value="overdue">All overdue</option>
             </select>
           </label>
