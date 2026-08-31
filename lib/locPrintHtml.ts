@@ -51,7 +51,9 @@ function officialLocDataToFieldValues(data: OfficialLocData): Record<string, str
     materialsList: data.materialsList,
     additionalNotes: data.additionalNotes,
     confirmedByName: data.confirmedByName,
-    warningBanner: data.warningBanner,
+    // `data.warningBanner` is deliberately not filled here — the PDF itself
+    // stays clean; the job page shows it instead (see the `X-Loc-Warning`
+    // header in the route).
     // Same person as the confirmation line above, and the QC sign-off date
     // (not today's export date) — repeated under separate ids since a
     // `data-jc` id can only be filled once per document.

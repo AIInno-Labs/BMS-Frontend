@@ -834,16 +834,6 @@ export function JobCard({ jobId }: JobCardProps) {
                         <Pencil className="h-5 w-5" aria-hidden />
                         Edit details
                       </button>
-                      <button
-                        type="button"
-                        onClick={handlePrint}
-                        disabled={isExporting}
-                        aria-busy={isExporting}
-                        className="btn-primary min-h-[48px] w-full flex-1 justify-center disabled:cursor-wait disabled:opacity-80"
-                      >
-                        <Download className="h-5 w-5" aria-hidden />
-                        {isExporting ? "Exporting…" : "Download PDF"}
-                      </button>
                       {qcCompleted && (
                         <button
                           type="button"
@@ -856,6 +846,16 @@ export function JobCard({ jobId }: JobCardProps) {
                           {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={handlePrint}
+                        disabled={isExporting}
+                        aria-busy={isExporting}
+                        className="btn-primary min-h-[48px] w-full flex-1 justify-center disabled:cursor-wait disabled:opacity-80"
+                      >
+                        <Download className="h-5 w-5" aria-hidden />
+                        {isExporting ? "Exporting…" : "Download PDF"}
+                      </button>
                     </div>
                   )}
                 </div>

@@ -1111,23 +1111,6 @@ export function JobWorkflowDashboard({
               Assigned to you
             </span>
           )}
-          <button
-            type="button"
-            onClick={onPrint}
-            disabled={isExporting || isSaving || cancelBusy}
-            aria-busy={isExporting}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
-          >
-            {isExporting ? (
-              <Loader2
-                className="h-3.5 w-3.5 shrink-0 animate-spin"
-                aria-hidden
-              />
-            ) : (
-              <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            )}
-            {isExporting ? "Exporting…" : "Export PDF"}
-          </button>
           {onPrintLoc && qcCompleted && (
             <button
               type="button"
@@ -1147,6 +1130,23 @@ export function JobWorkflowDashboard({
               {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
             </button>
           )}
+          <button
+            type="button"
+            onClick={onPrint}
+            disabled={isExporting || isSaving || cancelBusy}
+            aria-busy={isExporting}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
+          >
+            {isExporting ? (
+              <Loader2
+                className="h-3.5 w-3.5 shrink-0 animate-spin"
+                aria-hidden
+              />
+            ) : (
+              <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            )}
+            {isExporting ? "Exporting…" : "Export PDF"}
+          </button>
           <button
             type="button"
             className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
