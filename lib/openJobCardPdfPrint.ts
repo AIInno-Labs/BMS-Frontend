@@ -1,3 +1,5 @@
+import { stampExportTimestamp } from "@/lib/exportTimestamp";
+
 const MM_TO_PX = 96 / 25.4;
 
 /** A4 portrait printable area (2 mm margins). */
@@ -10,7 +12,7 @@ function a4PortraitPrintablePx(): { width: number; height: number } {
 }
 
 /**
- * Compact rules so measurement matches print output
+ * Compact rules so print layout matches print output
  * (@media print is not active until the print dialog opens).
  */
 function injectPrePrintLayout(doc: Document): void {
@@ -200,53 +202,6 @@ function fitJobCardToOnePage(doc: Document): void {
 }
 
 /**
- * "23 Aug 2026, 2:45 pm GMT+5:30" — the exporting browser's own local date,
- * time and timezone. Computed here (client-side) rather than where the HTML
- * is generated, because that happens on the server and has no way to know
- * which timezone the person exporting is actually in. Whatever short form
- * the browser's own `Intl` gives for the timezone is used as-is — a named
- * code like "AEST" where the browser has one, otherwise its offset form
- * like "GMT+5:30" — no manual per-timezone overrides.
- */
-function formatExportTimestamp(): string {
-  const now = new Date();
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const datePart = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone,
-  }).format(now);
-
-  const timePart = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone,
-  }).format(now);
-
-  const zoneAbbr =
-    new Intl.DateTimeFormat("en-US", { timeZoneName: "short", timeZone })
-      .formatToParts(now)
-      .find((part) => part.type === "timeZoneName")?.value ?? timeZone;
-
-  return `${datePart}, ${timePart} ${zoneAbbr}`;
-}
-
-/**
- * Stamps the export date/time onto the printed card's watermark line
- * ("JOB {id} · Rev {XX}", bottom-left, `pdf.html`'s `.jc-watermark`) right
- * after the existing text, so it inherits the exact same styling.
- */
-function stampExportTimestamp(doc: Document): void {
-  const stamp = formatExportTimestamp();
-  doc.querySelectorAll<HTMLElement>(".jc-watermark").forEach((el) => {
-    el.append(` · ${stamp}`);
-  });
-}
-
-/**
  * Loads the single-page job card HTML and opens the print dialog in the
  * current tab (hidden iframe — no new tab / pop-up).
  */
@@ -287,7 +242,7 @@ export async function printJobCardPdf(jobId: string): Promise<void> {
   doc.open();
   doc.write(html);
   doc.close();
-  stampExportTimestamp(doc);
+  stampExportTimestamp(doc, ".jc-watermark");
 
   await new Promise<void>((resolve) => {
     const done = () => resolve();

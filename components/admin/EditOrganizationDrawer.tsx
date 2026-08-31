@@ -193,9 +193,13 @@ export function EditOrganizationDrawer({
           <input
             id="edit-address"
             className={inputClass}
+            required
             value={form.address ?? ""}
             onChange={(e) => setField("address", e.target.value)}
           />
+          {fieldErrors.address && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.address}</p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="edit-city">

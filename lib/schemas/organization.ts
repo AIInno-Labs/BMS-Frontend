@@ -21,7 +21,7 @@ const orgFields = {
   companyName: z.string().trim().min(1, "Company name is required"),
   companyCode: z.string().trim().min(1, "Company code is required"),
   gstNo: z.string().trim().optional(),
-  address: z.string().trim().optional(),
+  address: z.string().trim().min(1, "Address is required"),
   city: z.string().trim().optional(),
   country: z.string().trim().optional(),
   postalCode: z.string().trim().optional(),

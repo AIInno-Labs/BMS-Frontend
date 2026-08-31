@@ -22,7 +22,7 @@ import {
   SHIPMENT_METHOD_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
-import { setJobRequirement } from "@/lib/frp/api";
+import { setJobRequirement, saveJobMeasurements } from "@/lib/frp/api";
 import { isCancelledJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import {
@@ -91,6 +91,8 @@ export function JobWorkflowExtrasSection({
 
   const [requirementsBusy, setRequirementsBusy] = useState(false);
   const [requirementsError, setRequirementsError] = useState<string | null>(null);
+  const [materialsBusy, setMaterialsBusy] = useState(false);
+  const [materialsError, setMaterialsError] = useState<string | null>(null);
 
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
@@ -199,18 +201,23 @@ export function JobWorkflowExtrasSection({
   };
 
   const saveMaterials = () => {
-    const nextExtras: JobWorkflowExtras = {
-      ...extras,
-      materialsList: materialsDraft.materialsList,
-      additionalNotes: materialsDraft.additionalNotes,
-    };
-    void saveExtras(
-      nextExtras,
-      {
-        scopeLines: textToScopeLines(materialsDraft.materialsList),
-      },
-      "Materials & specifications updated"
-    ).then(() => setShowMaterialsModal(false));
+    if (!job.dbId) return;
+    setMaterialsBusy(true);
+    setMaterialsError(null);
+    void saveJobMeasurements(job.dbId, {
+      materials: { materialsList: materialsDraft.materialsList },
+      notes: materialsDraft.additionalNotes,
+    })
+      .then(async () => {
+        await onJobChanged?.();
+        setShowMaterialsModal(false);
+      })
+      .catch((e) => {
+        setMaterialsError(
+          e instanceof Error ? e.message : "Could not save materials"
+        );
+      })
+      .finally(() => setMaterialsBusy(false));
   };
 
   return (
@@ -413,10 +420,15 @@ export function JobWorkflowExtrasSection({
       <EditModal
         open={showMaterialsModal}
         title="Edit materials & specifications"
-        onClose={() => setShowMaterialsModal(false)}
+        onClose={() => !materialsBusy && setShowMaterialsModal(false)}
         wide
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          {materialsError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {materialsError}
+            </p>
+          ) : null}
           <TextAreaField
             label="List of materials for this job"
             value={materialsDraft.materialsList}
@@ -429,8 +441,12 @@ export function JobWorkflowExtrasSection({
             onChange={(v) => setMaterialsDraft((p) => ({ ...p, additionalNotes: v }))}
             rows={4}
           />
-          <button className="btn-primary w-full" onClick={saveMaterials} disabled={isSaving}>
-            {isSaving ? "Saving…" : "Save materials"}
+          <button
+            className="btn-primary w-full"
+            onClick={saveMaterials}
+            disabled={isSaving || materialsBusy || !job.dbId}
+          >
+            {materialsBusy || isSaving ? "Saving…" : "Save materials"}
           </button>
         </div>
       </EditModal>
