@@ -359,6 +359,9 @@ export interface FrpJobStageDTO {
   /** Documents uploaded against this stage — populated server-side on every
    *  `GET /jobs/{id}/stages` and stage PUT/scan response. */
   documents?: FrpJobDocumentDTO[];
+  /** Who last touched this stage row (raw user id) — resolve via a users
+   *  lookup (e.g. `listUsers`), same as `getQcSignoff` does. */
+  lastModifiedBy?: number | null;
 }
 
 /** Who signed off QC, and when — for the Letter of Compliance. */
@@ -368,35 +371,29 @@ export interface QcSignoff {
 }
 
 /**
- * Finds the QC sign-off from the job's audit log: the `STAGE_COMPLETED`
- * event whose `detail.stageKey` is `"signoff"` — the QA Sign-off operation,
- * the last of the `qc` milestone's three children (`visual`, `dimensional`,
- * `signoff`; see the `"qc"` entry in `JobStageServiceImpl`'s stage-template
- * map). The `qc` milestone itself completes by cascade once its children do
- * and never gets its own `STAGE_COMPLETED` row — only real operations do —
- * so `stageKey === "qc"` never matches anything.
+ * Finds the QC sign-off from the job's stage tree: the `qc` milestone's
+ * `signoff` child operation (QA Sign-off — the last of `qc`'s three
+ * children: `visual`, `dimensional`, `signoff`; see the `"qc"` entry in
+ * `JobStageServiceImpl`'s stage-template map). `stages` is the top-level
+ * milestone list from `GET /jobs/{id}` (`dto.stages`) — `signoff` is
+ * nested under `qc`'s own `children`, not a top-level entry.
  *
- * `auditRows` is expected newest first (`GET /jobs/{id}/audit`'s own
- * order), so the first match is the most recent — the one that actually
- * stands, since an audit row is immutable and a job can only sign off QC
- * once in the ordinary flow.
- *
- * Preferred over the stage's own `completedAt`/`lastModifiedBy`: the stage
- * row is a single mutable record ("per-stage detail... folded into" the row,
- * see `JobStage.java`'s class doc) — a later edit to the same completed
- * stage (a note, a team change) re-stamps `lastModifiedBy` to whoever made
- * that edit, silently misattributing the sign-off. The audit row can't drift
- * like that.
+ * Date comes from the stage's own `completedAt`. Name is resolved from the
+ * stage's raw `lastModifiedBy` user id via `usersById` — a plain
+ * `id -> displayName` lookup built from the existing `GET /users` endpoint
+ * (`listUsers`), the same source the app already uses elsewhere (e.g. the
+ * "Responsible party" picker) to turn a user id into a name.
  */
 export function getQcSignoff(
-  auditRows: FrpJobAuditHistoryDTO[] | null | undefined
+  stages: FrpJobStageDTO[] | null | undefined,
+  usersById: Record<number, string>
 ): QcSignoff {
-  const row = auditRows?.find(
-    (r) => r.eventCode === "STAGE_COMPLETED" && r.detail?.stageKey === "signoff"
-  );
+  const qc = stages?.find((s) => s.stageKey === "qc");
+  const signoff = qc?.children?.find((c) => c.stageKey === "signoff");
+  const modifiedBy = signoff?.lastModifiedBy;
   return {
-    name: row?.actorUser?.displayName ?? null,
-    occurredAt: row?.occurredAt ?? null,
+    name: (modifiedBy != null ? usersById[modifiedBy] : undefined) ?? null,
+    occurredAt: signoff?.completedAt ?? null,
   };
 }
 

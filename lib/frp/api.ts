@@ -960,15 +960,24 @@ export async function downloadJobCard(
   );
 }
 
+/** Matches the backend's whitelisted `com.argus.frp.Enum.ExportKind`. */
+export type FrpExportKind = "JOB_CARD" | "LOC";
+
 /**
- * `GET /jobs/{id}/loc-download` — records a `LOC_DOWNLOADED` audit row
- * against the caller. Call this after printing the Letter of Compliance so
- * the export is tracked; there is nothing meaningful in the response.
+ * `POST /jobs/{id}/audit` — records that this user exported a document for
+ * the job (the audit row written depends on `type`; see `ExportKind` on the
+ * backend). Generic in place of one-off `downloadX` calls per document
+ * type — call this after printing/exporting so the export is tracked;
+ * there is nothing meaningful in the response.
  */
-export async function downloadLoc(dbId: string | number): Promise<void> {
-  await frpFetch<void>(
-    `/jobs/${encodeURIComponent(String(dbId))}/loc-download`
-  );
+export async function recordJobExport(
+  dbId: string | number,
+  type: FrpExportKind
+): Promise<void> {
+  await frpFetch<void>(`/jobs/${encodeURIComponent(String(dbId))}/audit`, {
+    method: "POST",
+    body: JSON.stringify({ type }),
+  });
 }
 
 /** `DELETE /jobs/{id}` — soft cancel, sets `stageStatus = CANCELLED`. */

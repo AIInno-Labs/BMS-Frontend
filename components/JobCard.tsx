@@ -48,7 +48,7 @@ import {
   resinTypes,
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import { downloadJobCard, downloadLoc, getQuote, cancelJob, listJobStages } from "@/lib/frp/api";
+import { downloadJobCard, recordJobExport, getQuote, cancelJob, listJobStages } from "@/lib/frp/api";
 import {
   DRAFT_DUE_DATE_WARNING,
   isCancelledJob,
@@ -327,11 +327,11 @@ export function JobCard({ jobId }: JobCardProps) {
       }
       const { warning } = await printLocPdf(job.dbId);
       setSaveWarning(warning ?? null);
-      // Log the export for the audit trail (LOC_DOWNLOADED). Best-effort:
+      // Log the export for the audit trail (LOC_EXPORTED). Best-effort:
       // the PDF is already open, so a failed audit must not surface an error.
       // Bumps auditRefreshKey on success so the trail shows it without a
       // manual page refresh.
-      void downloadLoc(job.dbId)
+      void recordJobExport(job.dbId, "LOC")
         .then(() => setAuditRefreshKey((k) => k + 1))
         .catch(() => {});
     } catch (e) {

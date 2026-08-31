@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
 import { buildOfficialLocData, formatWorkshopAddress } from "@/lib/buildLocData";
 import { buildLocPrintHtml } from "@/lib/locPrintHtml";
-import {
-  frpJobToUi,
-  getQcSignoff,
-  type FrpJobAuditHistoryDTO,
-  type FrpJobDTO,
-} from "@/lib/frp/job-mapper";
-import type { UserDTO } from "@/lib/frp/types";
+import { frpJobToUi, getQcSignoff, type FrpJobDTO } from "@/lib/frp/job-mapper";
+import type { PageResponse, UserDTO } from "@/lib/frp/types";
 
 interface RouteContext {
   /**
@@ -23,9 +18,12 @@ interface RouteContext {
  * `app/api/jobs/[jobId]/job-card-html/route.ts`.
  *
  * The workshop address comes from `GET /auth/me`'s organization. The
- * confirming name and manufacture date both come from the job's own audit
- * log — the `STAGE_COMPLETED`/`qc` row — not from whoever happens to be
- * exporting the PDF.
+ * manufacture date comes from the job's own `qc` stage tree — the `signoff`
+ * operation's `completedAt`. The confirming name is that same operation's
+ * `lastModifiedBy` (a raw user id), resolved to a display name via the
+ * existing `GET /users` endpoint — the same one `listUsers` already uses
+ * elsewhere in the app (e.g. the "Responsible party" picker) — not a new
+ * backend endpoint, and not whoever happens to be exporting the PDF.
  *
  * Never blocks: whatever is missing renders as "—" with a warning banner
  * baked into the document (`data.warningBanner`), and the same text is
@@ -53,7 +51,7 @@ export async function GET(request: Request, context: RouteContext) {
   const authHeaders: Record<string, string> = auth ? { Authorization: auth } : {};
 
   try {
-    const [jobRes, meRes, auditRes] = await Promise.all([
+    const [jobRes, meRes, usersRes] = await Promise.all([
       fetch(`${base}/jobs/${encodeURIComponent(decoded)}`, {
         headers: authHeaders,
         cache: "no-store",
@@ -62,10 +60,9 @@ export async function GET(request: Request, context: RouteContext) {
         headers: authHeaders,
         cache: "no-store",
       }),
-      // Newest first (the endpoint's own order) — size 100 to comfortably
-      // cover the qc completion row on a job with heavy audit activity
-      // since. Same "just get everything" convention as getJobAuditTrail.
-      fetch(`${base}/jobs/${encodeURIComponent(decoded)}/audit?page=0&size=100`, {
+      // Same "list every org user" call listUsers() already makes for the
+      // Responsible-party picker — just resolving one more id from it.
+      fetch(`${base}/users?page=0&size=200`, {
         headers: authHeaders,
         cache: "no-store",
       }),
@@ -79,13 +76,17 @@ export async function GET(request: Request, context: RouteContext) {
     }
     const dto = (await jobRes.json()) as FrpJobDTO;
     const me = meRes.ok ? ((await meRes.json()) as UserDTO) : null;
-    const auditPage = auditRes.ok
-      ? ((await auditRes.json()) as { content?: FrpJobAuditHistoryDTO[] })
+    const usersPage = usersRes.ok
+      ? ((await usersRes.json()) as PageResponse<UserDTO>)
       : null;
+    const usersById: Record<number, string> = {};
+    for (const u of usersPage?.content ?? []) {
+      if (u.id != null && u.displayName) usersById[u.id] = u.displayName;
+    }
 
     const job = frpJobToUi(dto);
     const data = buildOfficialLocData(job, {
-      qcSignoff: getQcSignoff(auditPage?.content),
+      qcSignoff: getQcSignoff(dto.stages, usersById),
       workshopAddress: me?.organization ? formatWorkshopAddress(me.organization) : "",
     });
 
