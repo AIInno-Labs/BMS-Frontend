@@ -106,10 +106,16 @@ interface JobWorkflowDashboardProps {
   job: Job;
   isSaving: boolean;
   isExporting?: boolean;
+  isExportingLoc?: boolean;
   saveError: string | null;
   saveSuccess?: boolean;
+  /** Export succeeded but something required was still blank — shown amber. */
+  saveWarning?: string | null;
   auditRefreshKey?: number;
   onPrint: () => void;
+  onPrintLoc?: () => void;
+  /** Dismisses the save error / success banner (the X button). */
+  onDismissMessage?: () => void;
   /** Soft-cancel the job (DELETE /jobs/{id}). Prefer over status patch. */
   onCancelJob?: () => Promise<void>;
   onSavePatch: (
@@ -442,10 +448,14 @@ export function JobWorkflowDashboard({
   job,
   isSaving,
   isExporting = false,
+  isExportingLoc = false,
   saveError,
   saveSuccess,
+  saveWarning,
   auditRefreshKey = 0,
   onPrint,
+  onPrintLoc,
+  onDismissMessage,
   onCancelJob,
   onSavePatch,
   onStatusChange,
@@ -509,6 +519,13 @@ export function JobWorkflowDashboard({
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
   const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
+  // Letter of Compliance needs the qc milestone to have completed — this
+  // just gates the button. (The date/name shown on the document come from
+  // the audit log's STAGE_COMPLETED/qc row instead, see getQcSignoff in
+  // job-mapper.ts.)
+  const qcCompleted = milestones.some(
+    (m) => m.stageKey === "qc" && m.completedAt != null
+  );
   const [fileUploadDraft, setFileUploadDraft] = useState<{
     file: File | null;
     milestoneId: number | "others" | "";
@@ -1111,6 +1128,25 @@ export function JobWorkflowDashboard({
             )}
             {isExporting ? "Exporting…" : "Export PDF"}
           </button>
+          {onPrintLoc && qcCompleted && (
+            <button
+              type="button"
+              onClick={onPrintLoc}
+              disabled={isExportingLoc || isSaving || cancelBusy}
+              aria-busy={isExportingLoc}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2C5985] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#234868] disabled:cursor-wait disabled:opacity-80"
+            >
+              {isExportingLoc ? (
+                <Loader2
+                  className="h-3.5 w-3.5 shrink-0 animate-spin"
+                  aria-hidden
+                />
+              ) : (
+                <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              )}
+              {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
+            </button>
+          )}
           <button
             type="button"
             className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
@@ -1127,6 +1163,37 @@ export function JobWorkflowDashboard({
           </button>
         </div>
       </div>
+
+      {(saveError || saveWarning || saveSuccess) && (
+        <p
+          className={`mt-3 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+            saveError
+              ? "border-red-200 bg-red-50 text-red-700"
+              : saveWarning
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+          role="status"
+        >
+          <span>
+            {saveError ||
+              saveWarning ||
+              (job.status === "Cancelled"
+                ? "Job cancelled. It remains in the register for audit."
+                : "Saved. PDF export reflects updated fields.")}
+          </span>
+          {onDismissMessage && (
+            <button
+              type="button"
+              onClick={onDismissMessage}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          )}
+        </p>
+      )}
 
       <JobTimelineAnalytics job={job} />
 
@@ -1455,21 +1522,6 @@ export function JobWorkflowDashboard({
           </div>
         </section>
 
-        {(saveError || saveSuccess) && (
-          <p
-            className={`rounded-xl border px-4 py-3 text-sm ${
-              saveError
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700"
-            }`}
-            role="status"
-          >
-            {saveError ||
-              (job.status === "Cancelled"
-                ? "Job cancelled. It remains in the register for audit."
-                : "Saved. PDF export reflects updated fields.")}
-          </p>
-        )}
       </div>
 
       <ConfirmDialog

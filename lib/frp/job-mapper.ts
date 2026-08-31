@@ -257,6 +257,7 @@ export interface FrpJobCardPayload {
   clipRows?: { clip?: string; qty?: string; packedBy?: string }[];
   packs?: { length?: string; width?: string; height?: string; weightKg?: string }[];
   materialRows?: { material?: string; qty?: string; availability?: string }[];
+  materialsList?: string;
   shipmentMethod?: string;
   billingAddress?: string;
   deliveryAddress?: string;
@@ -358,6 +359,45 @@ export interface FrpJobStageDTO {
   /** Documents uploaded against this stage — populated server-side on every
    *  `GET /jobs/{id}/stages` and stage PUT/scan response. */
   documents?: FrpJobDocumentDTO[];
+}
+
+/** Who signed off QC, and when — for the Letter of Compliance. */
+export interface QcSignoff {
+  name: string | null;
+  occurredAt: string | null;
+}
+
+/**
+ * Finds the QC sign-off from the job's audit log: the `STAGE_COMPLETED`
+ * event whose `detail.stageKey` is `"signoff"` — the QA Sign-off operation,
+ * the last of the `qc` milestone's three children (`visual`, `dimensional`,
+ * `signoff`; see the `"qc"` entry in `JobStageServiceImpl`'s stage-template
+ * map). The `qc` milestone itself completes by cascade once its children do
+ * and never gets its own `STAGE_COMPLETED` row — only real operations do —
+ * so `stageKey === "qc"` never matches anything.
+ *
+ * `auditRows` is expected newest first (`GET /jobs/{id}/audit`'s own
+ * order), so the first match is the most recent — the one that actually
+ * stands, since an audit row is immutable and a job can only sign off QC
+ * once in the ordinary flow.
+ *
+ * Preferred over the stage's own `completedAt`/`lastModifiedBy`: the stage
+ * row is a single mutable record ("per-stage detail... folded into" the row,
+ * see `JobStage.java`'s class doc) — a later edit to the same completed
+ * stage (a note, a team change) re-stamps `lastModifiedBy` to whoever made
+ * that edit, silently misattributing the sign-off. The audit row can't drift
+ * like that.
+ */
+export function getQcSignoff(
+  auditRows: FrpJobAuditHistoryDTO[] | null | undefined
+): QcSignoff {
+  const row = auditRows?.find(
+    (r) => r.eventCode === "STAGE_COMPLETED" && r.detail?.stageKey === "signoff"
+  );
+  return {
+    name: row?.actorUser?.displayName ?? null,
+    occurredAt: row?.occurredAt ?? null,
+  };
 }
 
 export interface FrpJobStageUpdateRequest {
@@ -778,6 +818,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
         qty: m.qty ?? "",
         availability: m.availability ?? "",
       })),
+      materialsList: card?.materialsList,
       programHistory: card?.programHistory ?? [],
       additionalNotes: card?.additionalNotes,
       jobCardNotes: card?.notes || dto.notes || undefined,
@@ -985,6 +1026,7 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     clipRows: pd?.clipRows,
     packs: [...packs],
     materialRows: extras?.materialRows,
+    materialsList: extras?.materialsList,
     shipmentMethod: extras?.shipmentMethod,
     billingAddress: extras?.billingAddress,
     deliveryAddress: extras?.deliveryAddress,

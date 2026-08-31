@@ -960,6 +960,17 @@ export async function downloadJobCard(
   );
 }
 
+/**
+ * `GET /jobs/{id}/loc-download` — records a `LOC_DOWNLOADED` audit row
+ * against the caller. Call this after printing the Letter of Compliance so
+ * the export is tracked; there is nothing meaningful in the response.
+ */
+export async function downloadLoc(dbId: string | number): Promise<void> {
+  await frpFetch<void>(
+    `/jobs/${encodeURIComponent(String(dbId))}/loc-download`
+  );
+}
+
 /** `DELETE /jobs/{id}` — soft cancel, sets `stageStatus = CANCELLED`. */
 export async function cancelJob(dbId: string | number): Promise<void> {
   await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}`, {
