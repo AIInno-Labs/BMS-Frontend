@@ -72,6 +72,12 @@ function todayIsoLocal(): string {
   return `${y}-${m}-${day}`;
 }
 
+/** The two statuses the factory floor cares about. */
+const WORKER_STATUSES: BackendJobStatus[] = [
+  statusToBackend("Ready to Manufacture"),
+  statusToBackend("In Fabrication"),
+].filter((s): s is BackendJobStatus => s != null);
+
 /**
  * Which backend `JobStatus` enum values belong to each stage-group card.
  *
@@ -463,9 +469,8 @@ export function JobsList({ jobs }: JobsListProps) {
   }, [
     isWorker,
     stageGroupFilter,
-    searchQuery,
     statusFilter,
-    effectiveSearchQuery
+    effectiveSearchQuery,
     sortBy,
     page,
     assignedToFilter,
