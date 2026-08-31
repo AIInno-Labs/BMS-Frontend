@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 import { JobCard } from "@/components/JobCard";
+import { RequireAccess } from "@/components/RequireAccess";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 
 interface JobDetailPageProps {
   params: Promise<{ id: string }>;
@@ -16,8 +18,10 @@ function JobCardLoading() {
 export default async function JobDetailPage({ params }: JobDetailPageProps) {
   const { id } = await params;
   return (
-    <Suspense fallback={<JobCardLoading />}>
-      <JobCard jobId={decodeURIComponent(id)} />
-    </Suspense>
+    <RequireAccess accessKey={ACCESS_KEYS.JOBS_VIEW}>
+      <Suspense fallback={<JobCardLoading />}>
+        <JobCard jobId={decodeURIComponent(id)} />
+      </Suspense>
+    </RequireAccess>
   );
 }

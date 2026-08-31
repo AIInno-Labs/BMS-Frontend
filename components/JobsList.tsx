@@ -25,6 +25,7 @@ import {
 } from "@/lib/mockData";
 import {
   JOBS_PAGE_SIZE,
+  MIN_JOB_SEARCH_LENGTH,
   paginateJobs,
   sortJobs,
   totalPages,
@@ -36,7 +37,6 @@ import { useAuth } from "@/context/AuthContext";
 import { ACCESS_KEYS } from "@/lib/frp/access";
 import { stageGroupCounts } from "@/lib/frp/job-counts";
 import {
-  jobMatchesStageGroup,
   STAGE_GROUP_INFO,
   type JobStageGroup,
   parseStageGroupParam,
@@ -52,8 +52,14 @@ import {
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
 import { listJobs, type FrpJobSort } from "@/lib/frp/api";
-import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
-import type { Job, JobStatus, ResinType } from "@/lib/types";
+import { frpJobSummaryToUi, userIdToBackend } from "@/lib/frp/job-mapper";
+import type { Job, JobStatus } from "@/lib/types";
+
+/** The two statuses the factory floor cares about. */
+const WORKER_STATUSES: BackendJobStatus[] = [
+  statusToBackend("Ready to Manufacture"),
+  statusToBackend("In Fabrication"),
+].filter((s): s is BackendJobStatus => s != null);
 
 /**
  * Which backend `JobStatus` enum values belong to each stage-group card.
@@ -169,7 +175,7 @@ function JobListStageBadges({
 
 export function JobsList({ jobs }: JobsListProps) {
   const { counts } = useJobs();
-  const { isWorker } = usePersona();
+  const { isWorker, workerId } = usePersona();
   const { can } = useAuth();
   const canCreateJob = can(ACCESS_KEYS.JOBS_CREATE);
   const router = useRouter();
@@ -183,13 +189,17 @@ export function JobsList({ jobs }: JobsListProps) {
   const [stageGroupFilter, setStageGroupFilter] = useState<JobStageGroup | null>(
     () => parseStageGroupParam(searchParams.get("group"))
   );
-  const [resinFilter] = useState<ResinType | "All">("All");
   const [sortBy, setSortBy] = useState<JobSortOption>("created_desc");
   const [page, setPage] = useState(() => {
     const fromUrl = Number(searchParams.get("page"));
     return Number.isFinite(fromUrl) && fromUrl >= 1 ? Math.trunc(fromUrl) : 1;
   });
   const [createJobOpen, setCreateJobOpen] = useState(false);
+
+  // Below 3 characters a job search is too broad to be useful and just adds
+  // load — treat it the same as no search until the user has typed enough.
+  const effectiveSearchQuery =
+    searchQuery.trim().length >= MIN_JOB_SEARCH_LENGTH ? searchQuery : "";
 
   useEffect(() => {
     const fromUrl = parseStageGroupParam(searchParams.get("group"));
@@ -214,42 +224,6 @@ export function JobsList({ jobs }: JobsListProps) {
     },
     [router, searchParams]
   );
-
-  const filteredJobs = useMemo(() => {
-    const parsed = parseNaturalLanguageQuery(searchQuery);
-    const textQuery = parsed.searchText.toLowerCase();
-
-    return jobs.filter((job) => {
-      const matchesResin =
-        resinFilter === "All" || job.resinType === resinFilter;
-      const matchesStageGroup =
-        !stageGroupFilter || jobMatchesStageGroup(job, stageGroupFilter);
-      const matchesStage = statusFilter === "All" || job.status === statusFilter;
-      const matchesStatus =
-        !parsed.statusFilter || job.status === parsed.statusFilter;
-      const matchesPriority =
-        !parsed.priorityFilter || job.priority === parsed.priorityFilter;
-      const matchesClientHint =
-        !parsed.clientHint ||
-        job.clientName.toLowerCase().includes(parsed.clientHint);
-      const contactName = (job.clientContactName ?? "").toLowerCase();
-      const matchesSearch =
-        !textQuery ||
-        job.clientName.toLowerCase().includes(textQuery) ||
-        job.projectName.toLowerCase().includes(textQuery) ||
-        job.id.toLowerCase().includes(textQuery) ||
-        contactName.includes(textQuery);
-      return (
-        matchesResin &&
-        matchesStageGroup &&
-        matchesStage &&
-        matchesStatus &&
-        matchesPriority &&
-        matchesClientHint &&
-        matchesSearch
-      );
-    });
-  }, [jobs, searchQuery, resinFilter, statusFilter, stageGroupFilter]);
 
   const handleStageCardClick = (group: JobStageGroup) => {
     const next = stageGroupFilter === group ? null : group;
@@ -303,19 +277,6 @@ export function JobsList({ jobs }: JobsListProps) {
     ];
   }, [counts]);
 
-  const sortedJobs = useMemo(
-    () => sortJobs(filteredJobs, sortBy),
-    [filteredJobs, sortBy]
-  );
-
-  const pages = totalPages(sortedJobs.length, JOBS_PAGE_SIZE);
-  const safePage = Math.min(page, pages);
-
-  const pagedJobs = useMemo(
-    () => paginateJobs(sortedJobs, safePage, JOBS_PAGE_SIZE),
-    [sortedJobs, safePage]
-  );
-
   // Skip the very first run — `page` may have just been initialised from the
   // URL (`?page=3`), and resetting it to 1 on mount would throw that away.
   const skipNextPageReset = useRef(true);
@@ -325,7 +286,7 @@ export function JobsList({ jobs }: JobsListProps) {
       return;
     }
     setPage(1);
-  }, [searchQuery, resinFilter, statusFilter, stageGroupFilter, sortBy, jobs.length]);
+  }, [effectiveSearchQuery, statusFilter, stageGroupFilter, sortBy]);
 
   const clearStageGroupFilter = () => {
     setStageGroupFilter(null);
@@ -333,11 +294,80 @@ export function JobsList({ jobs }: JobsListProps) {
     updateUrlParams({ group: null, page: null });
   };
 
+  // ------------------------------------------------------------------
+  // Worker mode — GET /jobs?assignedTo=&status=&search= per status in
+  // WORKER_STATUSES, merged, then sorted/paginated locally. Same shape as
+  // the admin stage-group crawl below: the backend only filters one status
+  // per request. This replaced client-filtering the JobsContext snapshot
+  // (capped at 200 org-wide jobs), which could silently hide a worker's
+  // older assigned jobs for a busy org.
+  // ------------------------------------------------------------------
+
+  const [workerRows, setWorkerRows] = useState<Job[]>([]);
+  const [workerLoading, setWorkerLoading] = useState(false);
+  const [workerError, setWorkerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isWorker) return;
+    let cancelled = false;
+    setWorkerLoading(true);
+    setWorkerError(null);
+
+    async function loadWorkerJobs() {
+      const assignedTo = userIdToBackend(workerId) ?? undefined;
+      const parsed = parseNaturalLanguageQuery(effectiveSearchQuery);
+      const search =
+        [parsed.searchText, parsed.clientHint].filter(Boolean).join(" ").trim() ||
+        undefined;
+      // MAX_PAGES is a safety net against a runaway loop, not a real cap.
+      const MAX_PAGES = 500;
+      const collected: Job[] = [];
+      for (const status of WORKER_STATUSES) {
+        for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
+          const res = await listJobs(backendPage, 200, { assignedTo, status, search, sort: "RECENT" });
+          collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
+          if (res.last || (res.content ?? []).length === 0) break;
+        }
+      }
+      return collected;
+    }
+
+    loadWorkerJobs()
+      .then((collected) => {
+        if (!cancelled) setWorkerRows(collected);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setWorkerError(e instanceof Error ? e.message : "Could not load jobs");
+        setWorkerRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setWorkerLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isWorker, workerId, effectiveSearchQuery]);
+
+  const workerSortedJobs = useMemo(
+    () => sortJobs(workerRows, sortBy),
+    [workerRows, sortBy]
+  );
+
+  const workerPages = totalPages(workerSortedJobs.length, JOBS_PAGE_SIZE);
+  const safeWorkerPage = Math.min(page, workerPages);
+
+  const workerPagedJobs = useMemo(
+    () => paginateJobs(workerSortedJobs, safeWorkerPage, JOBS_PAGE_SIZE),
+    [workerSortedJobs, safeWorkerPage]
+  );
+
   // Worker mode's clamp — admin modes clamp themselves further down.
   useEffect(() => {
     if (!isWorker) return;
-    if (page > pages) setPage(pages);
-  }, [isWorker, page, pages]);
+    if (page > workerPages) setPage(workerPages);
+  }, [isWorker, page, workerPages]);
 
   // ------------------------------------------------------------------
   // Admin (non-worker) server-driven data. Worker mode keeps using
@@ -364,7 +394,7 @@ export function JobsList({ jobs }: JobsListProps) {
     setDefaultLoading(true);
     setDefaultError(null);
 
-    const parsed = parseNaturalLanguageQuery(searchQuery);
+    const parsed = parseNaturalLanguageQuery(effectiveSearchQuery);
     const explicitStatus =
       statusFilter !== "All" ? statusToBackend(statusFilter) ?? undefined : undefined;
     const impliedStatus =
@@ -406,7 +436,7 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter, searchQuery, statusFilter, sortBy, page]);
+  }, [isWorker, stageGroupFilter, effectiveSearchQuery, statusFilter, sortBy, page]);
 
   const [groupRows, setGroupRows] = useState<Job[]>([]);
   const [groupLoading, setGroupLoading] = useState(false);
@@ -453,7 +483,7 @@ export function JobsList({ jobs }: JobsListProps) {
 
   const groupFilteredJobs = useMemo(() => {
     if (!stageGroupFilter) return [];
-    const parsed = parseNaturalLanguageQuery(searchQuery);
+    const parsed = parseNaturalLanguageQuery(effectiveSearchQuery);
     const textQuery = parsed.searchText.toLowerCase();
     if (!textQuery) return groupRows;
     return groupRows.filter((job) => {
@@ -465,7 +495,7 @@ export function JobsList({ jobs }: JobsListProps) {
         contactName.includes(textQuery)
       );
     });
-  }, [groupRows, stageGroupFilter, searchQuery]);
+  }, [groupRows, stageGroupFilter, effectiveSearchQuery]);
 
   const groupSortedJobs = useMemo(
     () => sortJobs(groupFilteredJobs, sortBy),
@@ -490,10 +520,11 @@ export function JobsList({ jobs }: JobsListProps) {
   const adminPage = stageGroupFilter ? safeGroupPage : page;
   const adminError = stageGroupFilter ? groupError : defaultError;
 
-  const displayedJobs = isWorker ? pagedJobs : adminTableJobs;
-  const displayedTotalItems = isWorker ? sortedJobs.length : adminTotalItems;
-  const displayedTotalPages = isWorker ? pages : adminTotalPages;
-  const displayedPage = isWorker ? safePage : adminPage;
+  const displayedJobs = isWorker ? workerPagedJobs : adminTableJobs;
+  const displayedTotalItems = isWorker ? workerSortedJobs.length : adminTotalItems;
+  const displayedTotalPages = isWorker ? workerPages : adminTotalPages;
+  const displayedPage = isWorker ? safeWorkerPage : adminPage;
+  const displayedError = isWorker ? workerError : adminError;
 
   return (
     <div className={`space-y-4 ${isWorker ? "worker-ui" : ""}`}>
@@ -672,7 +703,7 @@ export function JobsList({ jobs }: JobsListProps) {
         </div>
       )}
 
-      {isWorker && sortedJobs.length > 0 && (
+      {isWorker && workerSortedJobs.length > 0 && (
         <label className="block sm:max-w-xs">
           <span className="mb-2 block text-base font-semibold text-slate-900">
             Sort by
@@ -698,8 +729,12 @@ export function JobsList({ jobs }: JobsListProps) {
         <p className="app-card text-center text-base font-medium text-slate-600">
           Loading jobs…
         </p>
-      ) : !isWorker && adminError ? (
-        <p className="app-card text-center text-base font-medium text-red-600">{adminError}</p>
+      ) : isWorker && workerLoading && workerRows.length === 0 ? (
+        <p className="app-card text-center text-base font-medium text-slate-600">
+          Loading jobs…
+        </p>
+      ) : displayedError ? (
+        <p className="app-card text-center text-base font-medium text-red-600">{displayedError}</p>
       ) : displayedTotalItems === 0 ? (
         <p className="app-card text-center text-base font-medium text-slate-600">
           {isWorker

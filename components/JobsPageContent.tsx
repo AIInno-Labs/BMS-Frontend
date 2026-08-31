@@ -1,24 +1,13 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense } from "react";
 import { JobsList } from "@/components/JobsList";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
-import type { Job } from "@/lib/types";
-
-function getWorkerJobs(allJobs: Job[], workerId: string): Job[] {
-  return allJobs.filter(
-    (job) =>
-      job.assignedWorkerId === workerId &&
-      (job.status === "Ready to Manufacture" ||
-        job.status === "In Fabrication")
-  );
-}
 
 export function JobsPageContent() {
   const { jobs } = useJobs();
-  const { isWorker, workerId } = usePersona();
-  const displayJobs = isWorker ? getWorkerJobs(jobs, workerId) : jobs;
+  const { isWorker } = usePersona();
   const showAdvancedERP = false;
 
   return (
@@ -34,7 +23,7 @@ export function JobsPageContent() {
               <p className="py-8 text-center text-sm text-slate-500">Loading jobs…</p>
             }
           >
-            <JobsList jobs={displayJobs} />
+            <JobsList jobs={jobs} />
           </Suspense>
         </section>
       </div>

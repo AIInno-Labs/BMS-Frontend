@@ -2,6 +2,11 @@ import type { Job } from "@/lib/types";
 
 export const JOBS_PAGE_SIZE = 10;
 
+/** Below this many characters, a job search is too broad to be worth a
+ *  request — the navbar box won't commit it and JobsList treats it as no
+ *  search. */
+export const MIN_JOB_SEARCH_LENGTH = 3;
+
 export type JobSortOption =
   | "created_desc"
   | "created_asc"
