@@ -1115,6 +1115,25 @@ export function JobWorkflowDashboard({
               {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
             </button>
           )}
+          {onPrintLoc && qcCompleted && (
+            <button
+              type="button"
+              onClick={onPrintLoc}
+              disabled={isExportingLoc || isSaving || cancelBusy}
+              aria-busy={isExportingLoc}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2C5985] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#234868] disabled:cursor-wait disabled:opacity-80"
+            >
+              {isExportingLoc ? (
+                <Loader2
+                  className="h-3.5 w-3.5 shrink-0 animate-spin"
+                  aria-hidden
+                />
+              ) : (
+                <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              )}
+              {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onPrint}
