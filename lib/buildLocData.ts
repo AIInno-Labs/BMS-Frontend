@@ -35,10 +35,10 @@ export function formatWorkshopAddress(org: {
  * come from `qcSignoff` — the job's `STAGE_COMPLETED`/`qc` audit row (see
  * `getQcSignoff` in `job-mapper.ts`) — not the person exporting the PDF.
  *
- * Materials come from `job.printDetails.workflowExtras.materialsList` — the
- * existing free-text "materials & specifications" panel already edited on
- * the job card (`JobWorkflowExtrasSection.tsx`), not a separate LOC-only
- * field.
+ * Materials come from `job.measurements` (`GET /jobs/{id}` →
+ * `job_measurements`), mapped into `workflowExtras.materialsList` /
+ * `additionalNotes`. Older jobs may still carry the same fields on
+ * `jobCard` until re-saved via the materials panel.
  *
  * Nothing here blocks export: whatever is missing renders as "—" and is
  * listed in `warningBanner` instead, so the certificate always generates —

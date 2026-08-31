@@ -8,34 +8,21 @@ import { LaborCommandCenterDrawer } from "@/components/LaborCommandCenterDrawer"
 import { ReadyToManufacturePieChart } from "@/components/ReadyToManufacturePieChart";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
+import { useAuth } from "@/context/AuthContext";
 import { listJobs } from "@/lib/frp/api";
 import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
 import { formatShortDate } from "@/lib/jobData";
 import type { Job } from "@/lib/types";
 
-function pickRecentJobs(allJobs: Job[]): Job[] {
-  return [...allJobs]
-    .sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      if (bTime !== aTime) return bTime - aTime;
-      return b.id.localeCompare(a.id);
-    })
-    .slice(0, 10);
+function isActiveJob(job: Job): boolean {
+  return job.status !== "Complete" && job.status !== "Cancelled";
 }
 
 /**
  * Row-by-row visibility for the Recent Jobs list, keyed by viewport height
  * rather than a fixed count - the first 4 rows always show, and each
- * further row only appears once the screen is tall enough to fit it, so a
- * laptop and an external monitor each see as many recent jobs as their
- * actual vertical space allows, without a JS-measured height (which would
- * flash/reflow on load) and without a fixed count that wastes a tall screen
- * or overflows a short one.
- *
- * These strings must stay literal (not built via template interpolation) -
- * Tailwind's build-time scanner only generates CSS for class names it can
- * find as-written in the source.
+ * further row only appears once the screen is tall enough to fit it.
+ * Literal class strings required for Tailwind's scanner.
  */
 const RECENT_JOB_ROW_VISIBILITY_BLOCK = [
   "block",
@@ -63,10 +50,6 @@ const RECENT_JOB_ROW_VISIBILITY_TABLE_ROW = [
   "hidden [@media(min-height:1100px)]:table-row",
 ] as const;
 
-function isActiveJob(job: Job): boolean {
-  return job.status !== "Complete" && job.status !== "Cancelled";
-}
-
 /** ISO `yyyy-MM-dd` for today + days (local calendar). */
 function isoDatePlusDays(days: number): string {
   const d = new Date();
@@ -76,6 +59,35 @@ function isoDatePlusDays(days: number): string {
 }
 
 const UPCOMING_DUE_LIMIT = 4;
+const RECENT_JOBS_LIMIT = 10;
+/** Org-wide upcoming + overdue table (generic, not assignee-scoped). */
+const ORG_DUE_LIST_LIMIT = 10;
+const DUE_WINDOW_MONTHS = 3;
+
+function todayIso(): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO date shifted by calendar months (local noon). */
+function isoDatePlusMonths(months: number): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+function isOverdueDueDate(dueDate: string | null | undefined, today: string): boolean {
+  return !!dueDate && dueDate < today;
+}
+
+function pickOverdueJobs(jobs: Job[], today: string, limit: number): Job[] {
+  return jobs
+    .filter((job) => isOverdueDueDate(job.dueDate, today))
+    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
+    .slice(0, limit);
+}
 
 function pickPriorityQueue(allJobs: Job[]): Job[] {
   return [...allJobs]
@@ -92,9 +104,12 @@ export function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRebalanceFocus, setDrawerRebalanceFocus] = useState(false);
   const [upcomingJobs, setUpcomingJobs] = useState<Job[]>([]);
+  const [recentJobs, setRecentJobs] = useState<Job[]>([]);
+  const [orgDueJobs, setOrgDueJobs] = useState<Job[]>([]);
   const { isManager } = usePersona();
+  const { user } = useAuth();
+  const myUserId = user?.id ?? null;
   const { jobs, counts } = useJobs();
-  const recentJobs = useMemo(() => pickRecentJobs(jobs), [jobs]);
   const recentUpdates = useMemo(() => recentJobs.slice(0, 3), [recentJobs]);
   const priorityQueue = useMemo(() => pickPriorityQueue(jobs), [jobs]);
   // Every count below is org-wide, from GET /jobs/counts — not a tally of the
@@ -105,30 +120,77 @@ export function Dashboard() {
   const awaitingCount = counts.awaitingApproval;
   const totalActive = counts.active || 1;
 
-  // Org-wide soonest due dates from GET /jobs?sort=DUE_DATE — due date only
-  // (never assignedTo). Includes overdue open jobs; excludes Complete/Cancelled.
+  // Jobs assigned to the signed-in user only.
   useEffect(() => {
-    if (!isManager) {
+    if (myUserId == null) {
       setUpcomingJobs([]);
+      setRecentJobs([]);
       return;
     }
     let cancelled = false;
+    void Promise.all([
+      listJobs(0, 200, {
+        sort: "DUE_DATE",
+        assignedTo: myUserId,
+        dueBefore: isoDatePlusDays(365),
+      }),
+      listJobs(0, RECENT_JOBS_LIMIT, {
+        sort: "RECENT",
+        assignedTo: myUserId,
+      }),
+    ])
+      .then(([duePage, recentPage]) => {
+        if (cancelled) return;
+        setUpcomingJobs(
+          (duePage.content ?? [])
+            .map(frpJobSummaryToUi)
+            .filter((job) => isActiveJob(job) && !!job.dueDate)
+            .slice(0, UPCOMING_DUE_LIMIT)
+        );
+        setRecentJobs(
+          (recentPage.content ?? [])
+            .map(frpJobSummaryToUi)
+            .slice(0, RECENT_JOBS_LIMIT)
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUpcomingJobs([]);
+          setRecentJobs([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [myUserId]);
+
+  // Org-wide overdue only (dueDate < today), ±3 month lower bound, max 10.
+  useEffect(() => {
+    if (!isManager) {
+      setOrgDueJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const today = todayIso();
+    const earliestDue = isoDatePlusMonths(-DUE_WINDOW_MONTHS);
     void listJobs(0, 200, {
       sort: "DUE_DATE",
-      // Drops null due dates (NULL fails <=). Far horizon so near-term + overdue
-      // still qualify; ASC order puts soonest (incl. overdue) first.
-      dueBefore: isoDatePlusDays(365),
+      dueBefore: today,
     })
       .then((page) => {
         if (cancelled) return;
-        const next = (page.content ?? [])
+        const candidates = (page.content ?? [])
           .map(frpJobSummaryToUi)
-          .filter((job) => isActiveJob(job) && !!job.dueDate)
-          .slice(0, UPCOMING_DUE_LIMIT);
-        setUpcomingJobs(next);
+          .filter(
+            (job) =>
+              isActiveJob(job) &&
+              !!job.dueDate &&
+              job.dueDate >= earliestDue
+          );
+        setOrgDueJobs(pickOverdueJobs(candidates, today, ORG_DUE_LIST_LIMIT));
       })
       .catch(() => {
-        if (!cancelled) setUpcomingJobs([]);
+        if (!cancelled) setOrgDueJobs([]);
       });
     return () => {
       cancelled = true;
@@ -192,7 +254,7 @@ export function Dashboard() {
 
           <section
             className={`grid w-full min-w-0 items-start gap-3 ${
-              isManager
+              myUserId != null
                 ? "md:grid-cols-2 xl:grid-cols-[1.35fr_0.65fr] xl:items-stretch"
                 : "mx-auto w-full max-w-xl"
             }`}
@@ -286,7 +348,7 @@ export function Dashboard() {
               </details>
             </section>
 
-            {isManager && (
+            {myUserId != null && (
               <section className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm" aria-label="Upcoming due">
                 <div className="border-b border-slate-100 pb-1.5">
                   <h2 className="text-sm font-semibold text-slate-900">Upcoming Due</h2>
@@ -294,7 +356,7 @@ export function Dashboard() {
                 <div className="mt-1.5 space-y-1.5">
                   {upcomingJobs.length === 0 ? (
                     <p className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
-                      No due jobs scheduled.
+                      No jobs assigned to you with a due date.
                     </p>
                   ) : (
                     upcomingJobs.map((job) => (
@@ -345,7 +407,7 @@ export function Dashboard() {
             )}
           </section>
 
-          {isManager && (
+          {myUserId != null && (
             <section
               className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
               aria-label="Recent jobs"
@@ -370,6 +432,12 @@ export function Dashboard() {
                   </Link>
                 </div>
               </div>
+              {recentJobs.length === 0 ? (
+                <p className="m-2.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+                  No jobs assigned to you yet.
+                </p>
+              ) : (
+                <>
               <div className="space-y-1 p-2.5 lg:hidden">
                 {recentJobs.map((job, index) => (
                   <Link
@@ -423,6 +491,119 @@ export function Dashboard() {
                 </table>
                 </div>
               </div>
+                </>
+              )}
+            </section>
+          )}
+
+          {isManager && (
+            <section
+              className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              aria-label="Overdue jobs"
+            >
+              <div className="border-b border-slate-100 px-3 py-2 sm:px-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
+                      Overdue Jobs
+                    </h2>
+                  </div>
+                  <Link
+                    href="/jobs"
+                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                  >
+                    View All →
+                  </Link>
+                </div>
+              </div>
+              {orgDueJobs.length === 0 ? (
+                <p className="m-2.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+                  No overdue jobs in the ±{DUE_WINDOW_MONTHS} month window.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1 p-2.5 lg:hidden">
+                    {orgDueJobs.map((job, index) => (
+                      <Link
+                        key={`org-due-${job.id}`}
+                        href={`/jobs/${job.id}`}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_BLOCK[index] ?? "hidden"} rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-900">
+                            {job.id}
+                          </p>
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                            {job.priority}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-700">
+                          {job.clientName}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Due {formatShortDate(job.dueDate)} · {job.status}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="hidden min-w-0 lg:block">
+                    <div className="overflow-auto">
+                      <table className="w-full min-w-[620px] text-left">
+                        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Job
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Client
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Project / Description
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Due
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold text-right">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {orgDueJobs.map((job, index) => (
+                            <tr
+                              key={`org-due-row-${job.id}`}
+                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} hover:bg-slate-50/70`}
+                            >
+                              <td className="px-3 py-1.5 font-medium text-slate-900">
+                                <Link
+                                  href={`/jobs/${job.id}`}
+                                  className="hover:text-amber-700"
+                                >
+                                  {job.id}
+                                </Link>
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {job.clientName}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {job.projectName}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {formatShortDate(job.dueDate)}
+                              </td>
+                              <td className="px-3 py-1.5 text-right text-slate-700">
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                                  {job.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </section>
           )}
 

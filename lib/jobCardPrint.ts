@@ -241,7 +241,7 @@ export function buildOfficialJobCardData(
       nonempty(pd?.contactEmail) ??
       nonempty(job.printDetails?.contactEmail) ??
       "",
-    purchaseOrderNo: nonempty(pd?.purchaseOrderNo) ?? "",
+    purchaseOrderNo: nonempty(job.orderNumber) ?? nonempty(pd?.purchaseOrderNo) ?? "",
     accountYesNo: pd?.accountYesNo === false ? "No" : "Yes",
     transport:
       nonempty(pd?.transport) ??

@@ -800,7 +800,8 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
 
   const printDetails: JobCardPrintDetails = {
     // Empty strings in jobCard must not block contactDetails / logistics fallbacks.
-    purchaseOrderNo: card?.purchaseOrderNo || undefined,
+    purchaseOrderNo:
+      card?.purchaseOrderNo || dto.orderNumber || undefined,
     contactPhone:
       card?.contactPhone || dto.contactDetails?.phone || undefined,
     contactEmail:
