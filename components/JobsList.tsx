@@ -53,7 +53,24 @@ import { resolveStatusGroup } from "@/lib/jobStatus";
 import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
 import { listJobs, type FrpJobSort } from "@/lib/frp/api";
 import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
+import {
+  duePresetToDueBefore,
+  parseAssignedToParam,
+  parseDuePresetParam,
+  shouldKeepJobForDuePreset,
+  type JobListDuePreset,
+} from "@/lib/jobListUrlFilters";
 import type { Job, JobStatus, ResinType } from "@/lib/types";
+
+/** Local calendar ISO `yyyy-MM-dd` at noon. */
+function todayIsoLocal(): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 /**
  * Which backend `JobStatus` enum values belong to each stage-group card.
@@ -168,12 +185,14 @@ function JobListStageBadges({
 }
 
 export function JobsList({ jobs }: JobsListProps) {
-  const { counts } = useJobs();
+  const { counts, staff } = useJobs();
   const { isWorker } = usePersona();
   const { can } = useAuth();
   const canCreateJob = can(ACCESS_KEYS.JOBS_CREATE);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const assignedToFilter = parseAssignedToParam(searchParams.get("assignedTo"));
+  const duePreset = parseDuePresetParam(searchParams.get("due"));
   const [searchQuery, setSearchQuery] = useState(
     () => searchParams.get("q") ?? ""
   );
@@ -378,15 +397,26 @@ export function JobsList({ jobs }: JobsListProps) {
       ? priorityToBackend(parsed.priorityFilter)
       : undefined;
 
+    const today = todayIsoLocal();
+    const dueBefore = duePresetToDueBefore(duePreset, today);
+
     listJobs(page - 1, JOBS_PAGE_SIZE, {
       search,
       sort: toBackendSort(sortBy),
       status: explicitStatus ?? impliedStatus,
       priority,
+      assignedTo: assignedToFilter,
+      dueBefore,
     })
       .then((res) => {
         if (cancelled) return;
-        setDefaultRows((res.content ?? []).map(frpJobSummaryToUi));
+        setDefaultRows(
+          (res.content ?? [])
+            .map(frpJobSummaryToUi)
+            .filter((job) =>
+              shouldKeepJobForDuePreset(duePreset, job.dueDate, today)
+            )
+        );
         setDefaultTotalItems(res.totalElements ?? 0);
         const total = Math.max(1, res.totalPages ?? 1);
         setDefaultTotalPages(total);
@@ -406,7 +436,16 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter, searchQuery, statusFilter, sortBy, page]);
+  }, [
+    isWorker,
+    stageGroupFilter,
+    searchQuery,
+    statusFilter,
+    sortBy,
+    page,
+    assignedToFilter,
+    duePreset,
+  ]);
 
   const [groupRows, setGroupRows] = useState<Job[]>([]);
   const [groupLoading, setGroupLoading] = useState(false);
@@ -422,15 +461,24 @@ export function JobsList({ jobs }: JobsListProps) {
       // MAX_PAGES is a safety net against a runaway loop, not a real cap.
       const MAX_PAGES = 500;
       const statuses = STAGE_GROUP_BACKEND_STATUSES[stageGroupFilter as JobStageGroup];
+      const today = todayIsoLocal();
+      const dueBefore = duePresetToDueBefore(duePreset, today);
       const collected: Job[] = [];
       for (const status of statuses) {
         for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
-          const res = await listJobs(backendPage, 200, { status, sort: "RECENT" });
+          const res = await listJobs(backendPage, 200, {
+            status,
+            sort: "RECENT",
+            assignedTo: assignedToFilter,
+            dueBefore,
+          });
           collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
           if (res.last || (res.content ?? []).length === 0) break;
         }
       }
-      return collected;
+      return collected.filter((job) =>
+        shouldKeepJobForDuePreset(duePreset, job.dueDate, today)
+      );
     }
 
     loadGroupJobs()
@@ -449,7 +497,7 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter]);
+  }, [isWorker, stageGroupFilter, assignedToFilter, duePreset]);
 
   const groupFilteredJobs = useMemo(() => {
     if (!stageGroupFilter) return [];
@@ -633,6 +681,50 @@ export function JobsList({ jobs }: JobsListProps) {
 
       {!isWorker && (
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+            <span className="shrink-0">ASSIGNEE</span>
+            <select
+              value={assignedToFilter != null ? String(assignedToFilter) : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setPage(1);
+                updateUrlParams({
+                  assignedTo: v ? v : null,
+                  page: null,
+                });
+              }}
+              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              aria-label="Filter assignee"
+            >
+              <option value="">Any</option>
+              {staff.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+            <span className="shrink-0">DUE</span>
+            <select
+              value={duePreset === "any" ? "" : duePreset}
+              onChange={(e) => {
+                const v = e.target.value as "" | Exclude<JobListDuePreset, "any">;
+                setPage(1);
+                updateUrlParams({
+                  due: v ? v : null,
+                  page: null,
+                });
+              }}
+              className="ml-2 min-w-0 max-w-36 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              aria-label="Filter due date"
+            >
+              <option value="">Any</option>
+              <option value="7d">Next 7 days</option>
+              <option value="1m">Next 1 month</option>
+              <option value="overdue">All overdue</option>
+            </select>
+          </label>
           <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
             <span className="shrink-0">ALL STAGES</span>
             <select
