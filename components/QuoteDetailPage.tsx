@@ -101,12 +101,16 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
   const payloadItems = Array.isArray(payload.selected_items)
     ? (payload.selected_items as Record<string, unknown>[])
     : null;
-  const measurementItems = Array.isArray(raw.measurement)
-    ? (raw.measurement as Record<string, unknown>[])
-    : [];
+  const storedSelectedItems = Array.isArray(raw.selectedItems)
+    ? (raw.selectedItems as Record<string, unknown>[])
+    : Array.isArray(raw.lineItems)
+      ? (raw.lineItems as Record<string, unknown>[])
+      : Array.isArray(raw.measurement)
+        ? (raw.measurement as Record<string, unknown>[])
+        : [];
   const lineItems =
-    measurementItems.length > 0
-      ? measurementItems
+    storedSelectedItems.length > 0
+      ? storedSelectedItems
       : (payloadItems ?? acceptedItems ?? []);
 
   const contact = str(quoteFor.contact) ?? str(quoteFor.contact_name);
@@ -227,8 +231,8 @@ function normalizeQuote(raw: Record<string, unknown>): QuotientQuote {
     tax_amount: num(payment.taxAmount),
     net_amount: num(payment.netAmount),
     item_headings:
-      (measurementItems.length
-        ? measurementItems
+      (lineItems.length
+        ? lineItems
             .map((item) => str(item.heading))
             .filter(Boolean)
             .join("\n") || null

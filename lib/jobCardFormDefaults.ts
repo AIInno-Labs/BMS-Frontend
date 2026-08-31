@@ -84,7 +84,7 @@ export function ensurePrintDetails(job: Job): JobCardPrintDetails {
   const p = job.printDetails ?? {};
 
   const clipRows =
-    p.clipRows && p.clipRows.length > 0
+    p.clipRows && p.clipRows.some((r) => r.qty?.trim() || r.packedBy?.trim())
       ? STANDARD_CLIP_ROWS.map((row) => {
           const hit = p.clipRows!.find(
             (r) => r.clip.toLowerCase() === row.clip.toLowerCase()
@@ -100,6 +100,12 @@ export function ensurePrintDetails(job: Job): JobCardPrintDetails {
     { ...EMPTY_PACK, ...(p.packs?.[1] ?? {}) },
     { ...EMPTY_PACK, ...(p.packs?.[2] ?? {}) },
   ];
+
+  // Materials list (job_measurements) is the scope text when present.
+  const materialsList = p.workflowExtras?.materialsList?.trim();
+  const scopeFromMaterials = materialsList
+    ? materialsList.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+    : [];
 
   return {
     purchaseOrderNo: p.purchaseOrderNo ?? "",
@@ -119,9 +125,11 @@ export function ensurePrintDetails(job: Job): JobCardPrintDetails {
     colour: p.colour ?? "",
     finish: p.finish ?? "",
     scopeLines:
-      p.scopeLines && p.scopeLines.length > 0
-        ? [...p.scopeLines]
-        : [job.projectName],
+      scopeFromMaterials.length > 0
+        ? scopeFromMaterials
+        : p.scopeLines && p.scopeLines.length > 0
+          ? [...p.scopeLines]
+          : [job.projectName],
     clipRows,
     deliveryInstructions: p.deliveryInstructions ?? "",
     packs,

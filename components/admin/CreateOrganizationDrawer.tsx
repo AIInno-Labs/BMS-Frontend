@@ -208,9 +208,11 @@ export function CreateOrganizationDrawer({
               <input
                 id="address"
                 className={inputClass}
+                required
                 value={form.address}
                 onChange={(e) => setField("address", e.target.value)}
               />
+              <FieldError message={fieldErrors.address} />
             </div>
             <div>
               <label className={labelClass} htmlFor="city">

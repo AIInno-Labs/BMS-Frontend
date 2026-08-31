@@ -125,11 +125,11 @@ function isFilledJobItem(item: JobItemRow): boolean {
 }
 
 /**
- * Items step → `JobDTO.measurement`. Same keys Quotient `selected_items` uses
+ * Items step → `JobDTO.selectedItems`. Same keys Quotient `selected_items` uses
  * (`item_code`, `heading`, `quantity`, `unit_price`) so the job screen can
  * render factory-raised lines with the existing `orderItemFields` reader.
  */
-function jobItemsToMeasurement(
+function jobItemsToSelectedItems(
   items: JobItemRow[]
 ): Array<Record<string, unknown>> | null {
   const rows = items.filter(isFilledJobItem);
@@ -355,7 +355,7 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
     assignedWorkerId: values.assignedWorkerId || null,
     assignedWorkerName: assignedWorkerName || null,
     manualInstructions: values.description.trim(),
-    measurement: jobItemsToMeasurement(values.items),
+    selectedItems: jobItemsToSelectedItems(values.items),
     currency: values.currency.trim() || null,
     printDetails: ensurePrintDetails({
       id: values.jobId,

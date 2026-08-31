@@ -16,6 +16,7 @@ const JOB_AUDIT_EVENT_LABELS: Record<string, string> = {
   STATUS_CHANGED: "Status changed",
   JOB_CARD_SAVED: "Job card saved",
   JOB_CARD_DOWNLOADED: "Job card downloaded",
+  LOC_EXPORTED: "Letter of Compliance exported",
   STAGE_COMPLETED: "Stage completed",
   WORKER_ASSIGNED: "Worker assigned",
   DUE_DATE_CHANGED: "Due date changed",

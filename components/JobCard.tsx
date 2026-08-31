@@ -29,6 +29,7 @@ import { JobQrCode } from "@/components/JobQrCode";
 import { PriorityAlertsCell } from "@/components/PriorityAlertsCell";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
 import { printJobCardPdf } from "@/lib/openJobCardPdfPrint";
+import { printLocPdf } from "@/lib/openLocPdfPrint";
 import { JobCardPrintDetailsForm } from "@/components/JobCardPrintDetailsForm";
 import { JobCardQuotientPanel } from "@/components/JobCardQuotientPanel";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
@@ -47,7 +48,7 @@ import {
   resinTypes,
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import { downloadJobCard, getQuote, cancelJob } from "@/lib/frp/api";
+import { downloadJobCard, recordJobAudit, getQuote, cancelJob, listJobStages } from "@/lib/frp/api";
 import {
   DRAFT_DUE_DATE_WARNING,
   isCancelledJob,
@@ -88,6 +89,7 @@ export function JobCard({ jobId }: JobCardProps) {
     error,
   } = useJobs();
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isClearingAlert, setIsClearingAlert] = useState(false);
   const { isManager, isWorker, workerId, workerName } = usePersona();
@@ -108,6 +110,8 @@ export function JobCard({ jobId }: JobCardProps) {
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingLoc, setIsExportingLoc] = useState(false);
+  const [qcCompleted, setQcCompleted] = useState(false);
   const [detailMissing, setDetailMissing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -214,6 +218,35 @@ export function JobCard({ jobId }: JobCardProps) {
     };
   }, []);
 
+  // Letter of Compliance needs the qc milestone to have completed — its
+  // completedAt gates the button. (The date/name actually shown on the
+  // document come from the audit log's STAGE_COMPLETED/qc row instead, see
+  // getQcSignoff in job-mapper.ts, but that's a separate lookup.) Re-checked
+  // on auditRefreshKey so the button appears without a full page reload once
+  // qc completes elsewhere on this page.
+  useEffect(() => {
+    let cancelled = false;
+    async function checkQc() {
+      if (!job?.dbId) {
+        if (!cancelled) setQcCompleted(false);
+        return;
+      }
+      try {
+        const stages = await listJobStages(job.dbId);
+        if (cancelled) return;
+        setQcCompleted(
+          stages.some((s) => s.stageKey === "qc" && s.completedAt != null)
+        );
+      } catch {
+        if (!cancelled) setQcCompleted(false);
+      }
+    }
+    void checkQc();
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.dbId, auditRefreshKey]);
+
   if (hydrated && !loading && detailMissing && !sourceJob) {
     notFound();
   }
@@ -280,6 +313,35 @@ export function JobCard({ jobId }: JobCardProps) {
       );
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handlePrintLoc = async () => {
+    if (isExportingLoc) return;
+    setSaveError(null);
+    setSaveWarning(null);
+    setIsExportingLoc(true);
+    try {
+      if (!job.dbId) {
+        throw new Error("Job has no database id — reload the job list.");
+      }
+      const { warning } = await printLocPdf(job.dbId);
+      setSaveWarning(warning ?? null);
+      // Log the export for the audit trail (LOC_EXPORTED). Best-effort:
+      // the PDF is already open, so a failed audit must not surface an error.
+      // Bumps auditRefreshKey on success so the trail shows it without a
+      // manual page refresh.
+      void recordJobAudit(job.dbId, "LOC")
+        .then(() => setAuditRefreshKey((k) => k + 1))
+        .catch(() => {});
+    } catch (e) {
+      setSaveError(
+        e instanceof Error
+          ? e.message
+          : "Could not open Letter of Compliance PDF. Please try again."
+      );
+    } finally {
+      setIsExportingLoc(false);
     }
   };
 
@@ -643,10 +705,18 @@ export function JobCard({ jobId }: JobCardProps) {
           job={display}
           isSaving={isSaving}
           isExporting={isExporting}
+          isExportingLoc={isExportingLoc}
           saveError={saveError}
           saveSuccess={saveSuccess}
+          saveWarning={saveWarning}
           auditRefreshKey={auditRefreshKey}
           onPrint={handlePrint}
+          onPrintLoc={handlePrintLoc}
+          onDismissMessage={() => {
+            setSaveError(null);
+            setSaveSuccess(false);
+            setSaveWarning(null);
+          }}
           onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
           onStatusChange={handleStatusChange}
@@ -764,6 +834,18 @@ export function JobCard({ jobId }: JobCardProps) {
                         <Pencil className="h-5 w-5" aria-hidden />
                         Edit details
                       </button>
+                      {qcCompleted && (
+                        <button
+                          type="button"
+                          onClick={handlePrintLoc}
+                          disabled={isExportingLoc}
+                          aria-busy={isExportingLoc}
+                          className="btn-secondary min-h-[48px] w-full flex-1 justify-center disabled:cursor-wait disabled:opacity-80"
+                        >
+                          <Download className="h-5 w-5" aria-hidden />
+                          {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={handlePrint}
@@ -842,6 +924,11 @@ export function JobCard({ jobId }: JobCardProps) {
               {saveError && !isEditing && (
                 <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                   {saveError}
+                </p>
+              )}
+              {saveWarning && !isEditing && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {saveWarning}
                 </p>
               )}
             </div>

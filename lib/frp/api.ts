@@ -19,6 +19,7 @@ import {
   type NotificationSummaryDTO,
   type JobEmailRecipientDTO,
 } from "@/lib/frp/types";
+import type { JobCardExportDTO } from "@/lib/frp/job-card-export";
 import type {
   FrpDocumentDownloadDTO,
   FrpDocumentSort,
@@ -33,6 +34,7 @@ import type {
   FrpJobDTO,
   FrpJobInventoryDTO,
   FrpMasterInventoryDTO,
+  FrpJobMeasurementDTO,
   FrpJobPaymentDTO,
   FrpJobPaymentUpdateRequest,
   FrpJobProjectRequirementDTO,
@@ -890,6 +892,18 @@ export async function saveJobCard(
   );
 }
 
+/**
+ * `GET /jobs/{id}/job-card` — assembled print DTO (records JOB_CARD_DOWNLOADED).
+ * Call only for export/print, not casual UI load.
+ */
+export async function fetchJobCardExport(
+  dbId: string | number
+): Promise<JobCardExportDTO> {
+  return frpFetch<JobCardExportDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`
+  );
+}
+
 /** `PUT /jobs/{id}/contact-details` — the customer panel, saved alone. */
 export async function saveContactDetails(
   dbId: string | number,
@@ -909,6 +923,20 @@ export async function saveSchedulingLogistics(
   return frpFetch<FrpJobDTO>(
     `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics`,
     { method: "PUT", body: JSON.stringify(schedulingLogistics) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/measurements` — materials & specifications (`job_measurements`).
+ * Creates the row on first save; later calls update. Null fields are left alone.
+ */
+export async function saveJobMeasurements(
+  dbId: string | number,
+  body: FrpJobMeasurementDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/measurements`,
+    { method: "PUT", body: JSON.stringify(body) }
   );
 }
 
@@ -958,6 +986,26 @@ export async function downloadJobCard(
   return frpFetch<FrpJobDTO>(
     `/jobs/${encodeURIComponent(String(dbId))}/job-card`
   );
+}
+
+/** Matches the backend's whitelisted `com.argus.frp.Enum.ExportKind`. */
+export type FrpExportKind = "JOB_CARD" | "LOC";
+
+/**
+ * `POST /jobs/{id}/audit` — records that this user exported a document for
+ * the job (the audit row written depends on `type`; see `ExportKind` on the
+ * backend). Generic in place of one-off `downloadX` calls per document
+ * type — call this after printing/exporting so the export is tracked;
+ * there is nothing meaningful in the response.
+ */
+export async function recordJobAudit(
+  dbId: string | number,
+  type: FrpExportKind
+): Promise<void> {
+  await frpFetch<void>(`/jobs/${encodeURIComponent(String(dbId))}/audit`, {
+    method: "POST",
+    body: JSON.stringify({ type }),
+  });
 }
 
 /** `DELETE /jobs/{id}` — soft cancel, sets `stageStatus = CANCELLED`. */

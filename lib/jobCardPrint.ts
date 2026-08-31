@@ -156,22 +156,54 @@ export function buildOfficialJobCardData(
   const sl = job.schedulingLogistics;
   const jobNumber = job.id.replace(/^JOB-/, "");
 
+  const materialsList = nonempty(pd?.workflowExtras?.materialsList);
+  const fromMaterials = materialsList
+    ? materialsList
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
   const fromCardScope = (pd?.scopeLines ?? [])
     .map((s) => s.trim())
     .filter(Boolean);
-  const scopeLines = fromCardScope.length
-    ? fromCardScope
-    : [
-        job.projectName,
-        ...(job.manualInstructions
-          ? job.manualInstructions.split(/\n+/).filter(Boolean)
-          : []),
-      ].filter(Boolean);
+  const fromSelectedItems = (job.selectedItems ?? [])
+    .map((item) => {
+      const desc =
+        (typeof item.description === "string" && item.description) ||
+        (typeof item.name === "string" && item.name) ||
+        (typeof item.item === "string" && item.item) ||
+        "";
+      const qty =
+        item.quantity != null
+          ? String(item.quantity)
+          : typeof item.qty === "string" || typeof item.qty === "number"
+            ? String(item.qty)
+            : "";
+      if (!desc.trim()) return "";
+      return qty ? `${desc.trim()} × ${qty}` : desc.trim();
+    })
+    .filter(Boolean);
+  // Prefer materials (job_measurements); then card scope; then quote line items;
+  // then project name / instructions.
+  const scopeLines = fromMaterials.length
+    ? fromMaterials
+    : fromCardScope.length
+      ? fromCardScope
+      : fromSelectedItems.length
+        ? fromSelectedItems
+        : [
+            job.projectName,
+            ...(job.manualInstructions
+              ? job.manualInstructions.split(/\n+/).filter(Boolean)
+              : []),
+          ].filter(Boolean);
 
+  // Only print clip rows that were actually filled on the job — never invent
+  // the STANDARD_CLIP_ROWS catalogue into export data.
   const clipRows =
-    pd?.clipRows && pd.clipRows.length > 0
+    pd?.clipRows && pd.clipRows.some((r) => nonempty(r.qty) || nonempty(r.packedBy))
       ? mergeClipRows(pd.clipRows)
-      : STANDARD_CLIP_ROWS;
+      : STANDARD_CLIP_ROWS.map((row) => ({ ...row, qty: "", packedBy: "" }));
 
   const packs = pd?.packs ?? [EMPTY_PACK, EMPTY_PACK, EMPTY_PACK];
 
@@ -209,9 +241,13 @@ export function buildOfficialJobCardData(
       nonempty(pd?.contactEmail) ??
       nonempty(job.printDetails?.contactEmail) ??
       "",
-    purchaseOrderNo: nonempty(pd?.purchaseOrderNo) ?? "",
+    purchaseOrderNo: nonempty(job.orderNumber) ?? nonempty(pd?.purchaseOrderNo) ?? "",
     accountYesNo: pd?.accountYesNo === false ? "No" : "Yes",
-    transport: nonempty(pd?.transport) ?? "FRP Engineering",
+    transport:
+      nonempty(pd?.transport) ??
+      nonempty(sl?.shipmentMethod) ??
+      nonempty(pd?.workflowExtras?.shipmentMethod) ??
+      "FRP Engineering",
     transportCompany: nonempty(pd?.transportCompany) ?? "",
     freightAccount:
       nonempty(pd?.freightAccount) ??
@@ -229,8 +265,7 @@ export function buildOfficialJobCardData(
     colour: nonempty(pd?.colour) ?? "",
     finish: nonempty(pd?.finish) ?? "",
     clipRows,
-    notes:
-      nonempty(pd?.workflowExtras?.jobCardNotes) ?? nonempty(job.notes) ?? "",
+    notes: nonempty(job.notes) ?? "",
     deliveryInstructions:
       nonempty(pd?.deliveryInstructions) ??
       nonempty(pd?.workflowExtras?.deliveryAddress) ??

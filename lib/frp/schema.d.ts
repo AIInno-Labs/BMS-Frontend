@@ -604,7 +604,7 @@ export interface components {
             quoteFor?: {
                 [key: string]: Record<string, never>;
             };
-            measurement?: {
+            selectedItems?: {
                 [key: string]: Record<string, never>;
             }[];
             /** Raw source payload; sent only on the single-quote endpoint. */
