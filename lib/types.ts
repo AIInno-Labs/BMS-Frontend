@@ -132,8 +132,8 @@ export interface Job {
   ownerName?: string | null;
   /** Customer order/PO number, from a Quotient acceptance. */
   orderNumber?: string | null;
-  /** The quote's line items (Quotient `selected_items`), verbatim. */
-  measurement?: Array<Record<string, unknown>> | null;
+  /** The quote's selected items (Quotient `selected_items`), verbatim. */
+  selectedItems?: Array<Record<string, unknown>> | null;
   /** ISO 4217 code from the originating quote's payload, if any. */
   currency?: string | null;
   manualInstructions: string;

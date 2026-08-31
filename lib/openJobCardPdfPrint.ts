@@ -12,7 +12,7 @@ function a4PortraitPrintablePx(): { width: number; height: number } {
 }
 
 /**
- * Compact rules so measurement matches print output
+ * Compact rules so print layout matches print output
  * (@media print is not active until the print dialog opens).
  */
 function injectPrePrintLayout(doc: Document): void {
