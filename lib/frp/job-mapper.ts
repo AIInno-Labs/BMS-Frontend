@@ -354,6 +354,14 @@ export interface FrpJobStageDTO {
   /** Resolved assignees from `assignedTeam`. */
   assignees?: FrpAssignedUserDTO[];
   percentComplete?: number | null;
+  /** From Auditable — never accepted from the request body. */
+  createdBy?: number | null;
+  /** From Auditable — never accepted from the request body. */
+  createdDate?: string | null;
+  /** From Auditable — set on update only; never from the request body. */
+  lastModifiedBy?: number | null;
+  /** From Auditable — set on update only; never from the request body. */
+  lastModifiedDate?: string | null;
   children?: FrpJobStageDTO[];
   /** Documents uploaded against this stage — populated server-side on every
    *  `GET /jobs/{id}/stages` and stage PUT/scan response. */
