@@ -398,8 +398,8 @@ function autoFillInventoryLine(
   return next;
 }
 
-/** A `measurement` row's display fields — raw Quotient `selected_items` shape.
- *  `job.measurement` starts as the quote's own selected_items for a
+/** A `selectedItems` row's display fields — raw Quotient `selected_items` shape.
+ *  `job.selectedItems` starts as the quote's own selected_items for a
  *  quote-derived job (set at creation, QuotientEventProcessor.createJobIfAbsent)
  *  and gets overwritten with the approved PO's line items once one lands
  *  (JobDocumentServiceImpl.applyApprovedPoToJob) — one evolving field, so
@@ -471,7 +471,7 @@ export function JobWorkflowDashboard({
     job.assignedWorkerId === String(user.id);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
-  const orderItems = job.measurement ?? [];
+  const orderItems = job.selectedItems ?? [];
 
   const [showJobModal, setShowJobModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -597,7 +597,7 @@ export function JobWorkflowDashboard({
   }, [showInventoryModal, inventoryCatalog, inventoryCascadeKey]);
   const inventoryLineRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [jobCardNotesDraft, setJobCardNotesDraft] = useState(
-    extras.jobCardNotes ?? ""
+    job.notes ?? ""
   );
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -690,7 +690,7 @@ export function JobWorkflowDashboard({
     if (!showInventoryModal) {
       setInventoryDraft(toInventoryDraft(job.inventory ?? []));
     }
-    setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
+    setJobCardNotesDraft(job.notes ?? "");
   }, [job, showInventoryModal]);
 
   useEffect(() => {
@@ -1075,18 +1075,12 @@ export function JobWorkflowDashboard({
     }
   };
 
-  const jobCardNotesDirty = jobCardNotesDraft !== (extras.jobCardNotes ?? "");
+  const jobCardNotesDirty = jobCardNotesDraft !== (job.notes ?? "");
 
   const saveJobCardNotes = () => {
     if (!jobCardNotesDirty) return;
     void onSavePatch({
-      printDetails: {
-        ...pd,
-        workflowExtras: {
-          ...extras,
-          jobCardNotes: jobCardNotesDraft,
-        },
-      },
+      notes: jobCardNotesDraft.trim() || null,
     });
   };
 

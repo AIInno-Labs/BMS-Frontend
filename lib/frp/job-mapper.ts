@@ -97,8 +97,8 @@ export interface FrpJobDTO {
   orderNumber?: string | null;
   /** Raw source payload the job was raised from (e.g. the Quotient webhook). */
   payload?: Record<string, unknown> | null;
-  /** The quote's line items (Quotient `selected_items`), verbatim. */
-  measurement?: Array<Record<string, unknown>> | null;
+  /** The quote's selected items (Quotient `selected_items`), verbatim. */
+  selectedItems?: Array<Record<string, unknown>> | null;
   estimatedHours?: number | null;
   alert?: string | null;
   /** Free working notes, saved through the normal job update. Distinct from
@@ -108,12 +108,17 @@ export interface FrpJobDTO {
   description?: string | null;
   /** `JobType` enum name. Null on jobs raised before the field existed. */
   jobType?: string | null;
-  /** Currency for the payment totalled from `measurement`, e.g. `INR`. Sent on
+  /** Currency for the payment totalled from `selectedItems`, e.g. `INR`. Sent on
    *  create and update; returned by `GET /jobs/{id}` off the payment it was
    *  stored on. Absent from the list view, which does not load payments. */
   currency?: string | null;
   /** `READ_ONLY` here — written via `PUT /jobs/{id}/job-card`. */
   jobCard?: FrpJobCardPayload | null;
+  /**
+   * `READ_ONLY` — materials & specifications (`job_measurements`).
+   * Written via `PUT /jobs/{id}/measurements`.
+   */
+  measurements?: FrpJobMeasurementDTO | null;
   createdDate?: string;
   lastModifiedDate?: string;
   /** `READ_ONLY`, detail view only (`GET /jobs/{id}`) — resolved `customerId` row. */
@@ -294,6 +299,19 @@ export interface FrpJobResinCountDTO {
 export interface FrpJobResinCountsDTO {
   total?: number;
   byResin?: FrpJobResinCountDTO[];
+}
+
+/** `JobMeasurementDTO` — materials & specifications (`job_measurements`). */
+export interface FrpJobMeasurementDTO {
+  id?: number;
+  jobId?: number;
+  /** Free-form JSON; UI stores `{ materialsList: string }`. */
+  materials?: Record<string, unknown> | null;
+  notes?: string | null;
+  createdBy?: number | null;
+  createdDate?: string | null;
+  lastModifiedBy?: number | null;
+  lastModifiedDate?: string | null;
 }
 
 /** `JobCountsDTO` — `GET /jobs/counts`. */
@@ -756,6 +774,14 @@ function requirementsToUi(
   });
 }
 
+/** Materials list text from `job_measurements.materials` JSON. */
+function materialsListFromMeasurements(
+  measurements: FrpJobMeasurementDTO | null | undefined
+): string | undefined {
+  const raw = measurements?.materials?.materialsList;
+  return typeof raw === "string" ? raw : undefined;
+}
+
 export function frpJobToUi(dto: FrpJobDTO): Job {
   const card = dto.jobCard ?? undefined;
   const spec = card?.productSpec;
@@ -765,6 +791,13 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
   // contact (and then the company itself) so the job screen isn't blank until
   // someone fills in the card.
 
+  const accountFromPayment =
+    payment?.paymentMode === "ACCOUNT"
+      ? true
+      : payment?.paymentMode === "CASH"
+        ? false
+        : undefined;
+
   const printDetails: JobCardPrintDetails = {
     // Empty strings in jobCard must not block contactDetails / logistics fallbacks.
     purchaseOrderNo: card?.purchaseOrderNo || undefined,
@@ -772,9 +805,13 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
       card?.contactPhone || dto.contactDetails?.phone || undefined,
     contactEmail:
       card?.contactEmail || dto.contactDetails?.email || undefined,
-    accountYesNo: card?.accountCustomer,
+    accountYesNo: card?.accountCustomer ?? accountFromPayment,
     raisedBy: card?.raisedBy || undefined,
-    transport: card?.transport || undefined,
+    transport:
+      card?.transport ||
+      dto.schedulingLogistics?.shipmentMethod ||
+      card?.shipmentMethod ||
+      undefined,
     transportCompany: card?.transportCompany || undefined,
     freightAccount:
       card?.freightAccount ||
@@ -815,10 +852,12 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
         qty: m.qty ?? "",
         availability: m.availability ?? "",
       })),
-      materialsList: card?.materialsList,
+      // Prefer dedicated job_measurements row; fall back to legacy jobCard fields.
+      materialsList:
+        materialsListFromMeasurements(dto.measurements) ?? card?.materialsList,
       programHistory: card?.programHistory ?? [],
-      additionalNotes: card?.additionalNotes,
-      jobCardNotes: card?.notes || dto.notes || undefined,
+      additionalNotes:
+        dto.measurements?.notes ?? card?.additionalNotes,
       jobType: jobTypeToUi(dto.jobType) ?? undefined,
       paymentReceived:
         payment != null
@@ -850,7 +889,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     jobType: jobTypeToUi(dto.jobType),
     ownerName: dto.ownerName ?? null,
     orderNumber: dto.orderNumber ?? null,
-    measurement: dto.measurement ?? null,
+    selectedItems: dto.selectedItems ?? null,
     // `currency` is the field; `payload.currency` is where this client used to
     // put it, and still where jobs created before the switch carry it. Reading
     // both means an existing job's currency survives the change.
@@ -936,7 +975,7 @@ export function uiJobToCreateRequest(job: Job): FrpJobDTO {
     description: job.description?.trim() || undefined,
     jobType: jobTypeToBackend(job.jobType) ?? undefined,
     schedulingLogistics: schedulingLogisticsToBackend(job.schedulingLogistics),
-    measurement: job.measurement ?? undefined,
+    selectedItems: job.selectedItems ?? undefined,
     // Its own field, not smuggled inside `payload`. `payload` is the raw body a
     // job was raised from; a currency picked in a dropdown is not that, and the
     // backend never read it from there — every manual job silently fell back to
@@ -979,19 +1018,22 @@ export function uiJobToUpdateRequest(job: Job): FrpJobDTO {
     // Line items are editable here, so the currency they are totalled in has to
     // be too. Omitting it leaves the payment's existing currency alone rather
     // than resetting it, so a partial update cannot silently change the money.
-    measurement: job.measurement ?? undefined,
+    selectedItems: job.selectedItems ?? undefined,
     currency: job.currency ?? undefined,
   };
 }
 
 /**
- * The job-card document for `PUT /jobs/{id}/job-card?version=`.
+ * The job-card document for `PUT /jobs/{id}/job-card`.
  *
  * Fields the `Job` entity has no column for — `dateRaised`, `quoteValidUntil`,
  * the three workflow flags, `manualInstructions` — ride along here so they
  * round-trip. Rev 2 §07 lists `manufacturingRequired` / `installRequired` /
  * `qaCompleted` on the entity, but `JobDTO` does not expose them, so the API
  * cannot carry them today. Move them out of the card once the DTO does.
+ *
+ * Empty default clip catalogue rows are never persisted — only qty/packedBy
+ * the operator actually filled. Materials live on `job_measurements`, not here.
  */
 export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
   const pd = job.printDetails;
@@ -1019,17 +1061,15 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
       finishType: pd?.finish,
       resinType: job.resinType,
     },
-    scopeLines: pd?.scopeLines,
-    clipRows: pd?.clipRows,
+    clipRows: clipRowsForCardPayload(pd?.clipRows),
     packs: [...packs],
     materialRows: extras?.materialRows,
-    materialsList: extras?.materialsList,
+    // materialsList / additionalNotes are owned by PUT /jobs/{id}/measurements.
+    // notes are owned by job.notes (job update) — never dual-write into jobCard.
     shipmentMethod: extras?.shipmentMethod,
     billingAddress: extras?.billingAddress,
     deliveryAddress: extras?.deliveryAddress,
     programHistory: extras?.programHistory,
-    notes: extras?.jobCardNotes,
-    additionalNotes: extras?.additionalNotes,
     dateRaised: job.date || undefined,
     quoteValidUntil: job.quoteValidUntil,
     manufacturingRequired: job.manufacturingRequired,
@@ -1037,4 +1077,20 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     qaCompleted: job.qaCompleted,
     manualInstructions: job.manualInstructions || undefined,
   };
+}
+
+/** Persist only clip rows the operator filled — not the blank STANDARD catalogue. */
+function clipRowsForCardPayload(
+  rows: { clip?: string; qty?: string; packedBy?: string }[] | undefined
+): { clip?: string; qty?: string; packedBy?: string }[] | undefined {
+  if (!rows?.length) return undefined;
+  const filled = rows.filter(
+    (r) => Boolean(r.qty?.trim()) || Boolean(r.packedBy?.trim())
+  );
+  if (filled.length === 0) return undefined;
+  return filled.map((r) => ({
+    clip: r.clip ?? "",
+    qty: r.qty ?? "",
+    packedBy: r.packedBy ?? "",
+  }));
 }

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { buildOfficialJobCardData } from "@/lib/jobCardPrint";
 import { buildJobCardPrintHtml } from "@/lib/jobCardPrintHtml";
-import { frpJobToUi, type FrpJobDTO } from "@/lib/frp/job-mapper";
+import {
+  jobCardExportToOfficial,
+  type JobCardExportDTO,
+} from "@/lib/frp/job-card-export";
 
 interface RouteContext {
   /**
@@ -12,12 +14,9 @@ interface RouteContext {
 }
 
 /**
- * Print HTML for a job card, fetched from Spring Boot with the caller's Bearer
- * token forwarded from the browser.
- *
- * Rev 2 §13 puts this endpoint on the backend (`GET /jobs/{id}/job-card-html`,
- * writing a `JOB_CARD_DOWNLOADED` audit row). Until that ships this proxy
- * stands in — and that audit row is not written.
+ * Print HTML for a job card. Proxies Spring `GET /jobs/{id}/job-card`
+ * (assembled `JobCardExportDTO`, records `JOB_CARD_DOWNLOADED`) then fills
+ * `pdf.html`.
  */
 export async function GET(request: Request, context: RouteContext) {
   const { jobId } = await context.params;
@@ -40,29 +39,22 @@ export async function GET(request: Request, context: RouteContext) {
   const auth = request.headers.get("authorization");
 
   try {
-    const [jobRes, auditRes] = await Promise.all([
-      fetch(`${base}/jobs/${encodeURIComponent(decoded)}`, {
+    const exportRes = await fetch(
+      `${base}/jobs/${encodeURIComponent(decoded)}/job-card`,
+      {
         headers: auth ? { Authorization: auth } : {},
         cache: "no-store",
-      }),
-      fetch(`${base}/jobs/${encodeURIComponent(decoded)}/audit?page=0&size=1`, {
-        headers: auth ? { Authorization: auth } : {},
-        cache: "no-store",
-      }),
-    ]);
-    if (!jobRes.ok) {
+      }
+    );
+    if (!exportRes.ok) {
       const message =
-        jobRes.status === 404
+        exportRes.status === 404
           ? "Job not found"
-          : `Backend error (${jobRes.status})`;
-      return NextResponse.json({ error: message }, { status: jobRes.status });
+          : `Backend error (${exportRes.status})`;
+      return NextResponse.json({ error: message }, { status: exportRes.status });
     }
-    const dto = (await jobRes.json()) as FrpJobDTO;
-    const auditPage = auditRes.ok
-      ? ((await auditRes.json()) as { totalElements?: number })
-      : null;
-    const job = frpJobToUi(dto);
-    const data = buildOfficialJobCardData(job, undefined, auditPage?.totalElements ?? 0);
+    const dto = (await exportRes.json()) as JobCardExportDTO;
+    const data = jobCardExportToOfficial(dto);
     const html = buildJobCardPrintHtml(data, { autoprint });
 
     return new NextResponse(html, {
@@ -72,7 +64,7 @@ export async function GET(request: Request, context: RouteContext) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to load job";
+    const message = err instanceof Error ? err.message : "Failed to load job card";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
