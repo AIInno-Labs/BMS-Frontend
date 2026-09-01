@@ -5,6 +5,8 @@ import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote, X } from 
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
 import { PoManualEntryFields, type PoDetailsFormValue } from "@/components/PoManualEntryFields";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 import {
   createManualPoDocument,
   deleteJobDocument,
@@ -92,6 +94,8 @@ export function JobStatusCard({
   onDocumentsChanged,
   onOpenDocument,
 }: JobStatusCardProps) {
+  const { can } = useAuth();
+  const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
   const locked =
     isCancelledJob(job.status) || isJobLockedForCashPayment(job);
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
@@ -256,7 +260,10 @@ export function JobStatusCard({
   };
 
   const isProductionStage = selectedKey === "production";
-  const manualPoActive = isProductionStage && poMode === "manual";
+  // Also gated on canCreatePo so a stale "manual" mode (e.g. privilege
+  // revoked mid-session) can't submit through PoManualEntryFields even
+  // though the toggle that sets it is hidden without PO_CREATE.
+  const manualPoActive = isProductionStage && poMode === "manual" && canCreatePo;
 
   const saveStageModal = async () => {
     if (!modalStage || modalStage.id == null) return;
@@ -614,7 +621,7 @@ export function JobStatusCard({
             </div>
           )}
 
-          {!draftNotRequired && isProductionStage && (
+          {!draftNotRequired && isProductionStage && canCreatePo && (
             <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
               <button
                 type="button"

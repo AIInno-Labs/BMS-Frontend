@@ -633,7 +633,7 @@ function userIdToUi(id?: number | null): string | null {
   return id == null ? null : String(id);
 }
 
-function userIdToBackend(id?: string | null): number | null {
+export function userIdToBackend(id?: string | null): number | null {
   if (!id) return null;
   const n = Number(id);
   return Number.isFinite(n) ? n : null;

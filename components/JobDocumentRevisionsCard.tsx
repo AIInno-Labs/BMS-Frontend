@@ -17,6 +17,7 @@ import { EditModal, ModalField } from "@/components/JobEditModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PoManualEntryFields } from "@/components/PoManualEntryFields";
 import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
 import {
   compareJobDocument,
   createManualPoDocument,
@@ -479,7 +480,8 @@ export function JobDocumentRevisionsCard({
 }: JobDocumentRevisionsCardProps) {
   const locked =
     isCancelledJob(job.status) || isJobLockedForCashPayment(job);
-  const { user: me } = useAuth();
+  const { user: me, can } = useAuth();
+  const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
   const [docType, setDocType] = useState<DocTab>("po");
   const [poCompareOpen, setPoCompareOpen] = useState(false);
   const [drawingCompareOpen, setDrawingCompareOpen] = useState(false);
@@ -892,7 +894,10 @@ export function JobDocumentRevisionsCard({
         return;
       }
 
-      if (addPoMode === "upload") {
+      // Also gated on canCreatePo so a stale "manual" mode (e.g. privilege
+      // revoked mid-session) can't submit through the manual PO branch even
+      // though the toggle that sets it is hidden without PO_CREATE.
+      if (addPoMode === "upload" || !canCreatePo) {
         if (!addPoFile) {
           setAddPoError("Choose a file to upload.");
           return;
@@ -1573,30 +1578,32 @@ export function JobDocumentRevisionsCard({
         onClose={() => setShowAddPoModal(false)}
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => setAddPoMode("upload")}
-              className={`rounded-md px-3 py-1.5 transition-colors ${
-                addPoMode === "upload"
-                  ? "bg-white text-orange-700 shadow-sm border border-orange-200"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Upload file
-            </button>
-            <button
-              type="button"
-              onClick={() => setAddPoMode("manual")}
-              className={`rounded-md px-3 py-1.5 transition-colors ${
-                addPoMode === "manual"
-                  ? "bg-white text-orange-700 shadow-sm border border-orange-200"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Enter manually
-            </button>
-          </div>
+          {canCreatePo && (
+            <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setAddPoMode("upload")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  addPoMode === "upload"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Upload file
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddPoMode("manual")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  addPoMode === "manual"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Enter manually
+              </button>
+            </div>
+          )}
 
           {addPoError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
