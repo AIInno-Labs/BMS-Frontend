@@ -13,6 +13,7 @@ export const ACCESS_KEYS = {
   JOBS_VIEW: "JOBS_VIEW",
   JOBS_CREATE: "JOBS_CREATE",
   JOBS_UPDATE: "JOBS_UPDATE",
+  PO_CREATE: "PO_CREATE",
   QUOTES_VIEW: "QUOTES_VIEW",
   ANALYTICS_VIEW: "ANALYTICS_VIEW",
   QUOTIENT_VIEW: "QUOTIENT_VIEW",
@@ -102,6 +103,9 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
     [ACCESS_KEYS.JOBS_VIEW, MENU_CODES.JOBS],
     [ACCESS_KEYS.JOBS_CREATE, "JOB_CREATE"],
     [ACCESS_KEYS.JOBS_UPDATE, "JOB_UPDATE"],
+    // Split off DOCUMENT_CREATE on the backend — creating a manual PO used to
+    // share the same privilege as uploading any other job document.
+    [ACCESS_KEYS.PO_CREATE, "PO_CREATE"],
     [ACCESS_KEYS.QUOTES_VIEW, MENU_CODES.QUOTES],
     [ACCESS_KEYS.ANALYTICS_VIEW, [MENU_CODES.ANALYTICS, MENU_CODES.DASHBOARD]],
     // No ACTION equivalent — MENU_QUOTIENT must be assigned explicitly by Org
