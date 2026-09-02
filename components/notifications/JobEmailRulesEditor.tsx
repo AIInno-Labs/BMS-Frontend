@@ -111,6 +111,15 @@ function eventTitle(row: JobEmailRecipientDTO): string {
   return milestone ? `${milestone} · ${name}` : name;
 }
 
+/** Catalog marks attachment applicable when value is not -1. */
+function supportsDocumentAttachmentToggle(row: JobEmailRecipientDTO): boolean {
+  const platform = row.platformDocumentAttachmentRequired;
+  if (platform != null) {
+    return platform !== -1;
+  }
+  return (row.eventDef?.documentAttachmentRequired ?? -1) !== -1;
+}
+
 type LifecycleItem =
   | { kind: "row"; row: JobEmailRecipientDTO }
   | {
@@ -199,9 +208,17 @@ function selectedFromRow(row: JobEmailRecipientDTO): (number | string)[] {
 function payloadFromSelection(
   row: JobEmailRecipientDTO,
   selected: (number | string)[],
-  enabled: boolean
+  enabled: boolean,
+  documentAttachmentRequired?: number
 ): JobEmailRecipientDTO {
   const userIds = selected.filter((id): id is number => typeof id === "number");
+  const attachment =
+    documentAttachmentRequired ??
+    (row.eventDef?.documentAttachmentRequired === 1
+      ? 1
+      : row.eventDef?.documentAttachmentRequired === 0
+        ? 0
+        : -1);
   return {
     ...(row.id != null ? { id: row.id } : {}),
     eventDef: row.eventDef
@@ -209,6 +226,7 @@ function payloadFromSelection(
           category: row.eventDef.category,
           eventKey: row.eventDef.eventKey,
           event: row.eventDef.event,
+          documentAttachmentRequired: attachment,
         }
       : undefined,
     assigningTrigger: selected.includes(ASSIGNED_WORKER),
@@ -240,6 +258,7 @@ export function JobEmailRulesEditor({
   const [drawerRow, setDrawerRow] = useState<JobEmailRecipientDTO | null>(null);
   const [drawerSelected, setDrawerSelected] = useState<(number | string)[]>([]);
   const [drawerEnabled, setDrawerEnabled] = useState(true);
+  const [drawerDocumentAttachment, setDrawerDocumentAttachment] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -278,6 +297,7 @@ export function JobEmailRulesEditor({
     setDrawerRow(row);
     setDrawerSelected(selectedFromRow(row));
     setDrawerEnabled(row.enabled !== false);
+    setDrawerDocumentAttachment(row.eventDef?.documentAttachmentRequired === 1);
     setUserSearchQuery("");
     setSaveError(null);
   }
@@ -334,7 +354,18 @@ export function JobEmailRulesEditor({
     setSaving(true);
     setSaveError(null);
     try {
-      await onSave(payloadFromSelection(drawerRow, drawerSelected, drawerEnabled));
+      await onSave(
+        payloadFromSelection(
+          drawerRow,
+          drawerSelected,
+          drawerEnabled,
+          supportsDocumentAttachmentToggle(drawerRow)
+            ? drawerDocumentAttachment
+              ? 1
+              : 0
+            : (drawerRow.eventDef?.documentAttachmentRequired ?? -1)
+        )
+      );
       setDrawerRow(null);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Could not save recipients");
@@ -438,6 +469,23 @@ export function JobEmailRulesEditor({
             />
             Email this event
           </label>
+          {drawerRow && supportsDocumentAttachmentToggle(drawerRow) ? (
+            <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
+              <input
+                type="checkbox"
+                checked={drawerDocumentAttachment}
+                onChange={(e) => setDrawerDocumentAttachment(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Attach stage documents to email
+            </label>
+          ) : null}
+          {drawerRow && supportsDocumentAttachmentToggle(drawerRow) ? (
+            <p className="mt-1 text-xs font-normal text-slate-500">
+              When on, operators can choose to attach stage documents on status
+              complete. Only org admins can change this.
+            </p>
+          ) : null}
           <div className="mt-2 max-h-[min(24rem,50vh)] space-y-3 overflow-y-auto rounded-xl border border-slate-200 p-3">
             <div className="space-y-1.5 border-b border-slate-100 pb-3">
               {SPECIAL_RECIPIENTS.map((r) => (

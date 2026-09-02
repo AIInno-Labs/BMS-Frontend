@@ -363,6 +363,10 @@ export interface FrpJobStageDTO {
   /** Whether this stage requires a document before it completes.
    *  Seeded from the stage template default, editable per job. */
   docRequired?: boolean;
+  /** Email catalog allows attaching a document to stage-complete notifications. */
+  emailAttachmentEnabled?: boolean;
+  /** Operator choice: -1 N/A, 0 off, 1 attach files to email. */
+  emailDocumentAttachmentRequired?: number | null;
   sortOrder?: number;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -421,6 +425,8 @@ export interface FrpJobStageUpdateRequest {
   notes?: string;
   /** Toggle whether this stage requires a document. Editable per stage. */
   docRequired?: boolean;
+  /** Attach stage documents to the notification email: -1 N/A, 0 off, 1 on. */
+  emailDocumentAttachmentRequired?: number;
   assignedTeam?: string;
 }
 

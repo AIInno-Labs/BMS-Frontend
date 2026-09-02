@@ -39,6 +39,8 @@ export interface JobEmailEventDef {
   event: string;
   eventName?: string | null;
   description?: string | null;
+  /** -1 not applicable, 0 optional, 1 required (document upload events). */
+  documentAttachmentRequired?: number | null;
 }
 
 export interface JobEmailRecipientDTO {
@@ -53,6 +55,8 @@ export interface JobEmailRecipientDTO {
   orgEditable?: boolean | null;
   enabled?: boolean | null;
   inherited?: boolean | null;
+  /** Platform default; org cannot enable attachment when this is -1. */
+  platformDocumentAttachmentRequired?: number | null;
 }
 
 /** Quotient integration setup (GET/PUT /integrations/quotient). */
