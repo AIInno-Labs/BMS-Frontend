@@ -17,7 +17,7 @@ import { EditModal, ModalField } from "@/components/JobEditModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PoManualEntryFields } from "@/components/PoManualEntryFields";
 import { useAuth } from "@/context/AuthContext";
-import { ACCESS_KEYS } from "@/lib/frp/access";
+import { ACCESS_KEYS, hasPrivilege } from "@/lib/frp/access";
 import {
   compareJobDocument,
   createManualPoDocument,
@@ -482,6 +482,8 @@ export function JobDocumentRevisionsCard({
     isCancelledJob(job.status) || isJobLockedForCashPayment(job);
   const { user: me, can } = useAuth();
   const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
+  const canUploadDocument = hasPrivilege(me, "DOCUMENT_CREATE");
+  const showAddPoModeToggle = canCreatePo || canUploadDocument;
   const [docType, setDocType] = useState<DocTab>("po");
   const [poCompareOpen, setPoCompareOpen] = useState(false);
   const [drawingCompareOpen, setDrawingCompareOpen] = useState(false);
@@ -894,10 +896,7 @@ export function JobDocumentRevisionsCard({
         return;
       }
 
-      // Also gated on canCreatePo so a stale "manual" mode (e.g. privilege
-      // revoked mid-session) can't submit through the manual PO branch even
-      // though the toggle that sets it is hidden without PO_CREATE.
-      if (addPoMode === "upload" || !canCreatePo) {
+      if (addPoMode === "upload") {
         if (!addPoFile) {
           setAddPoError("Choose a file to upload.");
           return;
@@ -907,6 +906,11 @@ export function JobDocumentRevisionsCard({
           file: addPoFile,
           remarks: addPoRemarks.trim() || undefined,
         });
+      } else if (!canCreatePo) {
+        setAddPoError(
+          "Manual PO entry requires the PO_CREATE permission on your role. Ask your org admin to assign it."
+        );
+        return;
       } else {
         const itemsError = firstPoItemRowsError(addPoItems);
         if (itemsError) {
@@ -1578,7 +1582,7 @@ export function JobDocumentRevisionsCard({
         onClose={() => setShowAddPoModal(false)}
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          {canCreatePo && (
+          {showAddPoModeToggle && (
             <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
               <button
                 type="button"
@@ -1639,6 +1643,12 @@ export function JobDocumentRevisionsCard({
                 multiline
               />
             </>
+          ) : !canCreatePo ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Manual PO entry requires the <span className="font-semibold">PO_CREATE</span>{" "}
+              permission on your role. Ask your org admin to assign it, or upload a file
+              instead.
+            </p>
           ) : (
             <>
               <p className="text-sm text-slate-600">
@@ -1658,7 +1668,7 @@ export function JobDocumentRevisionsCard({
           <button
             className="btn-primary w-full"
             onClick={() => void saveAddPoModal()}
-            disabled={addPoBusy}
+            disabled={addPoBusy || (addPoMode === "manual" && !canCreatePo)}
           >
             {addPoBusy ? "Saving…" : "Add PO"}
           </button>
