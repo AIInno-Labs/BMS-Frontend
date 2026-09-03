@@ -38,6 +38,7 @@ import { QaTraceabilitySection } from "@/components/QaTraceabilitySection";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
+import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 import { generateAiEstimate } from "@/lib/aiMock";
 import {
   formatEstimatedHoursLong,
@@ -119,6 +120,12 @@ export function JobCard({ jobId }: JobCardProps) {
     setDetailMissing(false);
     setDetailLoading(false);
   }, [jobId]);
+
+  // Auto-dismiss the "Saved" banner; hovering it pauses the countdown, and
+  // the X button (rendered by JobWorkflowDashboard) still closes it early.
+  const saveSuccessDismiss = useAutoDismiss(saveSuccess, () =>
+    setSaveSuccess(false)
+  );
 
   useEffect(() => {
     if (!sourceJob || isSaving) return;
@@ -709,6 +716,8 @@ export function JobCard({ jobId }: JobCardProps) {
           saveError={saveError}
           saveSuccess={saveSuccess}
           saveWarning={saveWarning}
+          onSaveSuccessMouseEnter={saveSuccessDismiss.onMouseEnter}
+          onSaveSuccessMouseLeave={saveSuccessDismiss.onMouseLeave}
           auditRefreshKey={auditRefreshKey}
           onPrint={handlePrint}
           onPrintLoc={handlePrintLoc}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pencil, Search, X } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import type {
@@ -262,6 +263,12 @@ export function JobEmailRulesEditor({
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [dropdownRect, setDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
 
   const usersById = useMemo(() => {
     const map = new Map<number, UserDTO>();
@@ -318,6 +325,26 @@ export function JobEmailRulesEditor({
     setDrawerSelected((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setUserSearchQuery("");
   }
+
+  useEffect(() => {
+    if (!userSearchQuery.trim()) {
+      setDropdownRect(null);
+      return;
+    }
+    function updateRect() {
+      const el = searchInputRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setDropdownRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+    updateRect();
+    window.addEventListener("scroll", updateRect, true);
+    window.addEventListener("resize", updateRect);
+    return () => {
+      window.removeEventListener("scroll", updateRect, true);
+      window.removeEventListener("resize", updateRect);
+    };
+  }, [userSearchQuery, drawerRow]);
 
   function removeRecipient(id: number | string) {
     setDrawerSelected((prev) => prev.filter((x) => x !== id));
@@ -510,6 +537,7 @@ export function JobEmailRulesEditor({
                   aria-hidden
                 />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   value={userSearchQuery}
                   onChange={(e) => setUserSearchQuery(e.target.value)}
@@ -517,37 +545,47 @@ export function JobEmailRulesEditor({
                   autoComplete="off"
                   className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 />
-                {userSearchQuery.trim() && (
-                  <div className="absolute z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                    {usersLoading ? (
-                      <p className="px-3 py-2 text-sm text-slate-500">
-                        Loading users…
-                      </p>
-                    ) : userSearchResults.length === 0 ? (
-                      <p className="px-3 py-2 text-sm text-slate-500">
-                        No matching users.
-                      </p>
-                    ) : (
-                      userSearchResults.map((u) => (
-                        <button
-                          key={u.id}
-                          type="button"
-                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
-                          onClick={() => addUser(u.id!)}
-                        >
-                          <span className="text-sm font-medium text-slate-800">
-                            {u.displayName || u.email}
-                          </span>
-                          {u.email && u.displayName ? (
-                            <span className="text-xs text-slate-500">
-                              {u.email}
-                            </span>
-                          ) : null}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
+                {userSearchQuery.trim() && dropdownRect
+                  ? createPortal(
+                      <div
+                        className="fixed z-[110] max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg"
+                        style={{
+                          top: dropdownRect.top,
+                          left: dropdownRect.left,
+                          width: dropdownRect.width,
+                        }}
+                      >
+                        {usersLoading ? (
+                          <p className="px-3 py-2 text-sm text-slate-500">
+                            Loading users…
+                          </p>
+                        ) : userSearchResults.length === 0 ? (
+                          <p className="px-3 py-2 text-sm text-slate-500">
+                            No matching users.
+                          </p>
+                        ) : (
+                          userSearchResults.map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-slate-50"
+                              onClick={() => addUser(u.id!)}
+                            >
+                              <span className="text-sm font-medium text-slate-800">
+                                {u.displayName || u.email}
+                              </span>
+                              {u.email && u.displayName ? (
+                                <span className="text-xs text-slate-500">
+                                  {u.email}
+                                </span>
+                              ) : null}
+                            </button>
+                          ))
+                        )}
+                      </div>,
+                      document.body
+                    )
+                  : null}
               </div>
 
               <div className="space-y-1.5">

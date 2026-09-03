@@ -230,13 +230,13 @@ export function CustomersListPage() {
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <AnimatedStatTile
             label="Active jobs"
             value={activeJobs}
             hint="Across all accounts"
           />
-          <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="relative min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" aria-hidden />
               <p className="truncate text-xs font-semibold uppercase tracking-wider text-slate-500">

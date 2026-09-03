@@ -2,9 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/context/AuthContext";
+import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 import {
   listOrgParameters,
   upsertOrgParameter,
@@ -115,6 +116,7 @@ export default function OrgIntegrationsPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const messageDismiss = useAutoDismiss(message, () => setMessage(null));
   const [confirmGroup, setConfirmGroup] = useState<IntegrationGroup | null>(
     null
   );
@@ -304,8 +306,20 @@ export default function OrgIntegrationsPage() {
           </p>
         )}
         {message && (
-          <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-            {message}
+          <p
+            className="mt-4 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+            onMouseEnter={messageDismiss.onMouseEnter}
+            onMouseLeave={messageDismiss.onMouseLeave}
+          >
+            <span>{message}</span>
+            <button
+              type="button"
+              onClick={() => setMessage(null)}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
           </p>
         )}
 
