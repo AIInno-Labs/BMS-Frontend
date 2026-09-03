@@ -55,6 +55,8 @@ export interface FrpJobSummaryDTO {
   assignedUserId?: number | null;
   /** Quote owner's name; present even when no matching user (id then null). */
   ownerName?: string | null;
+  /** From JobContactDetails, one row per job - null when never set. */
+  contactName?: string | null;
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
@@ -686,7 +688,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     manufacturingRequired: true,
     installRequired: false,
     qaCompleted: false,
-    clientContactName: "",
+    clientContactName: dto.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
     manualInstructions: "",

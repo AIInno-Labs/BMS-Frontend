@@ -1015,6 +1015,20 @@ export async function cancelJob(dbId: string | number): Promise<void> {
   });
 }
 
+/** `PUT /jobs/{id}/hold` — blocks the job's current milestone, sets `stageStatus = ON_HOLD`. */
+export async function holdJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/hold`, {
+    method: "PUT",
+  });
+}
+
+/** `PUT /jobs/{id}/resume` — un-pauses a job held via {@link holdJob}. */
+export async function resumeJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/resume`, {
+    method: "PUT",
+  });
+}
+
 export async function listJobAudit(
   dbId: string | number,
   page = 0,

@@ -44,6 +44,7 @@ import {
 import {
   BACKEND_JOB_STATUSES,
   isCancelledJob,
+  isOnHoldJob,
   priorityToBackend,
   statusToBackend,
   statusToUi,
@@ -167,7 +168,7 @@ function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
 const STAGE_BADGE_CLASS =
   "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
 
-/** Stage from currentStageKey, plus Cancelled when stageStatus is CANCELLED. */
+/** Stage from currentStageKey, plus Cancelled/On Hold when stageStatus says so. */
 function JobListStageBadges({
   job,
   variant,
@@ -176,6 +177,7 @@ function JobListStageBadges({
   variant: "full" | "short";
 }) {
   const cancelled = isCancelledJob(job.status);
+  const onHold = isOnHoldJob(job.status);
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <span className={`${STAGE_BADGE_CLASS} ${getStageBadgeClass(job)}`}>
@@ -184,6 +186,11 @@ function JobListStageBadges({
       {cancelled ? (
         <span className={`${STAGE_BADGE_CLASS} status-pill status-pill--cancelled`}>
           Cancelled
+        </span>
+      ) : null}
+      {onHold ? (
+        <span className={`${STAGE_BADGE_CLASS} border-amber-300 bg-amber-100 text-amber-900`}>
+          On Hold
         </span>
       ) : null}
     </span>
@@ -727,7 +734,7 @@ export function JobsList({ jobs }: JobsListProps) {
               className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
               aria-label="Filter assignee"
             >
-              <option value="">Any</option>
+              <option value="">All</option>
               {staff.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.display_name}
@@ -750,7 +757,7 @@ export function JobsList({ jobs }: JobsListProps) {
               className="ml-2 min-w-0 max-w-36 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
               aria-label="Filter due date"
             >
-              <option value="">Any</option>
+              <option value="">All</option>
               <option value="1w">1 week</option>
               <option value="2w">2 weeks</option>
               <option value="1m">1 month</option>

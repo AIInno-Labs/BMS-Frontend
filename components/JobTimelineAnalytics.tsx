@@ -27,9 +27,9 @@ import {
   type TimelineStageView,
   type TimelineSubStageView,
 } from "@/lib/jobTimelineAnalytics";
-import { listJobStages } from "@/lib/frp/api";
+import { holdJob, listJobStages, resumeJob } from "@/lib/frp/api";
 import type { FrpJobStageDTO } from "@/lib/frp/job-mapper";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
@@ -493,8 +493,18 @@ export function JobTimelineAnalytics({
   const { updateJob } = useJobs();
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [holdBusy, setHoldBusy] = useState(false);
+  const [holdError, setHoldError] = useState<string | null>(null);
   const editsBlocked =
     isCancelledJob(job.status) || isJobLockedForCashPayment(job);
+  const onHold = isOnHoldJob(job.status);
+  // Same definition as computeJobAnalytics' overdue count: a due date in the
+  // past on a job that isn't already finished/abandoned.
+  const isOverdue =
+    !!job.dueDate &&
+    job.dueDate < new Date().toISOString().slice(0, 10) &&
+    !isCancelledJob(job.status) &&
+    job.status !== "Complete";
   const assignedToMe =
     user?.id != null &&
     job.assignedWorkerId != null &&
@@ -517,6 +527,24 @@ export function JobTimelineAnalytics({
       setAssignError(e instanceof Error ? e.message : "Could not assign job");
     } finally {
       setAssignBusy(false);
+    }
+  };
+
+  const toggleHold = async () => {
+    if (holdBusy || job.dbId == null) return;
+    setHoldBusy(true);
+    setHoldError(null);
+    try {
+      if (onHold) {
+        await resumeJob(job.dbId);
+      } else {
+        await holdJob(job.dbId);
+      }
+      await onJobChanged?.();
+    } catch (e) {
+      setHoldError(e instanceof Error ? e.message : "Could not update hold status");
+    } finally {
+      setHoldBusy(false);
     }
   };
 
@@ -732,6 +760,25 @@ export function JobTimelineAnalytics({
                 Assigned to you
               </span>
             ) : null}
+            {isOverdue && !isCancelledJob(job.status) ? (
+              <button
+                type="button"
+                onClick={() => void toggleHold()}
+                disabled={holdBusy}
+                title={
+                  onHold
+                    ? "Resume — the backend blocks edits on this job until it's resumed"
+                    : "Put this overdue job on hold — blocks edits until resumed"
+                }
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-60 ${
+                  onHold
+                    ? "border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200"
+                    : "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"
+                }`}
+              >
+                {holdBusy ? "Working…" : onHold ? "On hold — Resume" : "Put on hold"}
+              </button>
+            ) : null}
             <span className={jobStageClass(job.status)}>{jobStageLabel(job)}</span>
             <button
               type="button"
@@ -753,6 +800,9 @@ export function JobTimelineAnalytics({
           </div>
           {assignError ? (
             <p className="max-w-xs text-right text-xs text-red-600">{assignError}</p>
+          ) : null}
+          {holdError ? (
+            <p className="max-w-xs text-right text-xs text-red-600">{holdError}</p>
           ) : null}
         </div>
       </div>

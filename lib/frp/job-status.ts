@@ -96,6 +96,11 @@ export function isCancelledJob(status?: string | null): boolean {
   return statusToUi(status) === "Cancelled";
 }
 
+/** Paused — the backend blocks PUT/DELETE on the job until it's resumed. */
+export function isOnHoldJob(status?: string | null): boolean {
+  return statusToUi(status) === "On Hold";
+}
+
 /**
  * UI label → backend value. Accepts a display label, a PRD lifecycle label, or
  * a raw enum name. Returns null when nothing matches, so callers can decide
