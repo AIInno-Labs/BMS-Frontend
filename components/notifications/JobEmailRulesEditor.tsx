@@ -487,15 +487,6 @@ export function JobEmailRulesEditor({
               {saveError}
             </p>
           ) : null}
-          <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
-            <input
-              type="checkbox"
-              checked={drawerEnabled}
-              onChange={(e) => setDrawerEnabled(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Email this event
-          </label>
           {drawerRow && supportsDocumentAttachmentToggle(drawerRow) ? (
             <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-medium text-slate-800">
               <input
