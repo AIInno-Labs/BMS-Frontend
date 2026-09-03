@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import {
   canEditOwnProfile,
@@ -13,6 +14,7 @@ import {
 import type { MfaSetupResponse } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { ACCESS_KEYS } from "@/lib/frp/access";
+import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 disabled:bg-slate-50 disabled:text-slate-500";
@@ -45,6 +47,11 @@ export default function ProfileSettingsPage() {
   const [mfaError, setMfaError] = useState<string | null>(null);
   const [mfaMessage, setMfaMessage] = useState<string | null>(null);
   const [mfaBusy, setMfaBusy] = useState(false);
+
+  const messageDismiss = useAutoDismiss(message, () => setMessage(null));
+  const mfaMessageDismiss = useAutoDismiss(mfaMessage, () =>
+    setMfaMessage(null)
+  );
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -202,8 +209,20 @@ export default function ProfileSettingsPage() {
             </p>
           )}
           {message && (
-            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              {message}
+            <p
+              className="flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+              onMouseEnter={messageDismiss.onMouseEnter}
+              onMouseLeave={messageDismiss.onMouseLeave}
+            >
+              <span>{message}</span>
+              <button
+                type="button"
+                onClick={() => setMessage(null)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
             </p>
           )}
 
@@ -345,8 +364,20 @@ export default function ProfileSettingsPage() {
             </p>
           )}
           {mfaMessage && (
-            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              {mfaMessage}
+            <p
+              className="flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+              onMouseEnter={mfaMessageDismiss.onMouseEnter}
+              onMouseLeave={mfaMessageDismiss.onMouseLeave}
+            >
+              <span>{mfaMessage}</span>
+              <button
+                type="button"
+                onClick={() => setMfaMessage(null)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
             </p>
           )}
 

@@ -111,6 +111,9 @@ interface JobWorkflowDashboardProps {
   saveSuccess?: boolean;
   /** Export succeeded but something required was still blank — shown amber. */
   saveWarning?: string | null;
+  /** Pauses/resumes the success banner's auto-dismiss countdown on hover. */
+  onSaveSuccessMouseEnter?: () => void;
+  onSaveSuccessMouseLeave?: () => void;
   auditRefreshKey?: number;
   onPrint: () => void;
   onPrintLoc?: () => void;
@@ -452,6 +455,8 @@ export function JobWorkflowDashboard({
   saveError,
   saveSuccess,
   saveWarning,
+  onSaveSuccessMouseEnter,
+  onSaveSuccessMouseLeave,
   auditRefreshKey = 0,
   onPrint,
   onPrintLoc,
@@ -1115,25 +1120,6 @@ export function JobWorkflowDashboard({
               {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
             </button>
           )}
-          {onPrintLoc && qcCompleted && (
-            <button
-              type="button"
-              onClick={onPrintLoc}
-              disabled={isExportingLoc || isSaving || cancelBusy}
-              aria-busy={isExportingLoc}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2C5985] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#234868] disabled:cursor-wait disabled:opacity-80"
-            >
-              {isExportingLoc ? (
-                <Loader2
-                  className="h-3.5 w-3.5 shrink-0 animate-spin"
-                  aria-hidden
-                />
-              ) : (
-                <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              )}
-              {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
-            </button>
-          )}
           <button
             type="button"
             onClick={onPrint}
@@ -1178,6 +1164,8 @@ export function JobWorkflowDashboard({
                 : "border-emerald-200 bg-emerald-50 text-emerald-700"
           }`}
           role="status"
+          onMouseEnter={onSaveSuccessMouseEnter}
+          onMouseLeave={onSaveSuccessMouseLeave}
         >
           <span>
             {saveError ||

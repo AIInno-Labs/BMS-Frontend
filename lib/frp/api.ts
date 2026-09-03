@@ -469,6 +469,11 @@ export interface MyProfileUpdate {
  * already hold that privilege (org admins, super admins). Callers should gate
  * the UI on {@link canEditOwnProfile}.
  *
+ * `/auth/me` doesn't return `roleIds` (only `roleCodes`), so we fetch the
+ * user's own record via `GET /users/{id}` first to get the real role IDs to
+ * preserve — sending `roleIds: []` would fail backend validation and, if it
+ * didn't, would wipe the user's own roles.
+ *
  * When the backend adds `PATCH /auth/me`, replace this body with a single
  * frpFetch call and drop the privilege gate — no component changes needed.
  */
@@ -479,13 +484,14 @@ export async function updateMyProfile(
   if (me.id == null) {
     throw new FrpApiError(400, "Cannot update profile: missing user id");
   }
+  const current = await getUser(me.id);
   return updateUser({
     id: me.id,
     displayName: patch.displayName,
     mobileNumber: patch.mobileNumber,
     enabled: me.enabled ?? true,
     // Preserved as-is — self-service editing must never change own roles.
-    roleIds: me.roleIds ?? [],
+    roleIds: current.roleIds ?? [],
   });
 }
 
@@ -539,6 +545,10 @@ export async function listUsers(
     );
   }
   return frpFetch<PageResponse<UserDTO>>(`/users?page=${page}&size=${size}`);
+}
+
+export async function getUser(id: number): Promise<UserDTO> {
+  return frpFetch<UserDTO>(`/users/${id}`);
 }
 
 export async function createUser(body: CreateUserRequest): Promise<UserDTO> {
