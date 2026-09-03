@@ -164,6 +164,12 @@ function defaultsPayload(row: JobEmailRecipientDTO): JobEmailRecipientDTO {
           category: row.eventDef.category,
           eventKey: row.eventDef.eventKey,
           event: row.eventDef.event,
+          documentAttachmentRequired:
+            row.eventDef.documentAttachmentRequired === 1
+              ? 1
+              : row.eventDef.documentAttachmentRequired === 0
+                ? 0
+                : -1,
         }
       : undefined,
     enabled: row.enabled !== false,
@@ -173,10 +179,41 @@ function defaultsPayload(row: JobEmailRecipientDTO): JobEmailRecipientDTO {
   };
 }
 
+/** Catalog marks attachment applicable when value is not -1. */
+function supportsDocumentAttachmentToggle(row: JobEmailRecipientDTO): boolean {
+  return (row.eventDef?.documentAttachmentRequired ?? -1) !== -1;
+}
+
 type PlatformPatch = Pick<
   JobEmailRecipientDTO,
   "enabled" | "orgEditable" | "assigningTrigger" | "customerTriggered"
->;
+> & {
+  documentAttachmentRequired?: number;
+};
+
+function platformPayload(
+  row: JobEmailRecipientDTO,
+  patch: PlatformPatch
+): JobEmailRecipientDTO {
+  const base = defaultsPayload(row);
+  const attachment =
+    patch.documentAttachmentRequired ??
+    (row.eventDef?.documentAttachmentRequired === 1
+      ? 1
+      : row.eventDef?.documentAttachmentRequired === 0
+        ? 0
+        : -1);
+  return {
+    ...base,
+    enabled: patch.enabled ?? base.enabled,
+    orgEditable: patch.orgEditable ?? base.orgEditable,
+    assigningTrigger: patch.assigningTrigger ?? base.assigningTrigger,
+    customerTriggered: patch.customerTriggered ?? base.customerTriggered,
+    eventDef: base.eventDef
+      ? { ...base.eventDef, documentAttachmentRequired: attachment }
+      : undefined,
+  };
+}
 
 export function PlatformNotificationRulesAdminPage() {
   const { loading: authLoading, isAuthenticated, appRole } = useAuth();
@@ -303,9 +340,7 @@ export function PlatformNotificationRulesAdminPage() {
     setSavingKey(key);
     setError(null);
     try {
-      const next = await updateJobEmailRecipients([
-        { ...defaultsPayload(row), ...patch },
-      ]);
+      const next = await updateJobEmailRecipients([platformPayload(row, patch)]);
       setRows(next.filter((item) => item.eventDef != null));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save defaults");
@@ -458,6 +493,7 @@ export function PlatformNotificationRulesAdminPage() {
                         <th className="w-28 px-4 py-2.5">Org editable</th>
                         <th className="px-4 py-2.5">Assigned worker</th>
                         <th className="px-4 py-2.5">Customer contact</th>
+                        <th className="w-40 px-4 py-2.5">Email attachment</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -554,6 +590,20 @@ function DefaultRow({
           onChange={(customerTriggered) => onPatch(row, { customerTriggered })}
         />
       </td>
+      <td className="w-40 px-4 py-3 align-middle">
+        {supportsDocumentAttachmentToggle(row) ? (
+          <Flag
+            label="Email attachment"
+            checked={row.eventDef?.documentAttachmentRequired === 1}
+            disabled={saving || row.enabled === false}
+            onChange={(on) =>
+              onPatch(row, { documentAttachmentRequired: on ? 1 : 0 })
+            }
+          />
+        ) : (
+          <span className="text-xs text-slate-400">—</span>
+        )}
+      </td>
     </tr>
   );
 }
@@ -606,6 +656,19 @@ function DefaultCard({
           onChange={(customerTriggered) => onPatch(row, { customerTriggered })}
         />
       </div>
+      {supportsDocumentAttachmentToggle(row) ? (
+        <div className="mt-3">
+          <Flag
+            label="Email attachment"
+            compact
+            checked={row.eventDef?.documentAttachmentRequired === 1}
+            disabled={saving || row.enabled === false}
+            onChange={(on) =>
+              onPatch(row, { documentAttachmentRequired: on ? 1 : 0 })
+            }
+          />
+        </div>
+      ) : null}
     </article>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, ListChecks, Loader2, Paperclip, Pencil, StickyNote, X } from "lucide-react";
+import { FileText, ListChecks, Loader2, Mail, Paperclip, Pencil, StickyNote, X } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
 import { PoManualEntryFields, type PoDetailsFormValue } from "@/components/PoManualEntryFields";
@@ -12,7 +12,6 @@ import {
   deleteJobDocument,
   listJobStages,
   updateJobStage,
-  uploadJobDocument,
 } from "@/lib/frp/api";
 import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
 import type { FrpJobDocumentDTO, FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
@@ -111,6 +110,7 @@ export function JobStatusCard({
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [draftRemarks, setDraftRemarks] = useState("");
   const [draftNotRequired, setDraftNotRequired] = useState(false);
+  const [draftEmailAttach, setDraftEmailAttach] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
   // True when the stage already has a document on record (`stage.documents`,
@@ -207,22 +207,29 @@ export function JobStatusCard({
    *  true on success. Also refreshes the parent job — a stage move can change
    *  job.status/percent, which the main page shows. */
   const persist = useCallback(
-    async (stage: FrpJobStageDTO, body: FrpJobStageUpdateRequest): Promise<boolean> => {
+    async (
+      stage: FrpJobStageDTO,
+      body: FrpJobStageUpdateRequest,
+      files?: File[]
+    ): Promise<boolean> => {
       if (!job.dbId || stage.id == null) return false;
       setSavingId(stage.id);
+      if (files && files.length > 0) setUploading(true);
       try {
-        await updateJobStage(job.dbId, stage.id, body);
+        await updateJobStage(job.dbId, stage.id, body, files);
         await load();
         await onJobChanged?.();
+        if (files && files.length > 0) onDocumentsChanged?.();
         return true;
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not save");
         return false;
       } finally {
         setSavingId(null);
+        setUploading(false);
       }
     },
-    [job.dbId, load, onJobChanged]
+    [job.dbId, load, onJobChanged, onDocumentsChanged]
   );
 
   const openStageModal = (stage: FrpJobStageDTO) => {
@@ -234,6 +241,11 @@ export function JobStatusCard({
     setDraftRemarks(stage.notes ?? "");
     // "No attachment required" is the inverse of the stage's docRequired flag.
     setDraftNotRequired(!(stage.docRequired ?? false));
+    setDraftEmailAttach(
+      stage.emailAttachmentEnabled
+        ? (stage.emailDocumentAttachmentRequired ?? 0) === 1
+        : false
+    );
     setModalHadDocument((stage.documents?.length ?? 0) > 0);
     // Order No / Buyer Name are fixed job-level facts — same prefill as
     // Document Versions' Add PO modal.
@@ -265,6 +277,14 @@ export function JobStatusCard({
   // though the toggle that sets it is hidden without PO_CREATE.
   const manualPoActive = isProductionStage && poMode === "manual" && canCreatePo;
 
+  function stageEmailBody(): Pick<FrpJobStageUpdateRequest, "emailDocumentAttachmentRequired"> {
+    // Admin off → -1 (not applicable). Admin on → operator 0/1.
+    if (!modalStage?.emailAttachmentEnabled) {
+      return { emailDocumentAttachmentRequired: -1 };
+    }
+    return { emailDocumentAttachmentRequired: draftEmailAttach ? 1 : 0 };
+  }
+
   const saveStageModal = async () => {
     if (!modalStage || modalStage.id == null) return;
     // A document is required unless "No attachment required" is ticked; when
@@ -285,7 +305,7 @@ export function JobStatusCard({
         return;
       }
     }
-    const notes = draftRemarks.trim();
+    const stageNotes = draftRemarks.trim();
     const stage = modalStage;
     const jobStageId = stage.id ?? job.currentStageId;
     if (jobStageId == null) {
@@ -294,8 +314,7 @@ export function JobStatusCard({
     }
 
     if (manualPoActive) {
-      // No file — JSON POST /jobs/{id}/documents/po (best-effort, same as
-      // upload: a failed create doesn't block the stage-complete call below).
+      // Manual PO uses the document API; remarks here are stage notes only.
       if (job.dbId) {
         try {
           await createManualPoDocument(job.dbId, {
@@ -307,47 +326,34 @@ export function JobStatusCard({
             buyerName: poDetails.buyerName.trim() || undefined,
             quoteNumber: job.quoteNumber?.trim() || undefined,
             currency: poDetails.currency.trim() || undefined,
-            remarks: notes,
             lineItems: manualPoLineItemsFromRows(poItems),
           });
           onDocumentsChanged?.();
         } catch (e) {
           setError(e instanceof Error ? e.message : "Could not add PO");
+          return;
         }
       }
-    } else if (job.dbId && draftFiles.length > 0) {
-      // Upload every picked file first (best-effort: a failed upload doesn't
-      // block the stage-complete call below — if the stage genuinely requires
-      // a document and none made it through, the backend rejects the COMPLETE
-      // status and the real error surfaces from `persist`).
-      setUploading(true);
-      const results = await Promise.allSettled(
-        draftFiles.map((file) =>
-          uploadJobDocument(job.dbId as string | number, {
-            jobStageId,
-            file,
-            remarks: notes,
-          })
-        )
-      );
-      setUploading(false);
-      const uploaded = results.filter((r) => r.status === "fulfilled").length;
-      const failed = results.length - uploaded;
-      if (failed > 0) {
-        setError(
-          `${failed} of ${draftFiles.length} document upload${draftFiles.length > 1 ? "s" : ""} failed.`
-        );
-      }
-      if (uploaded > 0) onDocumentsChanged?.();
+      const ok = await persist(stage, {
+        status: "COMPLETE",
+        notes: stageNotes,
+        docRequired,
+        ...stageEmailBody(),
+      });
+      if (ok) setModalStage(null);
+      return;
     }
 
-    // "No attachment required" persists the docRequired flag; note is saved and
-    // the stage completes. Keep the modal open (spinner) until it returns.
-    const ok = await persist(stage, {
-      status: "COMPLETE",
-      notes,
-      docRequired,
-    });
+    const ok = await persist(
+      stage,
+      {
+        status: "COMPLETE",
+        notes: stageNotes,
+        docRequired,
+        ...stageEmailBody(),
+      },
+      draftFiles.length > 0 ? draftFiles : undefined
+    );
     if (ok) setModalStage(null);
   };
 
@@ -571,6 +577,19 @@ export function JobStatusCard({
             />
             No attachment required
           </label>
+
+          {modalStage?.emailAttachmentEnabled ? (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={draftEmailAttach}
+                onChange={(e) => setDraftEmailAttach(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+              />
+              <Mail className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+              <span>Email attached</span>
+            </label>
+          ) : null}
 
           {(modalStage?.documents?.length ?? 0) > 0 && (
             <div>

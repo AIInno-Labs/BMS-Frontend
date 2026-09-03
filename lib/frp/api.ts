@@ -1015,6 +1015,20 @@ export async function cancelJob(dbId: string | number): Promise<void> {
   });
 }
 
+/** `PUT /jobs/{id}/hold` — blocks the job's current milestone, sets `stageStatus = ON_HOLD`. */
+export async function holdJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/hold`, {
+    method: "PUT",
+  });
+}
+
+/** `PUT /jobs/{id}/resume` — un-pauses a job held via {@link holdJob}. */
+export async function resumeJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/resume`, {
+    method: "PUT",
+  });
+}
+
 export async function listJobAudit(
   dbId: string | number,
   page = 0,
@@ -1041,12 +1055,25 @@ export async function listJobStages(
 export async function updateJobStage(
   dbId: string | number,
   stageId: number,
-  body: FrpJobStageUpdateRequest
+  body: FrpJobStageUpdateRequest,
+  files?: File[]
 ): Promise<FrpJobStageDTO> {
-  return frpFetch<FrpJobStageDTO>(
-    `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}`,
-    { method: "PUT", body: JSON.stringify(body) }
-  );
+  const path = `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}`;
+  if (files && files.length > 0) {
+    const form = new FormData();
+    form.append(
+      "request",
+      new Blob([JSON.stringify(body)], { type: "application/json" })
+    );
+    for (const file of files) {
+      form.append("files", file, file.name);
+    }
+    return frpFetch<FrpJobStageDTO>(path, { method: "PUT", body: form });
+  }
+  return frpFetch<FrpJobStageDTO>(path, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 /** `POST /jobs/{id}/stages/{stageId}/scan` — idempotent shop-floor scan. */
