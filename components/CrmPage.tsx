@@ -174,6 +174,13 @@ export function CrmPage({ company }: { company: string }) {
     byType: { eventType: string; label: string; count: number }[];
   } | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
+  // All-time (no `months`), unlike `eventCounts` which is scoped to the
+  // period dropdown — the top "Overview" cards show all-time totals.
+  const [allTimeEventCounts, setAllTimeEventCounts] = useState<{
+    total: number;
+    byType: { eventType: string; label: string; count: number }[];
+  } | null>(null);
+  const [allTimeEventsLoading, setAllTimeEventsLoading] = useState(false);
   const [questionPreviews, setQuestionPreviews] = useState<FrpCrmQuestionDTO[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<FrpJobPaymentHistoryDTO | null>(null);
@@ -210,8 +217,10 @@ export function CrmPage({ company }: { company: string }) {
   const completedJobs = overview?.completedJobs ?? 0;
   const activeJobs = overview?.activeJobs ?? 0;
   const overdueJobs = overview?.overdueJobs ?? 0;
-  const quotesTotalOverview = overview?.quoteEventCount ?? 0;
-  const quotesAcceptedOverview = overview?.quoteAcceptedCount ?? 0;
+  const quotesTotalOverview = allTimeEventCounts?.total ?? 0;
+  const quotesAcceptedOverview =
+    allTimeEventCounts?.byType.find((row) => row.eventType === "quote_accepted")
+      ?.count ?? 0;
   const paymentsReceived = fromCents(overview?.totalPaymentReceivedAmount);
   const paymentsOutstanding = fromCents(overview?.outstandingAmount);
 
@@ -307,6 +316,25 @@ export function CrmPage({ company }: { company: string }) {
       cancelled = true;
     };
   }, [company, period]);
+
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+    setAllTimeEventsLoading(true);
+    getQuoteEventCounts({ companyName: company })
+      .then((dto) => {
+        if (!cancelled) setAllTimeEventCounts(dto);
+      })
+      .catch(() => {
+        if (!cancelled) setAllTimeEventCounts(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAllTimeEventsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company]);
 
   const quoteItems: QuoteListItem[] = useMemo(
     () => (quotesPage?.content ?? []).map(mapQuoteRow),
@@ -489,12 +517,12 @@ export function CrmPage({ company }: { company: string }) {
               />
               <AnimatedStatTile
                 label="Total quote events"
-                value={overviewLoading ? "…" : quotesTotalOverview}
+                value={allTimeEventsLoading ? "…" : quotesTotalOverview}
                 hint="Logged for this account"
               />
               <AnimatedStatTile
                 label="Quotes accepted"
-                value={overviewLoading ? "…" : quotesAcceptedOverview}
+                value={allTimeEventsLoading ? "…" : quotesAcceptedOverview}
                 hint="Converted into jobs"
                 accent="amber"
               />
