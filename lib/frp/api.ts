@@ -662,6 +662,34 @@ export async function listJobs(
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
+/**
+ * `GET /jobs/upcoming-due` → the next jobs to fall due, soonest first.
+ *
+ * Not `listJobs({ sort: "DUE_DATE", dueBefore })`: `dueBefore` is a ceiling, so
+ * it also matches every job already past its date, and ascending order then
+ * puts the most overdue first — a panel asking for the next deadlines filled
+ * with the oldest misses instead. This endpoint takes a floor.
+ *
+ * Returns a plain array, not a page: it fills a fixed-size panel, so there is
+ * nothing to page through.
+ *
+ * @param limit rows to return; the server clamps to 50.
+ * @param assignedTo one person's jobs; omit for the whole organization.
+ * @param dueFrom ISO date (`yyyy-MM-dd`) to count from, inclusive. Defaults to
+ *                the server's today — pass a past date to include overdue.
+ */
+export async function listUpcomingDueJobs(params?: {
+  limit?: number;
+  assignedTo?: number | null;
+  dueFrom?: string;
+}): Promise<FrpJobSummaryDTO[]> {
+  const q = new URLSearchParams();
+  if (params?.limit != null) q.set("limit", String(params.limit));
+  if (params?.assignedTo != null) q.set("assignedTo", String(params.assignedTo));
+  if (params?.dueFrom) q.set("dueFrom", params.dueFrom);
+  return frpFetch<FrpJobSummaryDTO[]>(`/jobs/upcoming-due?${q}`);
+}
+
 /** `GET /jobs/counts` — org-wide, or scoped by customer and/or resin. */
 export async function getJobCounts(params?: {
   companyName?: string;

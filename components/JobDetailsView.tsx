@@ -18,6 +18,10 @@ import {
   User,
 } from "lucide-react";
 import { formatShortDate } from "@/lib/mockData";
+import {
+  DRAFT_DUE_DATE_WARNING,
+  needsDraftDueDateWarning,
+} from "@/lib/frp/job-status";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job, JobPriority } from "@/lib/types";
@@ -51,9 +55,18 @@ function getPriorityBadgeClass(priority: JobPriority): string {
   return "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]";
 }
 
+/**
+ * Empty string when there is no due date — the caller drops the whole line,
+ * icon included, rather than labelling something else as a deadline.
+ *
+ * No fallback to `job.date`: that is when the job was raised, which has no
+ * relationship to when it is due. It was being printed after the word "Due",
+ * and — parsed from a timestamp and rendered through the local timezone — it
+ * landed a day off the creation date too, so the label was wrong twice over.
+ */
 function formatDueLine(job: Job): string {
-  const raw = job.dueDate ?? job.date;
-  if (!raw) return "Due date not set";
+  const raw = job.dueDate;
+  if (!raw) return "";
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return `Due ${raw}`;
   return `Due ${d.toLocaleDateString(undefined, {
@@ -157,10 +170,20 @@ export function JobDetailsView({
             </div>
             <p className="mt-2 text-lg font-semibold text-[#0F172A]">{job.clientName}</p>
             <p className="mt-0.5 text-sm text-slate-600">{job.projectName}</p>
-            <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-slate-600">
-              <Calendar className="h-4 w-4 text-slate-400" aria-hidden />
-              {formatDueLine(job)}
-            </p>
+            {/* The warning sits where the date would be, not in the page
+                header: a missing due date is a fact about this field, and it
+                reads as one only next to the field it is missing from. */}
+            {formatDueLine(job) ? (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-slate-600">
+                <Calendar className="h-4 w-4 text-slate-400" aria-hidden />
+                {formatDueLine(job)}
+              </p>
+            ) : needsDraftDueDateWarning(job) ? (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+                <Calendar className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+                {DRAFT_DUE_DATE_WARNING}
+              </p>
+            ) : null}
           </div>
 
           {isManager && (

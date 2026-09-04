@@ -29,7 +29,12 @@ import {
 } from "@/lib/jobTimelineAnalytics";
 import { holdJob, listJobStages, resumeJob } from "@/lib/frp/api";
 import type { FrpJobStageDTO } from "@/lib/frp/job-mapper";
-import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
+import {
+  isCancelledJob,
+  isOnHoldJob,
+  needsDraftDueDateWarning,
+  DRAFT_DUE_DATE_WARNING,
+} from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
@@ -53,9 +58,17 @@ type DetailKey =
   | { type: "stage"; stageId: TimelineStageId; subStageId?: string }
   | { type: "health" };
 
+/**
+ * Empty string when there is no due date — the caller drops the whole line,
+ * icon included, rather than labelling something else as a deadline.
+ *
+ * No fallback to `job.date`: that is when the job was raised, not when it is
+ * due, and printing it after the word "Due" made up a deadline the job does
+ * not have.
+ */
 function formatDueLine(job: Job): string {
-  const raw = job.dueDate ?? job.date;
-  if (!raw) return "Due date not set";
+  const raw = job.dueDate;
+  if (!raw) return "";
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return `Due ${raw}`;
   return `Due ${d.toLocaleDateString(undefined, {
@@ -738,10 +751,22 @@ export function JobTimelineAnalytics({
             {job.projectName}
           </h2>
           <p className="text-sm text-slate-600">{job.clientName}</p>
-          <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-slate-500">
-            <Calendar className="h-4 w-4 text-orange-500" aria-hidden />
-            {formatDueLine(job)}
-          </p>
+          {/* The warning sits where the date would be, not in the page header:
+              a missing due date is a fact about this field, and it reads as
+              one only next to the field it is missing from. Cancelled jobs get
+              neither - needsDraftDueDateWarning excludes them, since a
+              cancelled job has no deadline left to miss. */}
+          {formatDueLine(job) ? (
+            <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-slate-500">
+              <Calendar className="h-4 w-4 text-orange-500" aria-hidden />
+              {formatDueLine(job)}
+            </p>
+          ) : needsDraftDueDateWarning(job) ? (
+            <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+              <Calendar className="h-3.5 w-3.5 text-amber-600" aria-hidden />
+              {DRAFT_DUE_DATE_WARNING}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <div className="flex shrink-0 items-center gap-2">
