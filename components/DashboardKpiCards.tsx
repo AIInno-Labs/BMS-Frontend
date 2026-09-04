@@ -12,9 +12,7 @@ import {
 } from "lucide-react";
 import { useJobs } from "@/context/JobsContext";
 import { useAuth } from "@/context/AuthContext";
-import { ACCESS_KEYS } from "@/lib/frp/access";
-
-type CardGroup = "overview" | "pipeline";
+import { ACCESS_KEYS, type AccessKey } from "@/lib/frp/access";
 
 const cardBase =
   "min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50/80";
@@ -42,7 +40,7 @@ type KpiCard = {
   href: string;
   icon: LucideIcon;
   iconClass: string;
-  group: CardGroup;
+  accessKey: AccessKey;
 };
 
 export function DashboardKpiCards() {
@@ -68,7 +66,7 @@ export function DashboardKpiCards() {
       href: "/jobs",
       icon: Layers,
       iconClass: "bg-slate-100 text-slate-700",
-      group: "overview",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_TOTAL,
     },
     {
       key: "active",
@@ -77,7 +75,7 @@ export function DashboardKpiCards() {
       href: "/jobs",
       icon: BriefcaseBusiness,
       iconClass: "bg-sky-50 text-sky-700",
-      group: "overview",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_ACTIVE,
     },
     {
       key: "overdue",
@@ -86,7 +84,7 @@ export function DashboardKpiCards() {
       href: "/jobs",
       icon: AlertTriangle,
       iconClass: "bg-red-50 text-red-700",
-      group: "overview",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_OVERDUE,
     },
     {
       key: "delivered",
@@ -95,7 +93,7 @@ export function DashboardKpiCards() {
       href: "/jobs?status=Complete",
       icon: CheckCircle2,
       iconClass: "bg-emerald-50 text-emerald-700",
-      group: "overview",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_DELIVERED,
     },
     {
       key: "notStarted",
@@ -104,7 +102,7 @@ export function DashboardKpiCards() {
       href: "/jobs?status=Pending",
       icon: Hourglass,
       iconClass: "bg-rose-50 text-rose-700",
-      group: "pipeline",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_NOT_STARTED,
     },
     {
       key: "awaitingApproval",
@@ -113,7 +111,7 @@ export function DashboardKpiCards() {
       href: "/jobs?status=Awaiting%20Manager%20Approval",
       icon: ClipboardList,
       iconClass: "bg-violet-50 text-violet-700",
-      group: "pipeline",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_AWAITING_APPROVAL,
     },
     {
       key: "ready",
@@ -122,7 +120,7 @@ export function DashboardKpiCards() {
       href: "/jobs?status=Ready%20to%20Manufacture",
       icon: FileWarning,
       iconClass: "bg-orange-50 text-orange-700",
-      group: "pipeline",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_READY,
     },
     {
       key: "manufacturing",
@@ -131,16 +129,11 @@ export function DashboardKpiCards() {
       href: "/jobs?status=In%20Fabrication",
       icon: Cog,
       iconClass: "bg-amber-50 text-amber-700",
-      group: "pipeline",
+      accessKey: ACCESS_KEYS.DASHBOARD_CARD_MANUFACTURING,
     },
   ];
 
-  const groupAllowed: Record<CardGroup, boolean> = {
-    overview: can(ACCESS_KEYS.DASHBOARD_VIEW),
-    pipeline: can(ACCESS_KEYS.JOBS_VIEW),
-  };
-
-  const cards = allCards.filter((card) => groupAllowed[card.group]);
+  const cards = allCards.filter((card) => can(card.accessKey));
 
   if (cards.length === 0) return null;
 

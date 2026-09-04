@@ -21,6 +21,16 @@ export const ACCESS_KEYS = {
   NOTIFICATIONS_VIEW: "NOTIFICATIONS_VIEW",
   JOB_CHAT_VIEW: "JOB_CHAT_VIEW",
   JOB_CHAT_SEND: "JOB_CHAT_SEND",
+  // One key per Dashboard KPI card — see DASHBOARD_CARD_PRIVILEGE_GROUPS
+  // below for how these 8 group into "0, 4, or 8 visible" categories.
+  DASHBOARD_CARD_TOTAL: "DASHBOARD_CARD_TOTAL",
+  DASHBOARD_CARD_ACTIVE: "DASHBOARD_CARD_ACTIVE",
+  DASHBOARD_CARD_OVERDUE: "DASHBOARD_CARD_OVERDUE",
+  DASHBOARD_CARD_DELIVERED: "DASHBOARD_CARD_DELIVERED",
+  DASHBOARD_CARD_NOT_STARTED: "DASHBOARD_CARD_NOT_STARTED",
+  DASHBOARD_CARD_AWAITING_APPROVAL: "DASHBOARD_CARD_AWAITING_APPROVAL",
+  DASHBOARD_CARD_READY: "DASHBOARD_CARD_READY",
+  DASHBOARD_CARD_MANUFACTURING: "DASHBOARD_CARD_MANUFACTURING",
 } as const;
 
 export type AccessKey = (typeof ACCESS_KEYS)[keyof typeof ACCESS_KEYS];
@@ -130,7 +140,41 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
     [ACCESS_KEYS.NOTIFICATIONS_VIEW, "MESSAGE_READ"],
     [ACCESS_KEYS.JOB_CHAT_VIEW, "MESSAGE_READ"],
     [ACCESS_KEYS.JOB_CHAT_SEND, "MESSAGE_CREATE"],
+    // Dashboard KPI cards — replaces the old DASHBOARD_VIEW/JOBS_VIEW reuse
+    // (which only ever produced two fixed halves of the same 8 cards) with
+    // one dedicated MENU code per card, independently assignable.
+    [ACCESS_KEYS.DASHBOARD_CARD_TOTAL, "MENU_DASHBOARD_CARD_TOTAL"],
+    [ACCESS_KEYS.DASHBOARD_CARD_ACTIVE, "MENU_DASHBOARD_CARD_ACTIVE"],
+    [ACCESS_KEYS.DASHBOARD_CARD_OVERDUE, "MENU_DASHBOARD_CARD_OVERDUE"],
+    [ACCESS_KEYS.DASHBOARD_CARD_DELIVERED, "MENU_DASHBOARD_CARD_DELIVERED"],
+    [ACCESS_KEYS.DASHBOARD_CARD_NOT_STARTED, "MENU_DASHBOARD_CARD_NOT_STARTED"],
+    [ACCESS_KEYS.DASHBOARD_CARD_AWAITING_APPROVAL, "MENU_DASHBOARD_CARD_AWAITING_APPROVAL"],
+    [ACCESS_KEYS.DASHBOARD_CARD_READY, "MENU_DASHBOARD_CARD_READY"],
+    [ACCESS_KEYS.DASHBOARD_CARD_MANUFACTURING, "MENU_DASHBOARD_CARD_MANUFACTURING"],
   ]);
+
+/**
+ * Dashboard KPI card privileges, grouped into two sets of 4 that must be
+ * granted or revoked together. This is a frontend-only concept — the
+ * backend stores 8 flat, independently assignable MENU rows with no notion
+ * of "category." CreateRoleDrawer uses this to auto-select/deselect a whole
+ * group when any one code in it is toggled, so a role only ever ends up
+ * holding 0, 4, or 8 of these 8 codes — never a partial group.
+ */
+export const DASHBOARD_CARD_PRIVILEGE_GROUPS: readonly (readonly string[])[] = [
+  [
+    "MENU_DASHBOARD_CARD_TOTAL",
+    "MENU_DASHBOARD_CARD_ACTIVE",
+    "MENU_DASHBOARD_CARD_OVERDUE",
+    "MENU_DASHBOARD_CARD_DELIVERED",
+  ],
+  [
+    "MENU_DASHBOARD_CARD_NOT_STARTED",
+    "MENU_DASHBOARD_CARD_AWAITING_APPROVAL",
+    "MENU_DASHBOARD_CARD_READY",
+    "MENU_DASHBOARD_CARD_MANUFACTURING",
+  ],
+];
 
 export function getPrivileges(user: UserDTO | null | undefined): string[] {
   return user?.rolesPrivileges ?? [];
