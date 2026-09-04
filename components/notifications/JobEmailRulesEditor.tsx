@@ -788,8 +788,9 @@ function EventTableRow({
       <td className="px-4 py-3">
         <button
           type="button"
-          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
           onClick={() => onEdit(row)}
+          disabled={row.enabled === false}
         >
           <Pencil className="h-3.5 w-3.5 shrink-0" />
           Edit recipients
@@ -843,8 +844,9 @@ function EventCard({
         </p>
         <button
           type="button"
-          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-orange-50"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
           onClick={() => onEdit(row)}
+          disabled={row.enabled === false}
         >
           <Pencil className="h-3.5 w-3.5" />
           Edit
