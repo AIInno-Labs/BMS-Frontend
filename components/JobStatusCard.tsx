@@ -565,31 +565,34 @@ export function JobStatusCard({
           {/* Document is offered on every stage. "No attachment required"
               persists the stage's docRequired flag (its inverse); when a
               document IS required, a file must be attached to complete. */}
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={draftNotRequired}
-              onChange={(e) => {
-                setDraftNotRequired(e.target.checked);
-                if (e.target.checked) setDraftFiles([]);
-              }}
-              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
-            />
-            No attachment required
-          </label>
-
-          {modalStage?.emailAttachmentEnabled ? (
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-100">
               <input
                 type="checkbox"
-                checked={draftEmailAttach}
-                onChange={(e) => setDraftEmailAttach(e.target.checked)}
+                checked={draftNotRequired}
+                onChange={(e) => {
+                  setDraftNotRequired(e.target.checked);
+                  if (e.target.checked) setDraftFiles([]);
+                }}
                 className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
               />
-              <Mail className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-              <span>Email attached</span>
+              <Paperclip className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+              <span>No attachment required</span>
             </label>
-          ) : null}
+
+            {modalStage?.emailAttachmentEnabled ? (
+              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-100">
+                <input
+                  type="checkbox"
+                  checked={draftEmailAttach}
+                  onChange={(e) => setDraftEmailAttach(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                />
+                <Mail className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                <span>Email attached</span>
+              </label>
+            ) : null}
+          </div>
 
           {(modalStage?.documents?.length ?? 0) > 0 && (
             <div>

@@ -570,7 +570,7 @@ function DefaultRow({
         <Flag
           label="Org editable"
           checked={row.orgEditable !== false}
-          disabled={saving}
+          disabled={saving || row.enabled === false}
           onChange={(orgEditable) => onPatch(row, { orgEditable })}
         />
       </td>
@@ -638,7 +638,7 @@ function DefaultCard({
           label="Org editable"
           compact
           checked={row.orgEditable !== false}
-          disabled={saving}
+          disabled={saving || row.enabled === false}
           onChange={(orgEditable) => onPatch(row, { orgEditable })}
         />
         <Flag
