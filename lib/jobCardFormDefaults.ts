@@ -124,12 +124,17 @@ export function ensurePrintDetails(job: Job): JobCardPrintDetails {
     mesh: p.mesh ?? "",
     colour: p.colour ?? "",
     finish: p.finish ?? "",
+    // Empty when the job has no scope recorded - not [job.projectName].
+    // The project name is what the job is called, not what it is made of, and
+    // rendering it under "List of materials" states a material that was never
+    // entered. It also made the panel's own "No materials list." unreachable,
+    // since a one-element array is always truthy.
     scopeLines:
       scopeFromMaterials.length > 0
         ? scopeFromMaterials
         : p.scopeLines && p.scopeLines.length > 0
           ? [...p.scopeLines]
-          : [job.projectName],
+          : [],
     clipRows,
     deliveryInstructions: p.deliveryInstructions ?? "",
     packs,

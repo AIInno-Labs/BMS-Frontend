@@ -9,7 +9,7 @@ import { ReadyToManufacturePieChart } from "@/components/ReadyToManufacturePieCh
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
 import { useAuth } from "@/context/AuthContext";
-import { listJobs } from "@/lib/frp/api";
+import { listJobs, listUpcomingDueJobs } from "@/lib/frp/api";
 import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
 import { formatShortDate } from "@/lib/jobData";
 import type { Job } from "@/lib/types";
@@ -50,14 +50,6 @@ const RECENT_JOB_ROW_VISIBILITY_TABLE_ROW = [
   "hidden [@media(min-height:1100px)]:table-row",
 ] as const;
 
-/** ISO `yyyy-MM-dd` for today + days (local calendar). */
-function isoDatePlusDays(days: number): string {
-  const d = new Date();
-  d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 const UPCOMING_DUE_LIMIT = 4;
 const RECENT_JOBS_LIMIT = 10;
 /** Org-wide upcoming + overdue table (generic, not assignee-scoped). */
@@ -78,6 +70,15 @@ function isoDatePlusMonths(months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Strictly past, matching `JobRepository.countOverdue`'s `dueDate < :today` —
+ * the KPI card and this list have to agree on what overdue means, or the count
+ * and the rows below it differ by however many jobs fall due today.
+ *
+ * The request's `dueBefore=today` ceiling is inclusive, so today's jobs do
+ * arrive and are dropped here on purpose. A job due today has not missed its
+ * deadline yet; it belongs to Upcoming Due, whose floor is today.
+ */
 function isOverdueDueDate(dueDate: string | null | undefined, today: string): boolean {
   return !!dueDate && dueDate < today;
 }
@@ -129,24 +130,19 @@ export function Dashboard() {
     }
     let cancelled = false;
     void Promise.all([
-      listJobs(0, 200, {
-        sort: "DUE_DATE",
-        assignedTo: myUserId,
-        dueBefore: isoDatePlusDays(365),
-      }),
+      // The server applies the date floor, the active filter and the limit, so
+      // nothing here has to trim the result. Asking /jobs with dueBefore
+      // instead returned everything already overdue, soonest-first — so this
+      // panel showed the oldest misses rather than the next deadlines.
+      listUpcomingDueJobs({ limit: UPCOMING_DUE_LIMIT, assignedTo: myUserId }),
       listJobs(0, RECENT_JOBS_LIMIT, {
         sort: "RECENT",
         assignedTo: myUserId,
       }),
     ])
-      .then(([duePage, recentPage]) => {
+      .then(([dueJobs, recentPage]) => {
         if (cancelled) return;
-        setUpcomingJobs(
-          (duePage.content ?? [])
-            .map(frpJobSummaryToUi)
-            .filter((job) => isActiveJob(job) && !!job.dueDate)
-            .slice(0, UPCOMING_DUE_LIMIT)
-        );
+        setUpcomingJobs(dueJobs.map(frpJobSummaryToUi));
         setRecentJobs(
           (recentPage.content ?? [])
             .map(frpJobSummaryToUi)

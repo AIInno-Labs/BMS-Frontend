@@ -92,11 +92,7 @@ import {
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
-import {
-  isCancelledJob,
-  needsDraftDueDateWarning,
-  DRAFT_DUE_DATE_WARNING,
-} from "@/lib/frp/job-status";
+import { isCancelledJob } from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
@@ -1096,11 +1092,8 @@ export function JobWorkflowDashboard({
           Back to Jobs
         </Link>
         <div className="flex flex-wrap items-center gap-1.5">
-          {needsDraftDueDateWarning(job) && (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
-              {DRAFT_DUE_DATE_WARNING}
-            </span>
-          )}
+          {/* The missing-due-date warning lives next to the date itself, in
+              JobDetailsView, rather than up here among the page actions. */}
           {onPrintLoc && qcCompleted && (
             <button
               type="button"
