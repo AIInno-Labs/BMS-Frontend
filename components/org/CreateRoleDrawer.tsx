@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { createRole, listPrivileges, updateRole } from "@/lib/frp/api";
-import { DASHBOARD_CARD_PRIVILEGE_GROUPS } from "@/lib/frp/access";
+import { DASHBOARD_CARD_PRIVILEGE_CODES } from "@/lib/frp/access";
 import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { CreateRoleSchema, RoleNameSchema } from "@/lib/schemas/role";
@@ -115,31 +115,9 @@ export function CreateRoleDrawer({
       });
   }, [privileges]);
 
-  /** The Dashboard-card group `code` belongs to, if any — these 4-code sets
-   *  must be granted/revoked as a unit (see DASHBOARD_CARD_PRIVILEGE_GROUPS)
-   *  so a role only ever ends up holding 0, 4, or 8 of the 8 card codes. */
-  function dashboardCardGroupFor(code: string): readonly string[] | null {
-    return (
-      DASHBOARD_CARD_PRIVILEGE_GROUPS.find((group) => group.includes(code)) ??
-      null
-    );
-  }
-
   function toggle(code: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      const group = dashboardCardGroupFor(code);
-      if (group) {
-        // Partially or fully selected -> clear the whole group; none
-        // selected -> select the whole group. Either way it lands on a
-        // complete group, never a partial one.
-        const allSelected = group.every((c) => next.has(c));
-        for (const c of group) {
-          if (allSelected) next.delete(c);
-          else next.add(c);
-        }
-        return next;
-      }
       if (next.has(code)) next.delete(code);
       else next.add(code);
       return next;
@@ -175,6 +153,18 @@ export function CreateRoleDrawer({
     }
     if (selected.size === 0) {
       setError("Select at least one privilege.");
+      return;
+    }
+    // Dashboard KPI cards: checkboxes are independent (no auto-select), but
+    // the count granted must land on 0, 4, or 8 — enforced here rather than
+    // restricting what the admin can click.
+    const dashboardCardCount = DASHBOARD_CARD_PRIVILEGE_CODES.filter((c) =>
+      selected.has(c)
+    ).length;
+    if (![0, 4, 8].includes(dashboardCardCount)) {
+      setError(
+        `Dashboard menu cards (under MENU → DASHBOARD_CARD below) must be selected in a group of 0, 4, or 8 — currently ${dashboardCardCount} selected.`
+      );
       return;
     }
     setSubmitting(true);
