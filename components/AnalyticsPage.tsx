@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { ArrowLeft } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
+import { InlineLoading } from "@/components/ui/Loading";
 import {
   ANALYTICS_POLL_MS,
   AnalyticsRefreshControl,
@@ -308,7 +309,7 @@ export function AnalyticsPage() {
 
         {(error || jobsLoading) && (
           <p className="mb-1.5 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {error ?? "Loading job data…"}
+            {error ?? <InlineLoading label="Loading job data…" />}
           </p>
         )}
 
@@ -559,9 +560,11 @@ export function AnalyticsPage() {
               </ResponsiveContainer>
             ) : (
               <p className="flex h-full items-center justify-center text-base text-slate-500">
-                {loading
-                  ? "Loading Quotient events…"
-                  : "No Quotient events yet — history fills when webhooks arrive."}
+                {loading ? (
+                  <InlineLoading label="Loading Quotient events…" />
+                ) : (
+                  "No Quotient events yet — history fills when webhooks arrive."
+                )}
               </p>
             )}
           </div>

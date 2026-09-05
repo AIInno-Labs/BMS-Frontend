@@ -9,6 +9,7 @@ import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { CreateRoleSchema, RoleNameSchema } from "@/lib/schemas/role";
 import { fieldErrorsFrom } from "@/lib/schemas/shared";
+import { InlineLoading } from "@/components/ui/Loading";
 import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 
 const inputClass =
@@ -302,7 +303,9 @@ export function CreateRoleDrawer({
             controls.
           </p>
           {loadingPrivs ? (
-            <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
+            <div className="mt-2">
+              <InlineLoading label="Loading privileges…" />
+            </div>
           ) : (
             <div className="mt-2 space-y-4 rounded-xl border border-slate-200 p-3">
               {groupedByType.map(({ type, domains }) => (

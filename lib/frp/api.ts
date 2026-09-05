@@ -627,12 +627,10 @@ export interface ListJobsParams {
   /** Backend `JobPriority` enum name. */
   priority?: string;
   assignedTo?: number;
-  /** ISO date (`yyyy-MM-dd`). */
-  dueBefore?: string;
-  /** Lookback count when paired with {@link #unit} (or alone → default MONTHS). */
-  period?: number;
-  /** DAYS or MONTHS — with {@link #period}, filters `createdDate` since that window. */
-  unit?: FrpPeriodUnit;
+  /** Earliest due date, inclusive. ISO `yyyy-MM-dd`. */
+  dueFrom?: string;
+  /** Latest due date, inclusive. ISO `yyyy-MM-dd`. */
+  dueTo?: string;
 }
 
 /**
@@ -656,19 +654,18 @@ export async function listJobs(
   if (params?.priority) q.set("priority", params.priority);
   if (params?.assignedTo != null)
     q.set("assignedTo", String(params.assignedTo));
-  if (params?.dueBefore) q.set("dueBefore", params.dueBefore);
-  if (params?.period != null && params.period > 0) q.set("period", String(params.period));
-  if (params?.unit) q.set("unit", params.unit);
+  if (params?.dueFrom) q.set("dueFrom", params.dueFrom);
+  if (params?.dueTo) q.set("dueTo", params.dueTo);
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
 /**
  * `GET /jobs/upcoming-due` → the next jobs to fall due, soonest first.
  *
- * Not `listJobs({ sort: "DUE_DATE", dueBefore })`: `dueBefore` is a ceiling, so
- * it also matches every job already past its date, and ascending order then
- * puts the most overdue first — a panel asking for the next deadlines filled
- * with the oldest misses instead. This endpoint takes a floor.
+ * Not `listJobs({ sort: "DUE_DATE", dueTo })`: a ceiling alone matches
+ * every job already past its date, and ascending order then puts the most
+ * overdue first — a panel asking for the next deadlines filled with the oldest
+ * misses instead. This endpoint takes a floor and needs no range at all.
  *
  * Returns a plain array, not a page: it fills a fixed-size panel, so there is
  * nothing to page through.
@@ -745,22 +742,36 @@ export type FrpJobPaymentMonthDTO = {
 };
 
 export type FrpJobPaymentHistoryDTO = {
+  /** Bucket granularity the server chose for this range. */
   unit: FrpPeriodUnit;
+  /** How many buckets came back. */
   period: number;
+  /** Range actually used, after the server applied its defaults. */
+  from?: string;
+  to?: string;
   byMonth: FrpJobPaymentMonthDTO[];
   totalReceivedAmount: number;
 };
 
-/** `GET /jobs/payment-history` — received totals over DAYS or MONTHS. */
+/**
+ * `GET /jobs/payment-history` — received totals across a date range.
+ *
+ * Omit both dates for the last 6 months. Granularity is the server's call, not
+ * the caller's: under two months it buckets by day, beyond that by month, so a
+ * long range cannot ask for hundreds of daily bars no chart can draw. The
+ * response reports which it used.
+ */
 export async function getJobPaymentHistory(params?: {
   companyName?: string;
-  period?: number;
-  unit?: FrpPeriodUnit;
+  /** ISO `yyyy-MM-dd`, inclusive. */
+  from?: string;
+  /** ISO `yyyy-MM-dd`, inclusive. */
+  to?: string;
 }): Promise<FrpJobPaymentHistoryDTO> {
   const q = new URLSearchParams();
   if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
-  if (params?.period != null && params.period > 0) q.set("period", String(params.period));
-  if (params?.unit) q.set("unit", params.unit);
+  if (params?.from) q.set("from", params.from);
+  if (params?.to) q.set("to", params.to);
   const suffix = q.size ? `?${q}` : "";
   return frpFetch<FrpJobPaymentHistoryDTO>(`/jobs/payment-history${suffix}`);
 }

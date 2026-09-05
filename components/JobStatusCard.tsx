@@ -24,7 +24,7 @@ import {
   type PoItemRow,
 } from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 
 interface JobStatusCardProps {
@@ -96,10 +96,17 @@ export function JobStatusCard({
   const { can } = useAuth();
   const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
   const locked =
-    isCancelledJob(job.status) || isJobLockedForCashPayment(job);
+    isCancelledJob(job.status) ||
+    isJobLockedForCashPayment(job) ||
+    isOnHoldJob(job.status);
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // loadError means there is no stage data to show at all (gates the
+  // checklist). actionError is a dismissible notice for a failed action
+  // (tick/save/PO/delete) that happened AFTER stages already loaded — it
+  // must never hide the checklist, since the data behind it is still valid.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
 
@@ -138,10 +145,11 @@ export function JobStatusCard({
       return;
     }
     try {
-      setError(null);
+      setLoadError(null);
+      setActionError(null);
       setStages(await listJobStages(job.dbId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load stages");
+      setLoadError(e instanceof Error ? e.message : "Could not load stages");
       setStages([]);
     } finally {
       setLoading(false);
@@ -214,6 +222,7 @@ export function JobStatusCard({
     ): Promise<boolean> => {
       if (!job.dbId || stage.id == null) return false;
       setSavingId(stage.id);
+      setActionError(null);
       if (files && files.length > 0) setUploading(true);
       try {
         await updateJobStage(job.dbId, stage.id, body, files);
@@ -222,7 +231,7 @@ export function JobStatusCard({
         if (files && files.length > 0) onDocumentsChanged?.();
         return true;
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not save");
+        setActionError(e instanceof Error ? e.message : "Could not save");
         return false;
       } finally {
         setSavingId(null);
@@ -287,6 +296,7 @@ export function JobStatusCard({
 
   const saveStageModal = async () => {
     if (!modalStage || modalStage.id == null) return;
+    setActionError(null);
     // A document is required unless "No attachment required" is ticked; when
     // required, something must be provided — a file (or manual line items on
     // a production stage) — unless one was already recorded on a prior save.
@@ -301,7 +311,7 @@ export function JobStatusCard({
     if (manualPoActive) {
       const itemsError = firstPoItemRowsError(poItems);
       if (itemsError) {
-        setError(itemsError);
+        setActionError(itemsError);
         return;
       }
     }
@@ -309,7 +319,7 @@ export function JobStatusCard({
     const stage = modalStage;
     const jobStageId = stage.id ?? job.currentStageId;
     if (jobStageId == null) {
-      setError("This job has no stage id to attach a document to.");
+      setActionError("This job has no stage id to attach a document to.");
       return;
     }
 
@@ -330,7 +340,7 @@ export function JobStatusCard({
           });
           onDocumentsChanged?.();
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Could not add PO");
+          setActionError(e instanceof Error ? e.message : "Could not add PO");
           return;
         }
       }
@@ -363,6 +373,7 @@ export function JobStatusCard({
     if (locked) return;
     if (!window.confirm(`Delete ${docName ?? "this document"}?`)) return;
     setDeletingDocId(docId);
+    setActionError(null);
     try {
       await deleteJobDocument(docId);
       // Update the open modal immediately; `load()` keeps the checklist
@@ -375,7 +386,7 @@ export function JobStatusCard({
       onDocumentsChanged?.();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not delete document");
+      setActionError(e instanceof Error ? e.message : "Could not delete document");
     } finally {
       setDeletingDocId(null);
     }
@@ -397,16 +408,34 @@ export function JobStatusCard({
           <div className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-3 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading stages…
           </div>
-        ) : error ? (
+        ) : loadError ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-sm text-red-700">
-            {error}
+            {loadError}
           </div>
-        ) : milestones.length === 0 ? (
-          <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
-            No stages for this job yet.
-          </p>
         ) : (
           <>
+            {/* A failed action (tick/save/PO/delete) never hides the checklist
+                below — the stage data it's built from is still valid, so the
+                error is just a dismissible notice, not a blocking state. */}
+            {actionError && (
+              <div className="mb-3 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-sm text-red-700">
+                <span>{actionError}</span>
+                <button
+                  type="button"
+                  onClick={() => setActionError(null)}
+                  className="shrink-0 text-red-500 hover:text-red-700"
+                  aria-label="Dismiss error"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            {milestones.length === 0 ? (
+              <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
+                No stages for this job yet.
+              </p>
+            ) : (
+              <>
             <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               View checklist for
               <select
@@ -548,6 +577,8 @@ export function JobStatusCard({
                 </div>
               </div>
             )}
+              </>
+            )}
           </>
         )}
       </WidgetCard>
@@ -580,16 +611,26 @@ export function JobStatusCard({
               <span>No attachment required</span>
             </label>
 
+            {/* "Email attached" read as a statement about the past. This
+                checkbox decides something about to happen: whether the files on
+                this stage travel with the email that announces it. */}
             {modalStage?.emailAttachmentEnabled ? (
-              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-100">
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-100">
                 <input
                   type="checkbox"
                   checked={draftEmailAttach}
                   onChange={(e) => setDraftEmailAttach(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
                 />
-                <Mail className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                <span>Email attached</span>
+                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                <span className="min-w-0">
+                  Email these attached files
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {draftFiles.length > 0 || (modalStage?.documents?.length ?? 0) > 0
+                      ? "Sent with the update email for this stage."
+                      : "Nothing attached yet — anything added here goes out with the update email."}
+                  </span>
+                </span>
               </label>
             ) : null}
           </div>

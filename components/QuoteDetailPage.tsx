@@ -15,6 +15,7 @@ import { formatCreatedDate } from "@/lib/mockData";
 import { getQuote } from "@/lib/frp/api";
 import { useAuth } from "@/context/AuthContext";
 import { FIELD_KEYS } from "@/lib/frp/access";
+import { LoadingState } from "@/components/ui/Loading";
 
 /**
  * Maps `GET /quotes/{quoteNumber}` onto the page model.
@@ -402,7 +403,7 @@ export function QuoteDetailPage({ quoteNumber }: { quoteNumber: string }) {
   if (loading) {
     return (
       <main className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-slate-600">Loading quote #{quoteNumber}…</p>
+        <LoadingState label={`Loading quote #${quoteNumber}…`} />
       </main>
     );
   }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarDays, Layers, Sparkles } from "lucide-react";
 import { DashboardKpiCards } from "@/components/DashboardKpiCards";
 import { LaborCommandCenterDrawer } from "@/components/LaborCommandCenterDrawer";
@@ -75,7 +76,7 @@ function isoDatePlusMonths(months: number): string {
  * the KPI card and this list have to agree on what overdue means, or the count
  * and the rows below it differ by however many jobs fall due today.
  *
- * The request's `dueBefore=today` ceiling is inclusive, so today's jobs do
+ * The request's `dueTo=today` ceiling is inclusive, so today's jobs do
  * arrive and are dropped here on purpose. A job due today has not missed its
  * deadline yet; it belongs to Upcoming Due, whose floor is today.
  */
@@ -102,6 +103,7 @@ function pickPriorityQueue(allJobs: Job[]): Job[] {
 }
 
 export function Dashboard() {
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRebalanceFocus, setDrawerRebalanceFocus] = useState(false);
   const [upcomingJobs, setUpcomingJobs] = useState<Job[]>([]);
@@ -131,7 +133,7 @@ export function Dashboard() {
     let cancelled = false;
     void Promise.all([
       // The server applies the date floor, the active filter and the limit, so
-      // nothing here has to trim the result. Asking /jobs with dueBefore
+      // nothing here has to trim the result. Asking /jobs with only a
       // instead returned everything already overdue, soonest-first — so this
       // panel showed the oldest misses rather than the next deadlines.
       listUpcomingDueJobs({ limit: UPCOMING_DUE_LIMIT, assignedTo: myUserId }),
@@ -171,7 +173,7 @@ export function Dashboard() {
     const earliestDue = isoDatePlusMonths(-DUE_WINDOW_MONTHS);
     void listJobs(0, 200, {
       sort: "DUE_DATE",
-      dueBefore: today,
+      dueTo: today,
     })
       .then((page) => {
         if (cancelled) return;
@@ -467,12 +469,20 @@ export function Dashboard() {
                     {recentJobs.map((job, index) => (
                       <tr
                         key={job.id}
-                        className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} hover:bg-slate-50/70`}
+                        role="link"
+                        tabIndex={0}
+                        aria-label={`Open job ${job.id}`}
+                        onClick={() => router.push(`/jobs/${job.id}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(`/jobs/${job.id}`);
+                          }
+                        }}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
                       >
                         <td className="px-3 py-1.5 font-medium text-slate-900">
-                          <Link href={`/jobs/${job.id}`} className="hover:text-amber-700">
-                            {job.id}
-                          </Link>
+                          {job.id}
                         </td>
                         <td className="px-3 py-1.5 text-slate-700">{job.clientName}</td>
                         <td className="px-3 py-1.5 text-slate-700">{job.projectName}</td>
@@ -568,15 +578,20 @@ export function Dashboard() {
                           {orgDueJobs.map((job, index) => (
                             <tr
                               key={`org-due-row-${job.id}`}
-                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} hover:bg-slate-50/70`}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Open job ${job.id}`}
+                              onClick={() => router.push(`/jobs/${job.id}`)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  router.push(`/jobs/${job.id}`);
+                                }
+                              }}
+                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
                             >
                               <td className="px-3 py-1.5 font-medium text-slate-900">
-                                <Link
-                                  href={`/jobs/${job.id}`}
-                                  className="hover:text-amber-700"
-                                >
-                                  {job.id}
-                                </Link>
+                                {job.id}
                               </td>
                               <td className="px-3 py-1.5 text-slate-700">
                                 {job.clientName}

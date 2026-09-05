@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw, Search } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { JobsPagination } from "@/components/JobsPagination";
+import { InlineLoading } from "@/components/ui/Loading";
 import { useAuth } from "@/context/AuthContext";
 import {
   getOrganizationCount,
@@ -226,7 +227,7 @@ export function CustomersListPage() {
 
         {(error || loading) && (
           <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {error ?? "Loading customers…"}
+            {error ?? <InlineLoading label="Loading customers…" />}
           </p>
         )}
 

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { LoadingState } from "@/components/ui/Loading";
 import type { AccessKey } from "@/lib/frp/access";
 
 /**
@@ -37,7 +38,7 @@ export function RequireAccess({
   if (loading || !isAuthenticated || !allowed) {
     return (
       <main className="flex min-h-[40vh] items-center justify-center bg-slate-50">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }

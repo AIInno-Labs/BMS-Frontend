@@ -18,7 +18,6 @@ import {
   appendProgramHistory,
   ensureWorkflowExtras,
   JOB_TYPE_OPTIONS,
-  PRODUCTION_STATUS_OPTIONS,
   SHIPMENT_METHOD_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
@@ -97,7 +96,6 @@ export function JobWorkflowExtrasSection({
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
   const [logisticsDraft, setLogisticsDraft] = useState({
-    productionStatus: extras.productionStatus ?? "",
     responsibleParty: extras.responsibleParty ?? "",
     accountable: extras.accountable ?? "",
     contactName: job.clientContactName,
@@ -117,7 +115,6 @@ export function JobWorkflowExtrasSection({
   useEffect(() => {
     const x = ensureWorkflowExtras(pd.workflowExtras, job);
     setLogisticsDraft({
-      productionStatus: x.productionStatus ?? "",
       responsibleParty: x.responsibleParty ?? "",
       accountable: x.accountable ?? "",
       contactName: job.clientContactName,
@@ -175,7 +172,8 @@ export function JobWorkflowExtrasSection({
   const saveLogistics = () => {
     const nextExtras: JobWorkflowExtras = {
       ...extras,
-      productionStatus: logisticsDraft.productionStatus,
+      // productionStatus is not saved here: it mirrors the job's status, and
+      // writing a copy back is what let the two disagree.
       responsibleParty: logisticsDraft.responsibleParty,
       accountable: logisticsDraft.accountable,
       shipmentMethod: logisticsDraft.shipmentMethod,
@@ -269,7 +267,10 @@ export function JobWorkflowExtrasSection({
           icon={Truck}
           onEdit={editsBlocked ? undefined : () => setShowLogisticsModal(true)}
         >
-          <Row label="Production status" value={extras.productionStatus || "—"} />
+          {/* The job's own status, not a separate logistics field. Two
+              editable copies of "where is this job up to" drift apart, and the
+              stage machinery already derives this one. */}
+          <Row label="Production status" value={job.status || "—"} />
           <Row label="Responsible" value={extras.responsibleParty || "—"} />
           <Row label="Accountable" value={extras.accountable || "—"} />
           <Row
@@ -318,12 +319,18 @@ export function JobWorkflowExtrasSection({
         wide
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          <SelectField
-            label="Production status"
-            value={logisticsDraft.productionStatus}
-            options={[...PRODUCTION_STATUS_OPTIONS]}
-            onChange={(v) => setLogisticsDraft((p) => ({ ...p, productionStatus: v }))}
-          />
+          <div>
+            <span className="block text-sm font-medium text-slate-700">
+              Production status
+            </span>
+            <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              {job.status || "—"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Follows the job&apos;s stage progress — change it from Status
+              Control.
+            </p>
+          </div>
           <SelectField
             label="Responsible party"
             value={logisticsDraft.responsibleParty}
@@ -483,7 +490,7 @@ function WidgetCard({
         {onEdit && (
           <button
             type="button"
-            className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
+            className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-100 pointer-events-auto transition-opacity duration-150 hover:border-orange-200 focus:opacity-100 lg:opacity-0 lg:pointer-events-none lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto"
             onClick={onEdit}
             aria-label={`Edit ${title}`}
           >

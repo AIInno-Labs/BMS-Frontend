@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { listRoles } from "@/lib/frp/api";
 import type { RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState, SkeletonRows } from "@/components/ui/Loading";
 
 export function RolesAdminPage() {
   const {
@@ -88,7 +89,7 @@ export function RolesAdminPage() {
   if (authLoading || !isAuthenticated) {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -151,13 +152,7 @@ export function RolesAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                    Loading roles…
-                  </td>
-                </tr>
-              )}
+              {loading && <SkeletonRows columns={4} />}
               {!loading && roles.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-12 text-center">

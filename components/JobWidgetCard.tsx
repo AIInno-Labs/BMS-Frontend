@@ -42,7 +42,7 @@ export function WidgetCard({
           {onEdit && (
             <button
               type="button"
-              className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 hover:text-[#111827] group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
+              className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-100 pointer-events-auto transition-opacity duration-150 hover:border-orange-200 hover:text-[#111827] focus:opacity-100 lg:opacity-0 lg:pointer-events-none lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto"
               onClick={onEdit}
               aria-label={`Edit ${title}`}
             >

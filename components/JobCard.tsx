@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { notFound, useSearchParams } from "next/navigation";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 import {
   ArrowLeft,
   Calendar,
@@ -261,9 +262,11 @@ export function JobCard({ jobId }: JobCardProps) {
   if (loading || detailLoading || !job || !draft) {
     return (
       <main className="flex min-h-[40vh] items-center justify-center bg-slate-50">
-        <p className="text-base text-slate-600">
-          {error ?? "Loading job card from database…"}
-        </p>
+        {error ? (
+          <p className="text-base text-slate-600">{error}</p>
+        ) : (
+          <LoadingState label="Loading job card…" />
+        )}
       </main>
     );
   }
@@ -1312,30 +1315,15 @@ export function JobCard({ jobId }: JobCardProps) {
               </h2>
               {isEditing ? (
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* The job's status, shown not edited. A second editable
+                      copy in schedulingLogistics.jobStatus is what let the two
+                      disagree - a cancelled job reading PENDING here. Status
+                      Control owns it. */}
                   <label className="text-sm">
-                    <span className="text-slate-500">Logistics status</span>
-                    <select
-                      value={draft.schedulingLogistics?.jobStatus ?? ""}
-                      onChange={(e) =>
-                        patchSchedulingLogistics({ jobStatus: e.target.value || null })
-                      }
-                      className={`${inputClass} mt-1`}
-                    >
-                      <option value="">—</option>
-                      {[
-                        "PENDING",
-                        "AWAITING_MANAGER_APPROVAL",
-                        "READY_TO_MANUFACTURE",
-                        "IN_FABRICATION",
-                        "ON_HOLD",
-                        "COMPLETE",
-                        "CANCELLED",
-                      ].map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="text-slate-500">Production status</span>
+                    <p className={`${inputClass} mt-1 flex items-center bg-slate-50 text-slate-600`}>
+                      {display.status || "—"}
+                    </p>
                   </label>
                   <label className="text-sm">
                     <span className="text-slate-500">Shipment method</span>
@@ -1451,7 +1439,7 @@ export function JobCard({ jobId }: JobCardProps) {
                 <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
                   {(
                     [
-                      ["Logistics status", display.schedulingLogistics?.jobStatus],
+                      ["Production status", display.status],
                       ["Shipment method", display.schedulingLogistics?.shipmentMethod],
                       ["Ship date", display.schedulingLogistics?.shipDate],
                       [

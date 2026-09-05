@@ -57,7 +57,7 @@ const ROUTES: RouteConfig[] = [
     match: (p) => p === "/",
     title: "Dashboard",
     search: {
-      placeholder: "Search by job, customer, or contact...",
+      placeholder: "Search by job or customer...",
       srLabel: "Search jobs",
       minLength: MIN_JOB_SEARCH_LENGTH,
       // Dashboard has no jobs list of its own — hand off to /jobs.
@@ -72,7 +72,7 @@ const ROUTES: RouteConfig[] = [
     match: (p) => p === "/jobs",
     title: "Jobs",
     search: {
-      placeholder: "Search by job, customer, or contact...",
+      placeholder: "Search by job or customer...",
       srLabel: "Search jobs",
       minLength: MIN_JOB_SEARCH_LENGTH,
       ...listPageSearch("/jobs"),

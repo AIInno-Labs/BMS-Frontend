@@ -10,6 +10,7 @@ import { listPrivileges } from "@/lib/frp/api";
 import { PRIVILEGE_TYPES, type PrivilegeType } from "@/lib/frp/privilege-types";
 import type { PrivilegeDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState, SkeletonRows } from "@/components/ui/Loading";
 
 type TypeFilter = "ALL" | PrivilegeType;
 
@@ -80,7 +81,7 @@ export function PrivilegesAdminPage() {
   if (authLoading || !isAuthenticated || appRole !== "superadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -168,16 +169,7 @@ export function PrivilegesAdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-4 py-10 text-center text-slate-500"
-                    >
-                      Loading privileges…
-                    </td>
-                  </tr>
-                )}
+                {loading && <SkeletonRows columns={6} />}
                 {!loading && filtered.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center">

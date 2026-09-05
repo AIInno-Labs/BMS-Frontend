@@ -13,6 +13,7 @@ import {
   updateUser,
 } from "@/lib/frp/api";
 import type { RoleDTO, UserDTO } from "@/lib/frp/types";
+import { LoadingState, SkeletonRows } from "@/components/ui/Loading";
 import { FrpApiError } from "@/lib/frp/types";
 import { CreateUserSchema, EditUserSchema } from "@/lib/schemas/user";
 import { fieldErrorsFrom } from "@/lib/schemas/shared";
@@ -112,7 +113,7 @@ export function UsersAdminPage() {
   if (authLoading || !canManage) {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -171,11 +172,7 @@ export function UsersAdminPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-slate-500">
-                    Loading…
-                  </td>
-                </tr>
+                <SkeletonRows columns={6} />
               ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-slate-500">

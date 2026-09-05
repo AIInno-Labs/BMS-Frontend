@@ -9,6 +9,7 @@ import type {
   JobEmailRecipientDTO,
   UserDTO,
 } from "@/lib/frp/types";
+import { InlineLoading, SkeletonSections } from "@/components/ui/Loading";
 
 const SECTIONS: {
   id: string;
@@ -430,7 +431,7 @@ export function JobEmailRulesEditor({
       ) : null}
 
       {rowsLoading ? (
-        <p className="text-sm text-slate-600">Loading notification events…</p>
+        <SkeletonSections columns={4} />
       ) : grouped.length === 0 ? (
         <p className="text-sm text-slate-600">No notification events are available.</p>
       ) : (
@@ -547,9 +548,9 @@ export function JobEmailRulesEditor({
                         }}
                       >
                         {usersLoading ? (
-                          <p className="px-3 py-2 text-sm text-slate-500">
-                            Loading users…
-                          </p>
+                          <div className="px-3 py-2">
+                            <InlineLoading label="Loading users…" />
+                          </div>
                         ) : userSearchResults.length === 0 ? (
                           <p className="px-3 py-2 text-sm text-slate-500">
                             No matching users.
