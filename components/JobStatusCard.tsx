@@ -611,16 +611,26 @@ export function JobStatusCard({
               <span>No attachment required</span>
             </label>
 
+            {/* "Email attached" read as a statement about the past. This
+                checkbox decides something about to happen: whether the files on
+                this stage travel with the email that announces it. */}
             {modalStage?.emailAttachmentEnabled ? (
-              <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-100">
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-100">
                 <input
                   type="checkbox"
                   checked={draftEmailAttach}
                   onChange={(e) => setDraftEmailAttach(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
                 />
-                <Mail className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                <span>Email attached</span>
+                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                <span className="min-w-0">
+                  Email these attached files
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {draftFiles.length > 0 || (modalStage?.documents?.length ?? 0) > 0
+                      ? "Sent with the update email for this stage."
+                      : "Nothing attached yet — anything added here goes out with the update email."}
+                  </span>
+                </span>
               </label>
             ) : null}
           </div>
