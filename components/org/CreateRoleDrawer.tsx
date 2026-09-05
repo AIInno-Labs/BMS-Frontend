@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { X } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { createRole, listPrivileges, updateRole } from "@/lib/frp/api";
 import { DASHBOARD_CARD_PRIVILEGE_CODES } from "@/lib/frp/access";
@@ -8,6 +9,7 @@ import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { CreateRoleSchema, RoleNameSchema } from "@/lib/schemas/role";
 import { fieldErrorsFrom } from "@/lib/schemas/shared";
+import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -43,6 +45,7 @@ export function CreateRoleDrawer({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [privileges, setPrivileges] = useState<PrivilegeDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const errorDismiss = useAutoDismiss(error, () => setError(null));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadingPrivs, setLoadingPrivs] = useState(false);
@@ -163,7 +166,7 @@ export function CreateRoleDrawer({
     ).length;
     if (![0, 4, 8].includes(dashboardCardCount)) {
       setError(
-        `Dashboard menu cards (under MENU → DASHBOARD_CARD below) must be selected in a group of 0, 4, or 8 — currently ${dashboardCardCount} selected.`
+        `Select 0, 4, or 8 Dashboard cards — you have ${dashboardCardCount} selected.`
       );
       return;
     }
@@ -239,6 +242,23 @@ export function CreateRoleDrawer({
       }
     >
       <form id="role-form" onSubmit={onSubmit} className="space-y-4">
+        {error && (
+          <p
+            className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            onMouseEnter={errorDismiss.onMouseEnter}
+            onMouseLeave={errorDismiss.onMouseLeave}
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </p>
+        )}
         <div>
           <label className={labelClass} htmlFor="roleName">
             Role name *
@@ -337,11 +357,6 @@ export function CreateRoleDrawer({
           )}
         </div>
 
-        {error && (
-          <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </p>
-        )}
       </form>
     </EnterpriseDrawer>
   );
