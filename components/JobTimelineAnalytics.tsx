@@ -744,7 +744,7 @@ export function JobTimelineAnalytics({
       className="mt-4 rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:p-6"
       aria-label="Job timeline analytics"
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-sm uppercase tracking-wide text-slate-400">{job.id}</p>
           <h2 className="mt-0.5 text-xl font-semibold text-[#111827] sm:text-2xl">

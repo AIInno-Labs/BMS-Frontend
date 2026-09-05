@@ -18,6 +18,7 @@ import {
   Phone,
   Plus,
   Settings,
+  Upload,
   StickyNote,
   User,
   X,
@@ -469,6 +470,12 @@ export function JobWorkflowDashboard({
   const cashPaymentLocked = isJobLockedForCashPayment(job);
   const onHold = isOnHoldJob(job.status);
   const editsBlocked = cancelled || cashPaymentLocked || onHold;
+  // Quote-derived jobs land with no documents attached yet — nudge the user
+  // to upload them while the job is still in the draft stage. Dismissal is
+  // local-only (not persisted), so it reappears on every fresh visit to the
+  // job while it's still a quote-origin draft, whether dismissed before or not.
+  const isQuoteDraft = job.origin === "QUOTE" && job.currentStageKey === "draft";
+  const [draftBannerDismissed, setDraftBannerDismissed] = useState(false);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.selectedItems ?? [];
@@ -1155,6 +1162,23 @@ export function JobWorkflowDashboard({
           <PauseCircle className="h-4 w-4 shrink-0" aria-hidden />
           This job is on hold. Resume it before making changes.
         </p>
+      )}
+
+      {isQuoteDraft && !draftBannerDismissed && (
+        <div className="mt-3 flex items-start justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-900">
+          <span className="flex items-center gap-2">
+            <Upload className="h-4 w-4 shrink-0" aria-hidden />
+            This job came from a quote — upload the required documents to move it out of Draft.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDraftBannerDismissed(true)}
+            className="shrink-0 text-blue-500 hover:text-blue-700"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
       )}
 
       {(saveError || saveWarning || saveSuccess) && (

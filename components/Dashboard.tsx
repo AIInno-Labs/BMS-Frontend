@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarDays, Layers, Sparkles } from "lucide-react";
 import { DashboardKpiCards } from "@/components/DashboardKpiCards";
 import { LaborCommandCenterDrawer } from "@/components/LaborCommandCenterDrawer";
@@ -102,6 +103,7 @@ function pickPriorityQueue(allJobs: Job[]): Job[] {
 }
 
 export function Dashboard() {
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRebalanceFocus, setDrawerRebalanceFocus] = useState(false);
   const [upcomingJobs, setUpcomingJobs] = useState<Job[]>([]);
@@ -467,12 +469,20 @@ export function Dashboard() {
                     {recentJobs.map((job, index) => (
                       <tr
                         key={job.id}
-                        className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} hover:bg-slate-50/70`}
+                        role="link"
+                        tabIndex={0}
+                        aria-label={`Open job ${job.id}`}
+                        onClick={() => router.push(`/jobs/${job.id}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(`/jobs/${job.id}`);
+                          }
+                        }}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
                       >
                         <td className="px-3 py-1.5 font-medium text-slate-900">
-                          <Link href={`/jobs/${job.id}`} className="hover:text-amber-700">
-                            {job.id}
-                          </Link>
+                          {job.id}
                         </td>
                         <td className="px-3 py-1.5 text-slate-700">{job.clientName}</td>
                         <td className="px-3 py-1.5 text-slate-700">{job.projectName}</td>
@@ -568,15 +578,20 @@ export function Dashboard() {
                           {orgDueJobs.map((job, index) => (
                             <tr
                               key={`org-due-row-${job.id}`}
-                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} hover:bg-slate-50/70`}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Open job ${job.id}`}
+                              onClick={() => router.push(`/jobs/${job.id}`)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  router.push(`/jobs/${job.id}`);
+                                }
+                              }}
+                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
                             >
                               <td className="px-3 py-1.5 font-medium text-slate-900">
-                                <Link
-                                  href={`/jobs/${job.id}`}
-                                  className="hover:text-amber-700"
-                                >
-                                  {job.id}
-                                </Link>
+                                {job.id}
                               </td>
                               <td className="px-3 py-1.5 text-slate-700">
                                 {job.clientName}
