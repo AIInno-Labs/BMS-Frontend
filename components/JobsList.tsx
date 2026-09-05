@@ -56,11 +56,8 @@ import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
 import { listJobs, type FrpJobSort } from "@/lib/frp/api";
 import { frpJobSummaryToUi, userIdToBackend } from "@/lib/frp/job-mapper";
 import {
-  duePresetToDueBefore,
   parseAssignedToParam,
-  parseDuePresetParam,
-  shouldKeepJobForDuePreset,
-  type JobListDuePreset,
+  parseDueDateParam,
 } from "@/lib/jobListUrlFilters";
 import type { Job, JobStatus, ResinType } from "@/lib/types";
 
@@ -206,7 +203,8 @@ export function JobsList({ jobs }: JobsListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const assignedToFilter = parseAssignedToParam(searchParams.get("assignedTo"));
-  const duePreset = parseDuePresetParam(searchParams.get("due"));
+  const dueFrom = parseDueDateParam(searchParams.get("dueFrom"));
+  const dueTo = parseDueDateParam(searchParams.get("dueTo"));
   const [searchQuery, setSearchQuery] = useState(
     () => searchParams.get("q") ?? ""
   );
@@ -435,26 +433,21 @@ export function JobsList({ jobs }: JobsListProps) {
       ? priorityToBackend(parsed.priorityFilter)
       : undefined;
 
-    const today = todayIsoLocal();
-    const dueBefore = duePresetToDueBefore(duePreset, today);
-
     listJobs(page - 1, JOBS_PAGE_SIZE, {
       search,
       sort: toBackendSort(sortBy),
       status: explicitStatus ?? impliedStatus,
       priority,
       assignedTo: assignedToFilter,
-      dueBefore,
+      dueFrom,
+      dueTo,
     })
       .then((res) => {
         if (cancelled) return;
-        setDefaultRows(
-          (res.content ?? [])
-            .map(frpJobSummaryToUi)
-            .filter((job) =>
-              shouldKeepJobForDuePreset(duePreset, job.dueDate, today)
-            )
-        );
+        // No client-side date filtering: the range is expressed exactly by
+        // dueFrom/dueTo, so what comes back is already what to show. Trimming
+        // here would also break paging, since the server counted the full set.
+        setDefaultRows((res.content ?? []).map(frpJobSummaryToUi));
         setDefaultTotalItems(res.totalElements ?? 0);
         const total = Math.max(1, res.totalPages ?? 1);
         setDefaultTotalPages(total);
@@ -482,7 +475,8 @@ export function JobsList({ jobs }: JobsListProps) {
     sortBy,
     page,
     assignedToFilter,
-    duePreset,
+    dueFrom,
+    dueTo,
   ]);
 
   const [groupRows, setGroupRows] = useState<Job[]>([]);
@@ -499,8 +493,6 @@ export function JobsList({ jobs }: JobsListProps) {
       // MAX_PAGES is a safety net against a runaway loop, not a real cap.
       const MAX_PAGES = 500;
       const statuses = STAGE_GROUP_BACKEND_STATUSES[stageGroupFilter as JobStageGroup];
-      const today = todayIsoLocal();
-      const dueBefore = duePresetToDueBefore(duePreset, today);
       const collected: Job[] = [];
       for (const status of statuses) {
         for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
@@ -508,15 +500,14 @@ export function JobsList({ jobs }: JobsListProps) {
             status,
             sort: "RECENT",
             assignedTo: assignedToFilter,
-            dueBefore,
+            dueFrom,
+            dueTo,
           });
           collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
           if (res.last || (res.content ?? []).length === 0) break;
         }
       }
-      return collected.filter((job) =>
-        shouldKeepJobForDuePreset(duePreset, job.dueDate, today)
-      );
+      return collected;
     }
 
     loadGroupJobs()
@@ -535,7 +526,7 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter, assignedToFilter, duePreset]);
+  }, [isWorker, stageGroupFilter, assignedToFilter, dueFrom, dueTo]);
 
   const groupFilteredJobs = useMemo(() => {
     if (!stageGroupFilter) return [];
@@ -745,28 +736,45 @@ export function JobsList({ jobs }: JobsListProps) {
               ))}
             </select>
           </label>
-          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+          <div className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
             <span className="shrink-0">DUE</span>
-            <select
-              value={duePreset === "any" ? "" : duePreset}
+            <input
+              type="date"
+              value={dueFrom ?? ""}
+              max={dueTo ?? undefined}
               onChange={(e) => {
-                const v = e.target.value as "" | Exclude<JobListDuePreset, "any">;
                 setPage(1);
-                updateUrlParams({
-                  due: v ? v : null,
-                  page: null,
-                });
+                updateUrlParams({ dueFrom: e.target.value || null, page: null });
               }}
-              className="ml-2 min-w-0 max-w-36 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
-              aria-label="Filter due date"
-            >
-              <option value="">All</option>
-              <option value="1w">1 week</option>
-              <option value="2w">2 weeks</option>
-              <option value="1m">1 month</option>
-              <option value="overdue">All overdue</option>
-            </select>
-          </label>
+              className="min-w-0 bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              aria-label="Due date from"
+            />
+            <span className="shrink-0 text-slate-400">–</span>
+            <input
+              type="date"
+              value={dueTo ?? ""}
+              min={dueFrom ?? undefined}
+              onChange={(e) => {
+                setPage(1);
+                updateUrlParams({ dueTo: e.target.value || null, page: null });
+              }}
+              className="min-w-0 bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              aria-label="Due date to"
+            />
+            {(dueFrom || dueTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPage(1);
+                  updateUrlParams({ dueFrom: null, dueTo: null, page: null });
+                }}
+                className="shrink-0 rounded-full px-1 text-slate-400 hover:text-[#EA580C]"
+                aria-label="Clear due date range"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
             <span className="shrink-0">ALL STAGES</span>
             <select

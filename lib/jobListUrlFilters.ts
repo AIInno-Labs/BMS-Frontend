@@ -1,5 +1,3 @@
-export type JobListDuePreset = "any" | "1w" | "2w" | "1m" | "overdue";
-
 /** ISO yyyy-MM-dd + calendar day delta at local noon. */
 export function isoDatePlusDaysFrom(todayIso: string, days: number): string {
   const [y, m, d] = todayIso.split("-").map(Number);
@@ -18,37 +16,28 @@ export function parseAssignedToParam(raw: string | null): number | undefined {
   return n;
 }
 
-export function parseDuePresetParam(raw: string | null): JobListDuePreset {
-  // `7d` kept as alias for older bookmarked URLs.
-  if (raw === "7d" || raw === "1w") return "1w";
-  if (raw === "2w" || raw === "1m" || raw === "overdue") return raw;
-  return "any";
-}
-
-/** Maps URL due preset → GET /jobs `dueBefore` (omit when any). */
-export function duePresetToDueBefore(
-  preset: JobListDuePreset,
-  todayIso: string
-): string | undefined {
-  if (preset === "any") return undefined;
-  if (preset === "1w") return isoDatePlusDaysFrom(todayIso, 7);
-  if (preset === "2w") return isoDatePlusDaysFrom(todayIso, 14);
-  if (preset === "1m") return isoDatePlusDaysFrom(todayIso, 30);
-  // overdue: dueDate <= yesterday
-  return isoDatePlusDaysFrom(todayIso, -1);
-}
-
 /**
- * Client keep after `dueBefore` page load.
- * For week/month presets, drop past-due rows (API upper-bound only).
- * For overdue/any, keep all returned rows.
+ * A `yyyy-MM-dd` URL parameter, or undefined when absent or malformed.
+ *
+ * Validated rather than passed through: the value goes straight into a request
+ * the API rejects on a bad date, and a hand-edited or stale URL should quietly
+ * drop the filter rather than break the page.
+ *
+ * The round-trip through Date catches what the regex cannot — `2026-02-31`
+ * matches the shape but rolls over to March, so it is not a real date.
  */
-export function shouldKeepJobForDuePreset(
-  preset: JobListDuePreset,
-  dueDate: string | null | undefined,
-  todayIso: string
-): boolean {
-  if (preset === "any" || preset === "overdue") return true;
-  if (!dueDate) return false;
-  return dueDate >= todayIso;
+export function parseDueDateParam(raw: string | null): string | undefined {
+  if (raw == null) return undefined;
+  const value = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [y, m, d] = value.split("-").map(Number);
+  const dt = new Date(y, m - 1, d, 12, 0, 0, 0);
+  if (
+    dt.getFullYear() !== y ||
+    dt.getMonth() !== m - 1 ||
+    dt.getDate() !== d
+  ) {
+    return undefined;
+  }
+  return value;
 }

@@ -191,10 +191,25 @@ export function CrmPage({ company }: { company: string }) {
   useEffect(() => {
     if (!company) return;
     let cancelled = false;
+    // The dropdowns still speak in windows ("last 6 months"); the API speaks
+    // in dates. Converted here rather than reshaping this screen's controls,
+    // which are a reasonable way to ask for a trailing window.
+    const to = new Date();
+    const from = new Date(to);
+    if (paymentUnit === "DAYS") {
+      from.setDate(from.getDate() - (paymentPeriod - 1));
+    } else {
+      from.setMonth(from.getMonth() - (paymentPeriod - 1));
+      from.setDate(1);
+    }
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate()
+      ).padStart(2, "0")}`;
     getJobPaymentHistory({
       companyName: company,
-      period: paymentPeriod,
-      unit: paymentUnit,
+      from: iso(from),
+      to: iso(to),
     })
       .then((dto) => {
         if (!cancelled) setPaymentHistory(dto);

@@ -76,7 +76,7 @@ function isoDatePlusMonths(months: number): string {
  * the KPI card and this list have to agree on what overdue means, or the count
  * and the rows below it differ by however many jobs fall due today.
  *
- * The request's `dueBefore=today` ceiling is inclusive, so today's jobs do
+ * The request's `dueTo=today` ceiling is inclusive, so today's jobs do
  * arrive and are dropped here on purpose. A job due today has not missed its
  * deadline yet; it belongs to Upcoming Due, whose floor is today.
  */
@@ -133,7 +133,7 @@ export function Dashboard() {
     let cancelled = false;
     void Promise.all([
       // The server applies the date floor, the active filter and the limit, so
-      // nothing here has to trim the result. Asking /jobs with dueBefore
+      // nothing here has to trim the result. Asking /jobs with only a
       // instead returned everything already overdue, soonest-first — so this
       // panel showed the oldest misses rather than the next deadlines.
       listUpcomingDueJobs({ limit: UPCOMING_DUE_LIMIT, assignedTo: myUserId }),
@@ -173,7 +173,7 @@ export function Dashboard() {
     const earliestDue = isoDatePlusMonths(-DUE_WINDOW_MONTHS);
     void listJobs(0, 200, {
       sort: "DUE_DATE",
-      dueBefore: today,
+      dueTo: today,
     })
       .then((page) => {
         if (cancelled) return;
