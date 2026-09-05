@@ -3,8 +3,9 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plug, Shield, Users } from "lucide-react";
+import { Bell, Package, Plug, Shield, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { LoadingState } from "@/components/ui/Loading";
 
 export function OrgAdminDashboard() {
   const { user, loading, isAuthenticated, appRole } = useAuth();
@@ -25,7 +26,7 @@ export function OrgAdminDashboard() {
   if (loading || !isAuthenticated || appRole !== "orgadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -72,6 +73,25 @@ export function OrgAdminDashboard() {
             </div>
           </Link>
           <Link
+            href="/org/inventory"
+            className="app-card-interactive block !p-5"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                <Package className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-[#111827]">
+                  Inventory
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Manage the product options available when adding
+                  inventory to a job.
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
             href="/org/integrations"
             className="app-card-interactive block !p-5"
           >
@@ -85,6 +105,24 @@ export function OrgAdminDashboard() {
                 </h3>
                 <p className="mt-1 text-sm text-slate-600">
                   SharePoint and Quotient connection settings for this org.
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
+            href="/org/notifications"
+            className="app-card-interactive block !p-5"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                <Bell className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-[#111827]">
+                  Notifications
+                </h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Choose who is emailed when a job event fires.
                 </p>
               </div>
             </div>

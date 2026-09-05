@@ -1,34 +1,56 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  ChevronUp,
   CircleCheckBig,
   CircleDollarSign,
   MessageSquare,
-  ClipboardList,
   Download,
   Loader2,
   History,
   Mail,
-  MapPin,
   Package,
-  Pencil,
+  PauseCircle,
   Phone,
   Plus,
   Settings,
+  Upload,
   StickyNote,
   User,
+  UserX,
+  X,
 } from "lucide-react";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InlineLoading } from "@/components/ui/Loading";
+import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
 import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
+import { WidgetCard } from "@/components/JobWidgetCard";
+import {
+  EditModal,
+  ModalCatalogField,
+  ModalField,
+} from "@/components/JobEditModal";
+import { JobStatusCard } from "@/components/JobStatusCard";
+import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
-  DEFAULT_REQUIRED_INVENTORY,
+  deleteJobDocument,
+  downloadJobDocument,
+  listJobDocuments,
+  listJobStages,
+  replaceJobInventory,
+  updateJobPayment,
+  uploadJobDocument,
+} from "@/lib/frp/api";
+import {
   ensureWorkflowExtras,
   JOB_TYPE_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
@@ -38,183 +60,564 @@ import {
   type JobFileRecord,
   type JobFileSortMode,
 } from "@/lib/jobFilesSort";
-import { formatCreatedDate, formatShortDate, jobPriorities } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/supabase/jobs-repository";
-import type { Job, JobPriority, JobWorkflowExtras, RequiredInventoryItem } from "@/lib/types";
+import { isManualPoDocument, poDocumentDisplayName } from "@/lib/poLineItems";
+import { formatShortDate, jobPriorities } from "@/lib/mockData";
+import { useAuth } from "@/context/AuthContext";
+import { ACCESS_KEYS } from "@/lib/frp/access";
+import {
+  combineCatalogMaterialGrade,
+  combineCatalogSize,
+  getCatalogColourOptions,
+  getCatalogDesc2Options,
+  getCatalogDesc3Options,
+  getCatalogProductGroups,
+  getCatalogProfileTypes,
+  getCatalogResinOptions,
+  matchingCatalogItems,
+  resolveCatalogItem,
+  splitCatalogMaterialGrade,
+  splitCatalogSize,
+  type InventoryCatalogEntry,
+} from "@/lib/frp/inventory-catalog";
+import { useInventoryCatalog } from "@/lib/frp/inventory-catalog-store";
+import {
+  type FrpJobDocumentDTO,
+  type FrpJobStageDTO,
+  type JobUpdateAuditAction,
+} from "@/lib/frp/job-mapper";
+import type {
+  Job,
+  JobInventoryLine,
+  JobPriority,
+  JobWorkflowExtras,
+} from "@/lib/types";
 import {
   getAssignableWorkers,
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
+import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
+import {
+  CASH_PAYMENT_BLOCK_MESSAGE,
+  isJobLockedForCashPayment,
+} from "@/lib/frp/job-cash-payment-gate";
 
 interface JobWorkflowDashboardProps {
   job: Job;
   isSaving: boolean;
   isExporting?: boolean;
+  isExportingLoc?: boolean;
   saveError: string | null;
   saveSuccess?: boolean;
+  /** Export succeeded but something required was still blank — shown amber. */
+  saveWarning?: string | null;
+  /** Pauses/resumes the success banner's auto-dismiss countdown on hover. */
+  onSaveSuccessMouseEnter?: () => void;
+  onSaveSuccessMouseLeave?: () => void;
   auditRefreshKey?: number;
   onPrint: () => void;
+  onPrintLoc?: () => void;
+  /** Dismisses the save error / success banner (the X button). */
+  onDismissMessage?: () => void;
+  /** Soft-cancel the job (DELETE /jobs/{id}). Prefer over status patch. */
+  onCancelJob?: () => Promise<void>;
   onSavePatch: (
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => Promise<void>;
+  /**
+   * Change only the job's status (e.g. the "Ready to Manufacture" checkbox).
+   * Sends a minimal request instead of resending the whole job through
+   * `onSavePatch`, so unrelated bad data elsewhere on the job can't block it.
+   */
+  onStatusChange: (status: Job["status"]) => Promise<void>;
+  /** Refetch the job after a stage change so the page reflects the new status. */
+  onJobChanged?: () => void | Promise<void>;
 }
 
-const DRAWING_CHECKLIST = [
-  { key: "measurements", label: "Measurements taken" },
-  { key: "drawingCreated", label: "Drawing created" },
-  { key: "clientApproved", label: "Client approved" },
-  { key: "engineerApproved", label: "Engineer approved" },
-  { key: "revAIssued", label: "Rev A issued" },
-] as const;
-
-type DrawingCheckKey = (typeof DRAWING_CHECKLIST)[number]["key"];
-
-type DrawingCheckState = Record<DrawingCheckKey, boolean>;
-
-const DEFAULT_DRAWING: DrawingCheckState = {
-  measurements: false,
-  drawingCreated: false,
-  clientApproved: false,
-  engineerApproved: false,
-  revAIssued: false,
-};
+/**
+ * The checklist comes from the server now, labels and all — it owns the five
+ * values its CHECK constraint accepts, so the client keeping a parallel copy
+ * could only ever drift from it.
+ */
 
 type JobFile = JobFileRecord;
 
-function loadDrawingChecklist(jobId: string): DrawingCheckState {
-  const raw = window.localStorage.getItem(`frp-drawing-${jobId}`);
-  if (!raw) return { ...DEFAULT_DRAWING };
-  try {
-    return { ...DEFAULT_DRAWING, ...(JSON.parse(raw) as DrawingCheckState) };
-  } catch {
-    return { ...DEFAULT_DRAWING };
+const SHAREPOINT_POLL_INTERVAL_MS = 10_000;
+const SHAREPOINT_PENDING_TIMEOUT_MS = 90_000;
+const SHAREPOINT_FAILED_HINT =
+  "SharePoint did not store this file. Delete it and upload again.";
+
+function formatDocUploadedAt(iso?: string): {
+  time: string;
+  uploadedAt?: number;
+} {
+  if (!iso) return { time: "Uploaded" };
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return { time: iso.slice(0, 10) };
+  return { time: formatShortDate(iso.slice(0, 10)), uploadedAt: ms };
+}
+
+function documentTypeLabel(doc: FrpJobDocumentDTO): string {
+  if (doc.milestoneStageName?.trim()) return doc.milestoneStageName.trim();
+  switch (doc.documentType) {
+    case "DRAWING":
+      return "Drawing";
+    case "PRODUCTION":
+      return "Production";
+    case "QC":
+      return "QC";
+    default:
+      return "Other";
   }
 }
 
-function defaultDemoFiles(job: Job): JobFile[] {
-  const pd = ensurePrintDetails(job);
-  const files: JobFile[] = [
-    {
-      name: "Job specification.pdf",
-      category: "Specification",
-      time: "Attached",
-      uploadedAt: Date.now() - 2 * 86_400_000,
-    },
-    {
-      name: "Assembly drawing rev-A.pdf",
-      category: "Drawing",
-      time: "3d ago",
-      uploadedAt: Date.now() - 3 * 86_400_000,
-    },
-    {
-      name: "Client approval sign-off.pdf",
-      category: "Approval",
-      time: "1w ago",
-      uploadedAt: Date.now() - 7 * 86_400_000,
-    },
-  ];
-
-  if (pd.purchaseOrderNo) {
-    files.unshift({
-      name: `PO-${pd.purchaseOrderNo}.pdf`,
-      category: "Purchase Order",
-      time: "Attached",
-      uploadedAt: Date.now() - 4 * 86_400_000,
-    });
-  }
-
-  return files;
+function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
+  const when = formatDocUploadedAt(doc.uploadedAt);
+  return {
+    name: poDocumentDisplayName(doc, undefined, "Untitled"),
+    category: documentTypeLabel(doc),
+    time: when.time,
+    uploadedAt: when.uploadedAt,
+    documentId: doc.id,
+    documentType: doc.documentType,
+    isManualEntry: isManualPoDocument(doc),
+    reviewStatus: doc.status,
+    storageStatus: doc.storageStatus,
+    remarks: doc.remarks ?? null,
+  };
 }
 
-function loadFiles(job: Job): JobFile[] {
-  const defaults = defaultDemoFiles(job);
-  const defaultNames = new Set(defaults.map((file) => file.name));
-  const raw = window.localStorage.getItem(`frp-files-${job.id}`);
+type InventoryDraftLine = JobInventoryLine & { localKey: string };
 
-  if (!raw) return normalizeJobFiles(defaults);
-
-  try {
-    const parsed = JSON.parse(raw) as JobFile[];
-    if (!Array.isArray(parsed) || !parsed.length) return normalizeJobFiles(defaults);
-
-    const extras = parsed.filter((file) => !defaultNames.has(file.name));
-    return normalizeJobFiles([...defaults, ...extras]);
-  } catch {
-    return normalizeJobFiles(defaults);
-  }
+function newInventoryKey(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function downloadDemoFile(fileName: string) {
-  const blob = new Blob([`Demo export placeholder for ${fileName}`], {
-    type: "application/pdf",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
+function emptyInventoryLine(): InventoryDraftLine {
+  return {
+    category: "",
+    profileType: "",
+    size: "",
+    materialGrade: "",
+    quantity: 1,
+    localKey: newInventoryKey(),
+  };
+}
+
+function toInventoryDraft(lines: JobInventoryLine[]): InventoryDraftLine[] {
+  return lines.map((line) => ({
+    ...line,
+    localKey: line.id != null ? `saved-${line.id}` : newInventoryKey(),
+  }));
+}
+
+function isInventoryLineIncomplete(
+  item: JobInventoryLine,
+  catalog: {
+    productGroup: string;
+    profileType: string;
+    meshSpec: string;
+    dimension: string;
+    resin: string;
+    colour: string;
+  }[]
+): boolean {
+  if (!isValidInventoryQuantity(item.quantity)) return true;
+  return matchingCatalogItems(catalog, item).length !== 1;
+}
+
+/** Short label for an inventory row in the add/edit modal — product identity,
+ *  not "Line 1". Falls back to resin/material, then placeholders while empty. */
+function inventoryLineTitle(item: JobInventoryLine): string {
+  const group = item.category?.trim();
+  const profile = item.profileType?.trim();
+  if (group && profile) return `${group} · ${profile}`;
+  if (group) return group;
+  if (profile) return profile;
+  const { resin } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+  if (resin) return resin;
+  if (isBlankInventoryLine(item)) return "New item";
+  return "Select product";
+}
+
+/** One-line summary shown for a collapsed draft row — everything worth
+ *  seeing at a glance without expanding it back out. */
+function summarizeInventoryLine(item: JobInventoryLine): string {
+  const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
+  const { resin, colour } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+  const details = [meshSpec, dimension, resin, colour]
+    .filter(Boolean)
+    .join(" · ");
+  const qty =
+    item.quantity != null && item.quantity >= 1 ? `Qty ${item.quantity}` : null;
+  return [details, qty].filter(Boolean).join(" — ");
+}
+
+const INVENTORY_TABLE_HEADERS = [
+  "Product Group",
+  "Attribute 1",
+  "Attribute 2",
+  "Attribute 3",
+  "Resin / Material",
+  "Primary Colour",
+  "Qty",
+] as const;
+
+function inventoryCell(value: string | number | null | undefined): string {
+  if (value == null) return "—";
+  const text = String(value).trim();
+  return text || "—";
+}
+
+function isBlankInventoryLine(item: JobInventoryLine): boolean {
+  return (
+    !item.category?.trim() &&
+    !item.profileType?.trim() &&
+    !item.size?.trim() &&
+    !item.materialGrade?.trim()
+  );
+}
+
+function isValidInventoryQuantity(qty: number | null | undefined): boolean {
+  return qty != null && qty >= 1;
+}
+
+function parseInventoryQuantity(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.trunc(n);
+}
+
+function patchInventoryLine(
+  lines: InventoryDraftLine[],
+  localKey: string,
+  patch: Partial<JobInventoryLine>
+): InventoryDraftLine[] {
+  return lines.map((row) =>
+    row.localKey === localKey ? { ...row, ...patch } : row
+  );
+}
+
+/** Fill any empty catalog dropdown that has exactly one option. */
+function autoFillInventoryLine(
+  item: InventoryDraftLine,
+  catalog: InventoryCatalogEntry[]
+): InventoryDraftLine {
+  let next: InventoryDraftLine = { ...item };
+  const group = next.category ?? "";
+  const groups = getCatalogProductGroups(catalog);
+  if (!group.trim() && groups.length === 1) {
+    next = {
+      ...next,
+      category: groups[0],
+      profileType: "",
+      size: "",
+      materialGrade: "",
+      masterInventoryId: undefined,
+    };
+  }
+
+  const attr1 = getCatalogProfileTypes(catalog, next.category ?? "");
+  if (
+    (next.category ?? "").trim() &&
+    !(next.profileType ?? "").trim() &&
+    attr1.length === 1
+  ) {
+    next = {
+      ...next,
+      profileType: attr1[0],
+      size: "",
+      materialGrade: "",
+      masterInventoryId: undefined,
+    };
+  }
+
+  const { meshSpec, dimension } = splitCatalogSize(next.size ?? "");
+  const attr2 = getCatalogDesc2Options(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? ""
+  );
+  if (
+    (next.category ?? "").trim() &&
+    (next.profileType ?? "").trim() &&
+    !meshSpec.trim() &&
+    attr2.length === 1
+  ) {
+    next = { ...next, size: attr2[0], materialGrade: "" };
+  }
+
+  const sizeAfterAttr2 = splitCatalogSize(next.size ?? "");
+  const attr3 = getCatalogDesc3Options(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    sizeAfterAttr2.meshSpec
+  );
+  if (
+    (next.category ?? "").trim() &&
+    (next.profileType ?? "").trim() &&
+    !sizeAfterAttr2.dimension.trim() &&
+    attr3.length === 1
+  ) {
+    next = {
+      ...next,
+      size: combineCatalogSize(sizeAfterAttr2.meshSpec, attr3[0]),
+      materialGrade: "",
+    };
+  }
+
+  const { resin } = splitCatalogMaterialGrade(next.materialGrade ?? "");
+  const resins = getCatalogResinOptions(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    next.size ?? ""
+  );
+  if (!resin.trim() && resins.length === 1) {
+    next = { ...next, materialGrade: resins[0] };
+  }
+
+  const grade = splitCatalogMaterialGrade(next.materialGrade ?? "");
+  const colours = getCatalogColourOptions(
+    catalog,
+    next.category ?? "",
+    next.profileType ?? "",
+    next.size ?? "",
+    grade.resin
+  );
+  if (!grade.colour.trim() && colours.length === 1) {
+    next = {
+      ...next,
+      materialGrade: combineCatalogMaterialGrade(grade.resin, colours[0]),
+    };
+  }
+
+  return next;
+}
+
+/** A `selectedItems` row's display fields — raw Quotient `selected_items` shape.
+ *  `job.selectedItems` starts as the quote's own selected_items for a
+ *  quote-derived job (set at creation, QuotientEventProcessor.createJobIfAbsent)
+ *  and gets overwritten with the approved PO's line items once one lands
+ *  (JobDocumentServiceImpl.applyApprovedPoToJob) — one evolving field, so
+ *  reading it directly always shows the current authoritative item list. */
+/** Matches PoManualEntryFields.tsx's CURRENCY_OPTIONS. Falls back to the
+ *  raw ISO code for anything not in this list. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  AUD: "A$",
+  USD: "US$",
+  NZD: "NZ$",
+  GBP: "£",
+  EUR: "€",
+  INR: "₹",
+  SAR: "SAR",
+  AED: "AED",
+  CAD: "C$",
+};
+
+function orderItemFields(item: Record<string, unknown>): {
+  code: string;
+  name: string;
+  qty: string;
+  price: string;
+} {
+  const str = (v: unknown) =>
+    v === null || v === undefined || v === "" ? "—" : String(v);
+  // sourceCode: manual/PO-entered rows (lib/poLineItems.ts). item_code/itemCode:
+  // Quotient's own selected_items shape.
+  const priceRaw = item.unit_price ?? item.unitPrice ?? item.price;
+  return {
+    code: str(item.sourceCode ?? item.item_code ?? item.itemCode),
+    name: str(item.heading ?? item.description),
+    qty: str(item.quantity),
+    price: typeof priceRaw === "number" ? priceRaw.toFixed(2) : str(priceRaw),
+  };
+}
+
+/** Top-level milestones only (same set Status Control offers), excluding draft. */
+function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
+  return stages
+    .filter((m) => m.stageKey !== "draft" && m.id != null)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 export function JobWorkflowDashboard({
   job,
   isSaving,
   isExporting = false,
+  isExportingLoc = false,
   saveError,
   saveSuccess,
+  saveWarning,
+  onSaveSuccessMouseEnter,
+  onSaveSuccessMouseLeave,
   auditRefreshKey = 0,
   onPrint,
+  onPrintLoc,
+  onDismissMessage,
+  onCancelJob,
   onSavePatch,
+  onStatusChange,
+  onJobChanged,
 }: JobWorkflowDashboardProps) {
+  const { can } = useAuth();
+  const cancelled = isCancelledJob(job.status);
+  const cashPaymentLocked = isJobLockedForCashPayment(job);
+  const onHold = isOnHoldJob(job.status);
+  const editsBlocked = cancelled || cashPaymentLocked || onHold;
+  // Quote-derived jobs land with no documents attached yet — nudge the user
+  // to upload them while the job is still in the draft stage. Dismissal is
+  // local-only (not persisted), so it reappears on every fresh visit to the
+  // job while it's still a quote-origin draft, whether dismissed before or not.
+  const isQuoteDraft = job.origin === "QUOTE" && job.currentStageKey === "draft";
+  const [draftBannerDismissed, setDraftBannerDismissed] = useState(false);
+  // No stage/status condition here on purpose — just whether the job has an
+  // assignee. Dismissal is local-only, so it reappears on every fresh visit
+  // while the job is still unassigned, whether dismissed before or not.
+  const isUnassigned = !job.assignedWorkerId;
+  const [unassignedBannerDismissed, setUnassignedBannerDismissed] = useState(false);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const orderItems = job.selectedItems ?? [];
+
   const [showJobModal, setShowJobModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [noteDraft, setNoteDraft] = useState("");
+  /** Document shown in the in-app PDF/image preview modal. */
+  const [previewFile, setPreviewFile] = useState<JobFileRecord | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+  const pendingSharePointSeenAt = useRef<Map<number, number>>(new Map());
+  const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<
+    Set<number>
+  >(() => new Set());
+  const [failedFile, setFailedFile] = useState<JobFile | null>(null);
+  const [failedFileBusy, setFailedFileBusy] = useState(false);
+  const [versionsFocus, setVersionsFocus] = useState<{
+    documentId: number;
+    tab: "po" | "drawing";
+  } | null>(null);
+  const canViewJobChat = can(ACCESS_KEYS.JOB_CHAT_VIEW);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Deep link from a notification (?openChat=1): open the drawer straight
+  // away instead of leaving the reader to find the CHAT tab themselves.
+  // Gated on canViewJobChat as defense in depth — the backend already never
+  // raises a notification for someone without MESSAGE_READ (see
+  // ChatRecipientResolver), so this should always be true when the param is
+  // present, but a stale/shared link should not conjure a drawer the viewer
+  // isn't privileged to see.
+  useEffect(() => {
+    if (searchParams.get("openChat") !== "1") return;
+    if (canViewJobChat) setChatDrawerOpen(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openChat");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // Intentionally only reacting to the param arriving, not to every
+    // identity change of router/pathname/searchParams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canViewJobChat]);
   const [files, setFiles] = useState<JobFile[]>([]);
   const [fileSort, setFileSort] = useState<JobFileSortMode>("recents");
-  const [drawingChecklist, setDrawingChecklist] = useState<DrawingCheckState>(DEFAULT_DRAWING);
-  const [fileUploadDraft, setFileUploadDraft] = useState({
-    fileName: "",
-    category: "Specification",
-  });
+  const [milestones, setMilestones] = useState<FrpJobStageDTO[]>([]);
+  // Letter of Compliance needs the qc milestone to have completed — this
+  // just gates the button. (The date/name shown on the document come from
+  // the audit log's STAGE_COMPLETED/qc row instead, see getQcSignoff in
+  // job-mapper.ts.)
+  const qcCompleted = milestones.some(
+    (m) => m.stageKey === "qc" && m.completedAt != null
+  );
+  const [fileUploadDraft, setFileUploadDraft] = useState<{
+    file: File | null;
+    milestoneId: number | "others" | "";
+  }>({ file: null, milestoneId: "" });
+  const [fileUploading, setFileUploading] = useState(false);
+  const [fileUploadError, setFileUploadError] = useState<string | null>(null);
   const [customerDraft, setCustomerDraft] = useState({
     clientName: job.clientName,
     clientContactName: job.clientContactName ?? "",
     contactPhone: pd.contactPhone ?? "",
     contactEmail: pd.contactEmail ?? "",
-    address:
-      pd.deliveryInstructions?.trim() ||
-      [pd.transportCompany, pd.freightAccount].filter(Boolean).join(" · ") ||
-      "",
   });
   const [jobDraft, setJobDraft] = useState({
     projectName: job.projectName,
     status: job.status,
     dueDate: job.dueDate ?? "",
     priority: job.priority,
-    manualInstructions: job.manualInstructions ?? "",
+    description: job.description ?? job.manualInstructions ?? "",
     assignedWorkerId: job.assignedWorkerId ?? "",
     raisedBy: pd.raisedBy ?? "",
-    jobType: extras.jobType ?? JOB_TYPE_OPTIONS[0],
+    jobType: job.jobType ?? extras.jobType ?? "",
     projectedStartDate: extras.projectedStartDate ?? "",
   });
-  const [inventoryDraft, setInventoryDraft] = useState<RequiredInventoryItem[]>(
-    () => extras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
+  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraftLine[]>(
+    () => toInventoryDraft(job.inventory ?? [])
   );
-  const [jobCardNotesDraft, setJobCardNotesDraft] = useState(extras.jobCardNotes ?? "");
+  const [inventoryBusy, setInventoryBusy] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const {
+    items: inventoryCatalog,
+    loading: catalogLoading,
+    error: catalogError,
+  } = useInventoryCatalog();
+  /** The one line shown expanded for editing; every other line that already
+   *  has a category + profile type collapses to a one-line summary, so
+   *  adding a 6th, 7th, 8th... line doesn't mean scrolling past five full
+   *  field stacks to reach it. */
+  const [activeInventoryLine, setActiveInventoryLine] = useState<string | null>(
+    null
+  );
+  const inventoryCascadeKey = inventoryDraft
+    .map(
+      (line) =>
+        `${line.localKey}|${line.category ?? ""}|${line.profileType ?? ""}|${
+          line.size ?? ""
+        }|${line.materialGrade ?? ""}`
+    )
+    .join(";");
+
+  useEffect(() => {
+    if (!showInventoryModal) return;
+    setInventoryDraft((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        const filled = autoFillInventoryLine(row, inventoryCatalog);
+        if (
+          filled.category !== row.category ||
+          filled.profileType !== row.profileType ||
+          filled.size !== row.size ||
+          filled.materialGrade !== row.materialGrade
+        ) {
+          changed = true;
+          return filled;
+        }
+        return row;
+      });
+      return changed ? next : prev;
+    });
+  }, [showInventoryModal, inventoryCatalog, inventoryCascadeKey]);
+  const inventoryLineRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const [jobCardNotesDraft, setJobCardNotesDraft] = useState(
+    job.notes ?? ""
+  );
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const assignableWorkers = getAssignableWorkers();
 
   useEffect(() => {
-    setFiles(loadFiles(job));
-    setDrawingChecklist(loadDrawingChecklist(job.id));
     const savedSort = window.localStorage.getItem(`frp-files-sort-${job.id}`);
     if (
       savedSort === "recents" ||
@@ -224,35 +627,58 @@ export function JobWorkflowDashboard({
     ) {
       setFileSort(savedSort);
     }
-    const raw = window.localStorage.getItem(`frp-notes-${job.id}`);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as string[];
-        if (Array.isArray(parsed)) setNotes(parsed);
-      } catch {
-        // Ignore malformed demo cache.
-      }
-    }
   }, [job.id]);
 
   useEffect(() => {
-    window.localStorage.setItem(`frp-notes-${job.id}`, JSON.stringify(notes));
-  }, [job.id, notes]);
-
-  useEffect(() => {
-    window.localStorage.setItem(`frp-files-${job.id}`, JSON.stringify(files));
-  }, [job.id, files]);
+    let cancelled = false;
+    async function loadProjectDocuments() {
+      if (!job.dbId) {
+        setFiles([]);
+        setMilestones([]);
+        return;
+      }
+      try {
+        const [docs, stages] = await Promise.all([
+          listJobDocuments(job.dbId, { sort: "ALL" }),
+          listJobStages(job.dbId),
+        ]);
+        if (cancelled) return;
+        const nextMilestones = asMilestones(stages);
+        setMilestones(nextMilestones);
+        setFiles(normalizeJobFiles(docs.map(docToFileRecord)));
+        setFileUploadDraft((prev) => {
+          // "others" is not a stage, so it never appears in nextMilestones —
+          // keep it rather than resetting the user's choice out from under them.
+          if (prev.milestoneId === "others") {
+            return prev;
+          }
+          if (
+            prev.milestoneId !== "" &&
+            nextMilestones.some((m) => m.id === prev.milestoneId)
+          ) {
+            return prev;
+          }
+          // Deliberately blank, not the job's current stage: the picker leads
+          // with "Select folder…" so the upload target is always an explicit
+          // choice between a stage folder and "Others".
+          return { ...prev, milestoneId: "" };
+        });
+      } catch {
+        if (!cancelled) {
+          setFiles([]);
+          setMilestones([]);
+        }
+      }
+    }
+    void loadProjectDocuments();
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId, job.currentStageId, job.currentStageKey, documentsRefreshKey]);
 
   useEffect(() => {
     window.localStorage.setItem(`frp-files-sort-${job.id}`, fileSort);
   }, [job.id, fileSort]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      `frp-drawing-${job.id}`,
-      JSON.stringify(drawingChecklist)
-    );
-  }, [job.id, drawingChecklist]);
 
   useEffect(() => {
     const nextPd = ensurePrintDetails(job);
@@ -261,10 +687,6 @@ export function JobWorkflowDashboard({
       clientContactName: job.clientContactName ?? "",
       contactPhone: nextPd.contactPhone ?? "",
       contactEmail: nextPd.contactEmail ?? "",
-      address:
-        nextPd.deliveryInstructions?.trim() ||
-        [nextPd.transportCompany, nextPd.freightAccount].filter(Boolean).join(" · ") ||
-        "",
     });
     const nextExtras = ensureWorkflowExtras(nextPd.workflowExtras, job);
     setJobDraft({
@@ -272,100 +694,406 @@ export function JobWorkflowDashboard({
       status: job.status,
       dueDate: job.dueDate ?? "",
       priority: job.priority,
-      manualInstructions: job.manualInstructions ?? "",
+      description: job.description ?? job.manualInstructions ?? "",
       assignedWorkerId: job.assignedWorkerId ?? "",
       raisedBy: nextPd.raisedBy ?? "",
-      jobType: nextExtras.jobType ?? JOB_TYPE_OPTIONS[0],
+      jobType: job.jobType ?? nextExtras.jobType ?? "",
       projectedStartDate: nextExtras.projectedStartDate ?? "",
     });
-    setInventoryDraft(
-      nextExtras.requiredInventory ?? DEFAULT_REQUIRED_INVENTORY
-    );
-    setJobCardNotesDraft(nextExtras.jobCardNotes ?? "");
-  }, [job]);
+    if (!showInventoryModal) {
+      setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+    }
+    setJobCardNotesDraft(job.notes ?? "");
+  }, [job, showInventoryModal]);
 
-  const drawingDoneCount = useMemo(
-    () => DRAWING_CHECKLIST.filter((item) => drawingChecklist[item.key]).length,
-    [drawingChecklist]
-  );
+  useEffect(() => {
+    if (!activeInventoryLine) return;
+    inventoryLineRefs.current
+      .get(activeInventoryLine)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeInventoryLine]);
 
   const sortedFiles = useMemo(
     () => sortJobFiles(files, fileSort),
     [files, fileSort]
   );
 
-  const systemNote = job.createdAt
-    ? `Job created and added to the fabrication queue · ${formatCreatedDate(job.createdAt)}`
-    : "Job created and added to the fabrication queue";
+  // The synthesised "job created" chat line is gone: the thread now shows real
+  // messages only. That event already lives in the audit trail (JOB_CREATED),
+  // which is where a system event belongs.
+  const filesWithSharePointTimeout = useMemo(() => {
+    if (sharePointTimedOutIds.size === 0) return sortedFiles;
+    return sortedFiles.map((file) =>
+      file.documentId != null &&
+      sharePointTimedOutIds.has(file.documentId) &&
+      file.storageStatus === "PENDING"
+        ? {
+            ...file,
+            storageStatus: "FAILED" as const,
+            remarks: SHAREPOINT_FAILED_HINT,
+          }
+        : file
+    );
+  }, [sortedFiles, sharePointTimedOutIds]);
 
-  const handleDrawingToggle = (key: DrawingCheckKey, checked: boolean) => {
-    const next = { ...drawingChecklist, [key]: checked };
-    setDrawingChecklist(next);
+  const displayFiles = useMemo(() => {
+    if (!fileUploading || !fileUploadDraft.file)
+      return filesWithSharePointTimeout;
+    const optimistic: JobFile = {
+      name: fileUploadDraft.file.name,
+      category: "Uploading",
+      time: "just now",
+      uploadedAt: Date.now(),
+      storageStatus: "PENDING",
+    };
+    return [
+      optimistic,
+      ...filesWithSharePointTimeout.filter((f) => f.name !== optimistic.name),
+    ];
+  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout]);
 
-    const done = DRAWING_CHECKLIST.filter((item) => next[item.key]).length;
-    if (done >= 5) {
-      void onSavePatch({ status: "Ready to Manufacture" });
-      return;
+  useEffect(() => {
+    const now = Date.now();
+    const seen = pendingSharePointSeenAt.current;
+    const pendingIds = new Set<number>();
+    for (const file of files) {
+      if (file.storageStatus === "PENDING" && file.documentId != null) {
+        pendingIds.add(file.documentId);
+        if (!seen.has(file.documentId)) seen.set(file.documentId, now);
+      }
     }
-    if (next.engineerApproved && next.clientApproved) {
-      void onSavePatch({ status: "Awaiting Manager Approval" });
+    for (const id of [...seen.keys()]) {
+      if (!pendingIds.has(id)) seen.delete(id);
     }
-  };
+    setSharePointTimedOutIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (pendingIds.has(id)) next.add(id);
+      }
+      if (next.size === prev.size) {
+        let same = true;
+        for (const id of prev) {
+          if (!next.has(id)) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [files]);
+
+  const hasPendingSharePoint = files.some(
+    (f) =>
+      f.storageStatus === "PENDING" &&
+      (f.documentId == null || !sharePointTimedOutIds.has(f.documentId))
+  );
+
+  useEffect(() => {
+    if (!job.dbId || !hasPendingSharePoint) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      const timedOut: number[] = [];
+      let stillWaiting = false;
+      for (const [id, startedAt] of pendingSharePointSeenAt.current) {
+        if (now - startedAt >= SHAREPOINT_PENDING_TIMEOUT_MS) {
+          timedOut.push(id);
+        } else {
+          stillWaiting = true;
+        }
+      }
+      if (timedOut.length > 0) {
+        setSharePointTimedOutIds((prev) => {
+          const next = new Set(prev);
+          let added = false;
+          for (const id of timedOut) {
+            if (!next.has(id)) {
+              next.add(id);
+              added = true;
+            }
+          }
+          return added ? next : prev;
+        });
+      }
+      if (stillWaiting) {
+        setDocumentsRefreshKey((k) => k + 1);
+      }
+    }, SHAREPOINT_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [job.dbId, hasPendingSharePoint]);
 
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
 
-  const postNote = () => {
-    if (!noteDraft.trim()) return;
-    setNotes((prev) =>
-      [`${new Date().toLocaleTimeString()} ${noteDraft.trim()}`, ...prev].slice(0, 24)
-    );
-    setNoteDraft("");
+  const openFileUploadModal = () => {
+    setFileUploadError(null);
+    setFileUploadDraft({
+      file: null,
+      milestoneId: "",
+    });
+    setShowFileModal(true);
   };
 
-  const savePaymentExtras = (
-    nextExtras: JobWorkflowExtras,
-    auditDetail: string
-  ) => {
-    void onSavePatch(
-      {
-        printDetails: {
-          ...pd,
-          workflowExtras: nextExtras,
-        },
-      },
-      { audit: "payment_updated", auditDetail }
-    );
+  const openDocumentVersions = (input: {
+    documentId?: number;
+    documentType?: FrpJobDocumentDTO["documentType"];
+  }) => {
+    if (input.documentId == null) return;
+    const tab =
+      input.documentType === "DRAWING"
+        ? "drawing"
+        : input.documentType === "PRODUCTION"
+        ? "po"
+        : null;
+    if (!tab) return;
+    setVersionsFocus({ documentId: input.documentId, tab });
+    window.requestAnimationFrame(() => {
+      document.getElementById("job-document-versions")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
+
+  const handleOpenProjectFile = (file: JobFileRecord) => {
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      if (file.storageStatus === "FAILED") setFailedFile(file);
+      return;
+    }
+    openDocumentVersions({
+      documentId: file.documentId,
+      documentType: file.documentType,
+    });
+  };
+
+  const handleFailedSharePointFile = (file: JobFileRecord) => {
+    setFailedFile(file);
+  };
+
+  const handleDeleteFailedSharePointFile = async () => {
+    if (failedFile?.documentId == null) return;
+    setFailedFileBusy(true);
+    try {
+      await deleteJobDocument(failedFile.documentId);
+      setFailedFile(null);
+      setDocumentsRefreshKey((k) => k + 1);
+      if (!editsBlocked) openFileUploadModal();
+    } catch {
+      // Leave the dialog open so the user can retry or close.
+    } finally {
+      setFailedFileBusy(false);
+    }
+  };
+
+  const handleDownloadFile = async (file: JobFileRecord) => {
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      return;
+    }
+    if (
+      (file.documentType === "PRODUCTION" || file.documentType === "DRAWING") &&
+      file.documentId != null
+    ) {
+      handleOpenProjectFile(file);
+      return;
+    }
+    if (file.documentId == null) return;
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
+  /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
+   *  the file itself (unlike `handleDownloadFile`, which redirects those
+   *  document types to Document Versions instead). */
+  const handleDownloadVersionFile = async (file: JobFileRecord) => {
+    if (file.documentId == null) return;
+    if (file.storageStatus === "PENDING" || file.storageStatus === "FAILED") {
+      return;
+    }
+    try {
+      const res = await downloadJobDocument(file.documentId);
+      if (res.downloadUrl) {
+        window.open(res.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      // Best-effort download — leave the strip as-is.
+    }
+  };
+
+  const handleUploadProjectDocument = async () => {
+    if (!job.dbId || !fileUploadDraft.file) return;
+    // "others" attaches to the job itself, so it resolves to no stage — it must
+    // skip the stage lookup entirely rather than fail the guard below.
+    const attachToJob = fileUploadDraft.milestoneId === "others";
+    const jobStageId = milestones.find((m) => m.id === fileUploadDraft.milestoneId)?.id;
+    if (!attachToJob && jobStageId == null) {
+      setFileUploadError("Choose a folder to attach this file to.");
+      return;
+    }
+    setFileUploading(true);
+    setFileUploadError(null);
+    try {
+      await uploadJobDocument(job.dbId, {
+        ...(attachToJob ? { attachToJob: true } : { jobStageId }),
+        file: fileUploadDraft.file,
+        documentName: fileUploadDraft.file.name,
+      });
+      setShowFileModal(false);
+      setFileUploadDraft({ file: null, milestoneId: "" });
+      setDocumentsRefreshKey((k) => k + 1);
+    } catch (e) {
+      setFileUploadError(
+        e instanceof Error ? e.message : "Could not upload document"
+      );
+    } finally {
+      setFileUploading(false);
+    }
+  };
+
+  const savePayment = async (body: {
+    paid?: boolean;
+    estimatedDate?: string;
+  }) => {
+    if (!job.dbId) return;
+    setPaymentBusy(true);
+    setPaymentError(null);
+    try {
+      await updateJobPayment(job.dbId, body);
+      await onJobChanged?.();
+    } catch (e) {
+      setPaymentError(
+        e instanceof Error ? e.message : "Could not update payment"
+      );
+    } finally {
+      setPaymentBusy(false);
+    }
   };
 
   const handlePaymentReceivedChange = (value: boolean) => {
-    savePaymentExtras(
-      { ...extras, paymentReceived: value },
-      `Payment received: ${value ? "Yes" : "No"}`
-    );
+    void savePayment({ paid: value });
   };
 
   const handlePaymentDueDateChange = (date: string) => {
-    savePaymentExtras(
-      { ...extras, paymentDueDate: date },
-      date
-        ? `Estimated payment due date: ${formatShortDate(date)}`
-        : "Estimated payment due date cleared"
-    );
+    if (!date) return;
+    void savePayment({ estimatedDate: date });
   };
 
-  const jobCardNotesDirty = jobCardNotesDraft !== (extras.jobCardNotes ?? "");
+  const openInventoryEditor = () => {
+    const current = toInventoryDraft(job.inventory ?? []);
+    const lines = current.length === 0 ? [emptyInventoryLine()] : current;
+    setInventoryDraft(lines);
+    setActiveInventoryLine(
+      lines.find((line) => isInventoryLineIncomplete(line, inventoryCatalog))
+        ?.localKey ?? null
+    );
+    setInventoryError(null);
+    setShowInventoryModal(true);
+  };
+
+  const closeInventoryEditor = () => {
+    if (inventoryBusy) return;
+    setShowInventoryModal(false);
+    setInventoryError(null);
+    setInventoryDraft(toInventoryDraft(job.inventory ?? []));
+  };
+
+  const addInventoryLine = () => {
+    const line = emptyInventoryLine();
+    setInventoryDraft((prev) => [...prev, line]);
+    setActiveInventoryLine(line.localKey);
+  };
+
+  const removeInventoryLine = (localKey: string) => {
+    setInventoryDraft((prev) =>
+      prev.filter((row) => row.localKey !== localKey)
+    );
+    setInventoryError(null);
+    setActiveInventoryLine((prev) => (prev === localKey ? null : prev));
+  };
+
+  const saveInventory = async () => {
+    if (!job.dbId) return;
+    const filled = inventoryDraft.filter((item) => !isBlankInventoryLine(item));
+
+    const qtyInvalid = filled.find(
+      (item) => !isValidInventoryQuantity(item.quantity)
+    );
+    if (qtyInvalid) {
+      setActiveInventoryLine(qtyInvalid.localKey);
+      setInventoryError("Quantity must be at least 1.");
+      return;
+    }
+
+    const unmatched = filled.find(
+      (item) => matchingCatalogItems(inventoryCatalog, item).length !== 1
+    );
+    if (unmatched) {
+      setActiveInventoryLine(unmatched.localKey);
+      setInventoryError(
+        "Each inventory line must match one catalog item. Finish the dropdowns on the highlighted line."
+      );
+      return;
+    }
+
+    const resolved = filled.map((line) => {
+      const match = resolveCatalogItem(inventoryCatalog, line);
+      return {
+        masterInventoryId: match!.id,
+        quantity: line.quantity!,
+      };
+    });
+    const masterIds = resolved.map((row) => row.masterInventoryId);
+    if (new Set(masterIds).size !== masterIds.length) {
+      setInventoryError(
+        "The same catalog item cannot be added twice. Combine the quantities on one line."
+      );
+      return;
+    }
+
+    const original = job.inventory ?? [];
+    const originalByMaster = new Map<number, number>();
+    for (const line of original) {
+      if (line.masterInventoryId != null) {
+        originalByMaster.set(line.masterInventoryId, line.quantity ?? 0);
+      }
+    }
+    const unchanged =
+      originalByMaster.size === resolved.length &&
+      resolved.every(
+        (row) => originalByMaster.get(row.masterInventoryId) === row.quantity
+      );
+    if (unchanged) {
+      setShowInventoryModal(false);
+      return;
+    }
+
+    setInventoryBusy(true);
+    setInventoryError(null);
+    try {
+      await replaceJobInventory(job.dbId, resolved);
+      await onJobChanged?.();
+      setShowInventoryModal(false);
+    } catch (e) {
+      setInventoryError(
+        e instanceof Error ? e.message : "Could not save inventory"
+      );
+    } finally {
+      setInventoryBusy(false);
+    }
+  };
+
+  const jobCardNotesDirty = jobCardNotesDraft !== (job.notes ?? "");
 
   const saveJobCardNotes = () => {
     if (!jobCardNotesDirty) return;
     void onSavePatch({
-      printDetails: {
-        ...pd,
-        workflowExtras: {
-          ...extras,
-          jobCardNotes: jobCardNotesDraft,
-        },
-      },
+      notes: jobCardNotesDraft.trim() || null,
     });
   };
 
@@ -380,15 +1108,39 @@ export function JobWorkflowDashboard({
           Back to Jobs
         </Link>
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* The missing-due-date warning lives next to the date itself, in
+              JobDetailsView, rather than up here among the page actions. */}
+          {onPrintLoc && qcCompleted && (
+            <button
+              type="button"
+              onClick={onPrintLoc}
+              disabled={isExportingLoc || isSaving || cancelBusy}
+              aria-busy={isExportingLoc}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2C5985] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#234868] disabled:cursor-wait disabled:opacity-80"
+            >
+              {isExportingLoc ? (
+                <Loader2
+                  className="h-3.5 w-3.5 shrink-0 animate-spin"
+                  aria-hidden
+                />
+              ) : (
+                <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              )}
+              {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onPrint}
-            disabled={isExporting}
+            disabled={isExporting || isSaving || cancelBusy}
             aria-busy={isExporting}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
           >
             {isExporting ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+              <Loader2
+                className="h-3.5 w-3.5 shrink-0 animate-spin"
+                aria-hidden
+              />
             ) : (
               <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
             )}
@@ -396,26 +1148,107 @@ export function JobWorkflowDashboard({
           </button>
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50"
-            onClick={() => {
-              if (
-                !window.confirm(
-                  `Mark job ${job.id} as cancelled? This updates workflow status only.`
-                )
-              ) {
-                return;
-              }
-              void onSavePatch({ status: "Cancelled" });
-            }}
+            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+            disabled={
+              isSaving ||
+              cancelBusy ||
+              isExporting ||
+              job.status === "Cancelled" ||
+              job.status === "Complete"
+            }
+            onClick={() => setShowCancelConfirm(true)}
           >
-            Delete
+            Cancel job
           </button>
         </div>
       </div>
 
-      <JobTimelineAnalytics job={job} drawingDoneCount={drawingDoneCount} />
+      {onHold && (
+        <p className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900">
+          <PauseCircle className="h-4 w-4 shrink-0" aria-hidden />
+          This job is on hold. Resume it before making changes.
+        </p>
+      )}
 
-      {!chatDrawerOpen && (
+      {isQuoteDraft && !draftBannerDismissed && (
+        <div className="mt-3 flex items-start justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-900">
+          <span className="flex items-center gap-2">
+            <Upload className="h-4 w-4 shrink-0" aria-hidden />
+            This job came from a quote — upload the required documents to move it out of Draft.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDraftBannerDismissed(true)}
+            className="shrink-0 text-blue-500 hover:text-blue-700"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      )}
+
+      {isUnassigned && !unassignedBannerDismissed && (
+        <div className="mt-3 flex items-start justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900">
+          <span className="flex items-center gap-2">
+            <UserX className="h-4 w-4 shrink-0" aria-hidden />
+            This job is not assigned to anyone. Please assign a worker.
+          </span>
+          <button
+            type="button"
+            onClick={() => setUnassignedBannerDismissed(true)}
+            className="shrink-0 text-amber-600 hover:text-amber-800"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      )}
+
+      {(saveError || saveWarning || saveSuccess) && (
+        <p
+          className={`mt-3 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+            saveError
+              ? "border-red-200 bg-red-50 text-red-700"
+              : saveWarning
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+          role="status"
+          onMouseEnter={onSaveSuccessMouseEnter}
+          onMouseLeave={onSaveSuccessMouseLeave}
+        >
+          <span>
+            {saveError ||
+              saveWarning ||
+              (job.status === "Cancelled"
+                ? "Job cancelled. It remains in the register for audit."
+                : "Saved. PDF export reflects updated fields.")}
+          </span>
+          {onDismissMessage && (
+            <button
+              type="button"
+              onClick={onDismissMessage}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          )}
+        </p>
+      )}
+
+      <JobTimelineAnalytics job={job} onJobChanged={onJobChanged} />
+
+      {cashPaymentLocked && !cancelled ? (
+        <p
+          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
+          role="status"
+        >
+          {CASH_PAYMENT_BLOCK_MESSAGE}
+        </p>
+      ) : null}
+
+      {canViewJobChat && !chatDrawerOpen && (
         <button
           type="button"
           onClick={() => setChatDrawerOpen(true)}
@@ -432,200 +1265,348 @@ export function JobWorkflowDashboard({
         </button>
       )}
 
-      <JobNotesChatDrawer
-        open={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
-        jobId={job.id}
-        systemNote={systemNote}
-        notes={notes}
-        noteDraft={noteDraft}
-        onNoteDraftChange={setNoteDraft}
-        onPostNote={postNote}
-      />
+      {canViewJobChat && (
+        <JobNotesChatDrawer
+          open={chatDrawerOpen}
+          onClose={() => setChatDrawerOpen(false)}
+          jobId={job.id}
+          dbId={job.dbId}
+        />
+      )}
 
       <JobWorkflowExtrasSection
         job={job}
         pd={pd}
         isSaving={isSaving}
         onSavePatch={onSavePatch}
-        files={sortedFiles}
+        onJobChanged={onJobChanged}
+        files={displayFiles}
         fileSort={fileSort}
         onFileSortChange={setFileSort}
-        onUploadFile={() => setShowFileModal(true)}
-        onDownloadFile={downloadDemoFile}
+        onUploadFile={editsBlocked ? () => undefined : openFileUploadModal}
+        onDownloadFile={handleDownloadFile}
+        onPreviewFile={(file) => setPreviewFile(file)}
+        onOpenFile={handleOpenProjectFile}
+        onDownloadVersionFile={handleDownloadVersionFile}
+        onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
+        onFailedFile={handleFailedSharePointFile}
       />
 
       <div className="mt-4 space-y-4">
-      <section className="grid gap-4 lg:grid-cols-3">
-        <WidgetCard title="Customer Details" icon={User} onEdit={() => setShowCustomerModal(true)}>
-          <CustomerRow icon={User} label="Contact" value={job.clientContactName || "—"} />
-          <CustomerRow icon={Phone} label="Phone" value={pd.contactPhone?.trim() || "—"} />
-          <CustomerRow icon={Mail} label="Email" value={pd.contactEmail?.trim() || "—"} />
-          <CustomerRow
-            icon={MapPin}
-            label="Address"
-            value={
-              pd.deliveryInstructions?.trim() ||
-              [pd.transportCompany, pd.freightAccount].filter(Boolean).join(" · ") ||
-              "—"
+        <section className="grid gap-4 lg:grid-cols-2">
+          <WidgetCard
+            title="Customer Details"
+            icon={User}
+            onEdit={editsBlocked ? undefined : () => setShowCustomerModal(true)}
+          >
+            <CustomerRow
+              icon={User}
+              label="Contact"
+              value={job.clientContactName || "—"}
+            />
+            <CustomerRow
+              icon={Phone}
+              label="Phone"
+              value={pd.contactPhone?.trim() || "—"}
+            />
+            <CustomerRow
+              icon={Mail}
+              label="Email"
+              value={pd.contactEmail?.trim() || "—"}
+            />
+          </WidgetCard>
+
+          <WidgetCard
+            title="Job Details"
+            icon={Settings}
+            onEdit={editsBlocked ? undefined : () => setShowJobModal(true)}
+          >
+            <p className="font-medium text-slate-800">{job.projectName}</p>
+            <p className="text-sm text-slate-600">
+              Assigned:{" "}
+              {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
+            </p>
+            <p className="whitespace-pre-wrap text-sm text-slate-600">
+              {job.description?.trim() ||
+                job.manualInstructions?.trim() ||
+                "No description provided."}
+            </p>
+            <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+              {job.priority}
+            </span>
+            <p className="text-sm text-slate-500">
+              Type: {job.jobType || extras.jobType || "—"} · Stage:{" "}
+              {cancelled ? "Cancelled" : job.status}
+            </p>
+            <p className="text-sm text-slate-500">
+              Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
+              {extras.projectedStartDate
+                ? ` · Start: ${formatShortDate(extras.projectedStartDate)}`
+                : ""}
+            </p>
+            <p className="text-sm text-slate-500">
+              Raised by: {pd.raisedBy ?? "—"}
+            </p>
+            {orderItems.length > 0 && (
+              <p className="text-sm text-slate-500">
+                Order Items: {orderItems.length}
+              </p>
+            )}
+          </WidgetCard>
+
+          <JobStatusCard
+            job={job}
+            onJobChanged={onJobChanged}
+            onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+            onOpenDocument={(doc) =>
+              openDocumentVersions({
+                documentId: doc.id,
+                documentType: doc.documentType,
+              })
             }
+            className="lg:col-span-2"
           />
-        </WidgetCard>
 
-        <WidgetCard title="Job Details" icon={Settings} onEdit={() => setShowJobModal(true)}>
-          <p className="font-medium text-slate-800">{job.projectName}</p>
-          <p className="text-sm text-slate-600">
-            Assigned: {assignedLabel === "Unassigned" ? "Unassigned" : assignedLabel}
-          </p>
-          <p className="text-sm text-slate-600">
-            {job.manualInstructions?.trim() || "No description provided."}
-          </p>
-          <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-            {job.priority}
-          </span>
-          <p className="text-sm text-slate-500">
-            Type: {extras.jobType} · Stage: {job.status}
-          </p>
-          <p className="text-sm text-slate-500">
-            Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}
-            {extras.projectedStartDate
-              ? ` · Start: ${formatShortDate(extras.projectedStartDate)}`
-              : ""}
-          </p>
-          <p className="text-sm text-slate-500">Raised by: {pd.raisedBy ?? "—"}</p>
-        </WidgetCard>
+          <JobDocumentRevisionsCard
+            job={job}
+            refreshKey={documentsRefreshKey}
+            focusDocument={versionsFocus}
+            onJobChanged={onJobChanged}
+            onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
+            className="lg:col-span-2"
+          />
 
-        <WidgetCard title="Drawing" icon={ClipboardList}>
-          <div className="space-y-2">
-            {DRAWING_CHECKLIST.map((item) => (
-              <label
-                key={item.key}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm hover:border-orange-200"
-              >
+          <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
+            <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
+              <label className="mt-2 inline-flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={drawingChecklist[item.key]}
-                  onChange={(e) => handleDrawingToggle(item.key, e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                  checked={
+                    job.status === "In Fabrication" ||
+                    job.status === "Ready to Manufacture"
+                  }
+                  disabled={isSaving || editsBlocked}
+                  onChange={(e) =>
+                    void onStatusChange(
+                      e.target.checked ? "In Fabrication" : "Pending"
+                    )
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
                 />
-                {item.label}
+                Ready to Manufacture
               </label>
-            ))}
-          </div>
-        </WidgetCard>
+            </WidgetCard>
 
-        <WidgetCard title="Manufacturing" icon={CircleCheckBig}>
-          <label className="mt-2 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={job.status === "In Fabrication" || job.status === "Ready to Manufacture"}
-              onChange={(e) =>
-                void onSavePatch({
-                  status: e.target.checked ? "In Fabrication" : "Pending",
-                })
-              }
-              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
-            />
-            Ready to Manufacture
-          </label>
-        </WidgetCard>
-
-        <WidgetCard title="Inventory" icon={Package} onEdit={() => setShowInventoryModal(true)}>
-          <div className="space-y-1.5">
-            {inventoryDraft.map((item) => (
-              <p key={item.label} className="text-sm text-slate-700">
-                {item.label} · Qty {item.qty}
-              </p>
-            ))}
-          </div>
-        </WidgetCard>
-
-        <WidgetCard title="Payment Status" icon={CircleDollarSign}>
-          <fieldset className="mt-2 space-y-2">
-            <legend className="text-sm text-slate-700">Payment received</legend>
-            <div className="flex flex-wrap gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+            <WidgetCard title="Payment Status" icon={CircleDollarSign}>
+              {paymentError ? (
+                <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {paymentError}
+                </p>
+              ) : null}
+              <fieldset className="mt-2 space-y-2">
+                <legend className="text-sm text-slate-700">
+                  Payment received
+                </legend>
+                <div className="flex flex-wrap gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name={`payment-received-${job.id}`}
+                      checked={extras.paymentReceived === true}
+                      disabled={
+                        isSaving || paymentBusy || cancelled || !job.dbId
+                      }
+                      onChange={() => handlePaymentReceivedChange(true)}
+                      className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                    />
+                    Yes
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name={`payment-received-${job.id}`}
+                      checked={extras.paymentReceived === false}
+                      disabled={
+                        isSaving || paymentBusy || cancelled || !job.dbId
+                      }
+                      onChange={() => handlePaymentReceivedChange(false)}
+                      className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300 disabled:opacity-50"
+                    />
+                    No
+                  </label>
+                </div>
+              </fieldset>
+              <label className="mt-3 block text-sm text-slate-700">
+                <span className="mb-1 block">
+                  Estimated due date for payment
+                </span>
                 <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === true}
-                  onChange={() => handlePaymentReceivedChange(true)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300"
+                  type="date"
+                  value={extras.paymentDueDate ?? ""}
+                  disabled={isSaving || paymentBusy || cancelled || !job.dbId}
+                  onChange={(e) => handlePaymentDueDateChange(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40 disabled:opacity-50"
                 />
-                Yes
               </label>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`payment-received-${job.id}`}
-                  checked={extras.paymentReceived === false}
-                  onChange={() => handlePaymentReceivedChange(false)}
-                  className="h-4 w-4 border-slate-300 text-orange-600 focus:ring-orange-300"
-                />
-                No
-              </label>
-            </div>
-          </fieldset>
-          <label className="mt-3 block text-sm text-slate-700">
-            <span className="mb-1 block">Estimated due date for payment</span>
-            <input
-              type="date"
-              value={extras.paymentDueDate ?? ""}
-              onChange={(e) => handlePaymentDueDateChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-sm text-[#111827] outline-none focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
-            />
-          </label>
-        </WidgetCard>
+            </WidgetCard>
+          </div>
 
-      </section>
-
-      <section className="app-card p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
-            <StickyNote className="h-4 w-4 text-[#F97316]" aria-hidden />
-            Job Card Notes
-          </p>
-          <button
-            type="button"
-            className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={saveJobCardNotes}
-            disabled={isSaving || !jobCardNotesDirty}
+          <WidgetCard
+            title="Inventory"
+            icon={Package}
+            onEdit={editsBlocked ? undefined : openInventoryEditor}
+            className="lg:col-span-2"
           >
-            {isSaving ? "Saving…" : "Save notes"}
-          </button>
-        </div>
-        <textarea
-          value={jobCardNotesDraft}
-          onChange={(e) => setJobCardNotesDraft(e.target.value)}
-          rows={5}
-          placeholder="Add notes for this job card…"
-          className="mt-3 min-h-[8rem] w-full resize-y rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:bg-white focus:ring-2 focus:ring-orange-200/40"
-        />
-      </section>
+            {(job.inventory ?? []).length === 0 ? (
+              <p className="text-sm text-slate-400">No inventory lines yet.</p>
+            ) : (
+              <div className="-mx-1 overflow-x-auto">
+                <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[#E5E7EB] text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {INVENTORY_TABLE_HEADERS.map((header, headerIndex) => (
+                        <th
+                          key={`${header}-${headerIndex}`}
+                          className="px-2 py-2 font-semibold"
+                        >
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(job.inventory ?? []).map((item, index) => (
+                      <tr
+                        key={item.id ?? index}
+                        className="border-b border-[#E5E7EB] last:border-0"
+                      >
+                        <td className="px-2 py-2 font-medium text-slate-800">
+                          {inventoryCell(item.category)}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(item.profileType)}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogSize(item.size ?? "").meshSpec
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogSize(item.size ?? "").dimension
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogMaterialGrade(item.materialGrade ?? "")
+                              .resin
+                          )}
+                        </td>
+                        <td className="px-2 py-2">
+                          {inventoryCell(
+                            splitCatalogMaterialGrade(item.materialGrade ?? "")
+                              .colour
+                          )}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {inventoryCell(item.quantity)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </WidgetCard>
+        </section>
 
-      <section>
-        <div className="app-card overflow-hidden p-0">
-          <div className="border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
+        <section className="app-card p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
-              <History className="h-4 w-4 text-[#F97316]" />
-              Audit History
+              <StickyNote className="h-4 w-4 text-[#F97316]" aria-hidden />
+              Job Card Notes
             </p>
-            <p className="text-xs text-slate-500">Recent actions and system events</p>
+            <button
+              type="button"
+              className="inline-flex items-center rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={saveJobCardNotes}
+              disabled={isSaving || editsBlocked || !jobCardNotesDirty}
+            >
+              {isSaving ? "Saving…" : "Save notes"}
+            </button>
           </div>
-          <div className="[&_section]:border-0 [&_section]:shadow-none [&_section]:rounded-none">
-            <ActivityAuditTrail jobId={job.id} refreshKey={auditRefreshKey} />
-          </div>
-        </div>
-      </section>
+          <textarea
+            value={jobCardNotesDraft}
+            onChange={(e) => setJobCardNotesDraft(e.target.value)}
+            rows={5}
+            placeholder="Add notes for this job card…"
+            className="mt-3 min-h-[8rem] w-full resize-y rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-3 py-2.5 text-sm leading-relaxed text-[#111827] outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:bg-white focus:ring-2 focus:ring-orange-200/40"
+          />
+        </section>
 
-      {(saveError || saveSuccess) && (
-        <p
-          className={`rounded-xl border px-4 py-3 text-sm ${saveError ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
-        >
-          {saveError || "Saved. PDF export reflects updated fields."}
-        </p>
-      )}
+        <section>
+          <div className="app-card overflow-hidden p-0">
+            <div className="border-b border-[#E5E7EB] px-4 py-3 sm:px-5">
+              <p className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
+                <History className="h-4 w-4 text-[#F97316]" />
+                Audit History
+              </p>
+              <p className="text-xs text-slate-500">
+                Recent actions and system events
+              </p>
+            </div>
+            <div className="[&_section]:border-0 [&_section]:shadow-none [&_section]:rounded-none">
+              <ActivityAuditTrail
+                jobId={job.dbId ?? ""}
+                refreshKey={auditRefreshKey}
+              />
+            </div>
+          </div>
+        </section>
+
       </div>
+
+      <ConfirmDialog
+        open={failedFile != null}
+        title="Upload failed"
+        description={SHAREPOINT_FAILED_HINT}
+        confirmLabel="Delete file"
+        cancelLabel="Close"
+        tone="danger"
+        busy={failedFileBusy}
+        onClose={() => {
+          if (!failedFileBusy) setFailedFile(null);
+        }}
+        onConfirm={() => {
+          void handleDeleteFailedSharePointFile();
+        }}
+      />
+
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title={`Cancel job ${job.id}?`}
+        description="This marks the job as cancelled in the workflow. The record is kept for audit — it is not permanently deleted."
+        confirmLabel="Cancel job"
+        cancelLabel="Keep job active"
+        tone="danger"
+        busy={cancelBusy}
+        onClose={() => {
+          if (!cancelBusy) setShowCancelConfirm(false);
+        }}
+        onConfirm={async () => {
+          setCancelBusy(true);
+          try {
+            if (onCancelJob) {
+              await onCancelJob();
+            } else {
+              await onSavePatch({ status: "Cancelled" });
+            }
+            setShowCancelConfirm(false);
+          } finally {
+            setCancelBusy(false);
+          }
+        }}
+      />
 
       <EditModal
         open={showCustomerModal}
@@ -633,11 +1614,32 @@ export function JobWorkflowDashboard({
         onClose={() => setShowCustomerModal(false)}
       >
         <div className="space-y-3">
-          <ModalField label="Company Name" value={customerDraft.clientName} onChange={(v) => setCustomerDraft((p) => ({ ...p, clientName: v }))} />
-          <ModalField label="Contact Name" value={customerDraft.clientContactName} onChange={(v) => setCustomerDraft((p) => ({ ...p, clientContactName: v }))} />
-          <ModalField label="Phone" value={customerDraft.contactPhone} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactPhone: v }))} />
-          <ModalField label="Email" value={customerDraft.contactEmail} onChange={(v) => setCustomerDraft((p) => ({ ...p, contactEmail: v }))} />
-          <ModalField label="Address" value={customerDraft.address} onChange={(v) => setCustomerDraft((p) => ({ ...p, address: v }))} />
+          <ModalField
+            label="Company Name"
+            value={customerDraft.clientName}
+            onChange={(v) => setCustomerDraft((p) => ({ ...p, clientName: v }))}
+          />
+          <ModalField
+            label="Contact Name"
+            value={customerDraft.clientContactName}
+            onChange={(v) =>
+              setCustomerDraft((p) => ({ ...p, clientContactName: v }))
+            }
+          />
+          <ModalField
+            label="Phone"
+            value={customerDraft.contactPhone}
+            onChange={(v) =>
+              setCustomerDraft((p) => ({ ...p, contactPhone: v }))
+            }
+          />
+          <ModalField
+            label="Email"
+            value={customerDraft.contactEmail}
+            onChange={(v) =>
+              setCustomerDraft((p) => ({ ...p, contactEmail: v }))
+            }
+          />
           <button
             className="btn-primary w-full"
             onClick={() =>
@@ -648,7 +1650,6 @@ export function JobWorkflowDashboard({
                   ...ensurePrintDetails(job),
                   contactPhone: customerDraft.contactPhone.trim(),
                   contactEmail: customerDraft.contactEmail.trim(),
-                  deliveryInstructions: customerDraft.address.trim(),
                 },
               }).then(() => setShowCustomerModal(false))
             }
@@ -659,14 +1660,24 @@ export function JobWorkflowDashboard({
         </div>
       </EditModal>
 
-      <EditModal open={showJobModal} title="Edit Job Details" onClose={() => setShowJobModal(false)}>
+      <EditModal
+        open={showJobModal}
+        title="Edit Job Details"
+        onClose={() => setShowJobModal(false)}
+      >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          <ModalField label="Project Name" value={jobDraft.projectName} onChange={(v) => setJobDraft((p) => ({ ...p, projectName: v }))} />
+          <ModalField
+            label="Project Name"
+            value={jobDraft.projectName}
+            onChange={(v) => setJobDraft((p) => ({ ...p, projectName: v }))}
+          />
           <label className="block text-sm font-medium text-slate-700">
             Assigned Staff
             <select
               value={jobDraft.assignedWorkerId}
-              onChange={(e) => setJobDraft((p) => ({ ...p, assignedWorkerId: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, assignedWorkerId: e.target.value }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               <option value="">Unassigned</option>
@@ -680,8 +1691,10 @@ export function JobWorkflowDashboard({
           <label className="block text-sm font-medium text-slate-700">
             Description
             <textarea
-              value={jobDraft.manualInstructions}
-              onChange={(e) => setJobDraft((p) => ({ ...p, manualInstructions: e.target.value }))}
+              value={jobDraft.description}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, description: e.target.value }))
+              }
               rows={3}
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
@@ -690,7 +1703,12 @@ export function JobWorkflowDashboard({
             Priority
             <select
               value={jobDraft.priority}
-              onChange={(e) => setJobDraft((p) => ({ ...p, priority: e.target.value as JobPriority }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({
+                  ...p,
+                  priority: e.target.value as JobPriority,
+                }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               {jobPriorities.map((p) => (
@@ -705,16 +1723,21 @@ export function JobWorkflowDashboard({
             <RaisedBySelect
               variant="compact"
               value={jobDraft.raisedBy}
-              onChange={(name) => setJobDraft((p) => ({ ...p, raisedBy: name }))}
+              onChange={(name) =>
+                setJobDraft((p) => ({ ...p, raisedBy: name }))
+              }
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Job type
             <select
               value={jobDraft.jobType}
-              onChange={(e) => setJobDraft((p) => ({ ...p, jobType: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, jobType: e.target.value }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
+              <option value="">Not set</option>
               {JOB_TYPE_OPTIONS.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -728,7 +1751,10 @@ export function JobWorkflowDashboard({
               type="date"
               value={jobDraft.projectedStartDate}
               onChange={(e) =>
-                setJobDraft((p) => ({ ...p, projectedStartDate: e.target.value }))
+                setJobDraft((p) => ({
+                  ...p,
+                  projectedStartDate: e.target.value,
+                }))
               }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
@@ -737,11 +1763,18 @@ export function JobWorkflowDashboard({
             Stage / status
             <select
               value={jobDraft.status}
-              onChange={(e) => setJobDraft((p) => ({ ...p, status: e.target.value as Job["status"] }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({
+                  ...p,
+                  status: e.target.value as Job["status"],
+                }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             >
               <option value="Pending">Pending</option>
-              <option value="Awaiting Manager Approval">Awaiting Manager Approval</option>
+              <option value="Awaiting Manager Approval">
+                Awaiting Manager Approval
+              </option>
               <option value="Ready to Manufacture">Ready to Manufacture</option>
               <option value="In Fabrication">In Fabrication</option>
               <option value="Complete">Complete</option>
@@ -754,10 +1787,53 @@ export function JobWorkflowDashboard({
             <input
               type="date"
               value={jobDraft.dueDate}
-              onChange={(e) => setJobDraft((p) => ({ ...p, dueDate: e.target.value }))}
+              onChange={(e) =>
+                setJobDraft((p) => ({ ...p, dueDate: e.target.value }))
+              }
               className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
             />
           </label>
+          {orderItems.length > 0 && (
+            <div className="rounded-lg border border-[#E5E7EB] bg-slate-50/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Order Items
+              </p>
+              <div className="mt-2 max-h-40 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase text-slate-400">
+                    <tr>
+                      <th className="pb-1 pr-2 font-medium">Code</th>
+                      <th className="pb-1 pr-2 font-medium">Item</th>
+                      <th className="pb-1 pr-2 font-medium">Qty</th>
+                      <th className="pb-1 font-medium">
+                        Price
+                        {job.currency
+                          ? ` (${
+                              CURRENCY_SYMBOLS[job.currency] ?? job.currency
+                            })`
+                          : ""}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderItems.map((item, i) => {
+                      const f = orderItemFields(item);
+                      return (
+                        <tr key={i} className="border-t border-[#E5E7EB]/70">
+                          <td className="py-1 pr-2 font-mono text-slate-600">
+                            {f.code}
+                          </td>
+                          <td className="py-1 pr-2 text-slate-800">{f.name}</td>
+                          <td className="py-1 pr-2 text-slate-600">{f.qty}</td>
+                          <td className="py-1 text-slate-600">{f.price}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <button
             className="btn-primary w-full"
             onClick={() => {
@@ -767,7 +1843,8 @@ export function JobWorkflowDashboard({
                 status: jobDraft.status,
                 dueDate: jobDraft.dueDate.trim() || null,
                 priority: jobDraft.priority,
-                manualInstructions: jobDraft.manualInstructions,
+                description: jobDraft.description.trim() || null,
+                jobType: jobDraft.jobType.trim() || null,
                 assignedWorkerId: workerId,
                 assignedWorkerName: resolveWorkerNameFromId(workerId),
                 printDetails: {
@@ -775,7 +1852,7 @@ export function JobWorkflowDashboard({
                   raisedBy: jobDraft.raisedBy,
                   workflowExtras: {
                     ...ensureWorkflowExtras(pd.workflowExtras, job),
-                    jobType: jobDraft.jobType,
+                    jobType: jobDraft.jobType.trim() || undefined,
                     projectedStartDate: jobDraft.projectedStartDate,
                   },
                 },
@@ -790,179 +1867,405 @@ export function JobWorkflowDashboard({
 
       <EditModal
         open={showInventoryModal}
-        title="Required Inventory"
-        onClose={() => setShowInventoryModal(false)}
+        title="Add Inventory"
+        onClose={closeInventoryEditor}
+        panelClassName="max-w-md max-h-[85vh] flex flex-col overflow-visible"
         headerAction={
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
+            className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
             aria-label="Add inventory item"
-            onClick={() =>
-              setInventoryDraft((prev) => [...prev, { label: "", qty: "" }])
-            }
+            disabled={inventoryBusy}
+            onClick={addInventoryLine}
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             Add
           </button>
         }
       >
-        <div className="space-y-3">
-          {inventoryDraft.map((item, index) => (
-            <div key={`inv-${index}`} className="space-y-2">
-              {!item.label.trim() ? (
-                <>
-                  <ModalField
-                    label="Description"
-                    value={item.label}
-                    onChange={(label) =>
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          {catalogError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {catalogError}
+            </p>
+          ) : null}
+          {catalogLoading ? (
+            <InlineLoading label="Loading catalog…" />
+          ) : null}
+          {!catalogLoading && !catalogError && inventoryCatalog.length === 0 ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              No catalog items yet. An org admin can add them under Inventory.
+            </p>
+          ) : null}
+          {inventoryError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {inventoryError}
+            </p>
+          ) : null}
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            {inventoryDraft.map((item, index) => {
+              const isCollapsed =
+                item.localKey !== activeInventoryLine &&
+                !isInventoryLineIncomplete(item, inventoryCatalog);
+              const group = item.category ?? "";
+              const attr1 = item.profileType ?? "";
+              const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
+              const { resin } = splitCatalogMaterialGrade(
+                item.materialGrade ?? ""
+              );
+              const desc2Options = getCatalogDesc2Options(
+                inventoryCatalog,
+                group,
+                attr1
+              );
+              const desc3Options = getCatalogDesc3Options(
+                inventoryCatalog,
+                group,
+                attr1,
+                meshSpec
+              );
+              const colourOptions = getCatalogColourOptions(
+                inventoryCatalog,
+                group,
+                attr1,
+                item.size ?? "",
+                resin
+              );
+              const resinOptions = getCatalogResinOptions(
+                inventoryCatalog,
+                group,
+                attr1,
+                item.size ?? ""
+              );
+              const groupPicked = group.trim().length > 0;
+              const attr1Picked = attr1.trim().length > 0;
+              const attr2Ready = groupPicked && attr1Picked;
+              const attr2Resolved =
+                attr2Ready &&
+                (desc2Options.length === 0 || meshSpec.trim().length > 0);
+              const attr3Ready = attr2Resolved;
+              const attr3Resolved =
+                attr3Ready &&
+                (desc3Options.length === 0 || dimension.trim().length > 0);
+              const materialReady = attr3Resolved;
+              const colourReady =
+                materialReady &&
+                (resinOptions.length === 0 || resin.trim().length > 0);
+
+              if (isCollapsed) {
+                return (
+                  <div
+                    key={item.localKey}
+                    ref={(el) => {
+                      if (el) inventoryLineRefs.current.set(item.localKey, el);
+                      else inventoryLineRefs.current.delete(item.localKey);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 hover:border-orange-200"
+                  >
+                    <button
+                      type="button"
+                      disabled={inventoryBusy}
+                      className="min-w-0 flex-1 text-left disabled:opacity-50"
+                      onClick={() => setActiveInventoryLine(item.localKey)}
+                    >
+                      <p className="truncate text-sm font-semibold text-[#111827]">
+                        {inventoryLineTitle(item)}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {summarizeInventoryLine(item) || "No further details"}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Remove inventory line"
+                      disabled={inventoryBusy}
+                      className="shrink-0 rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                      onClick={() => removeInventoryLine(item.localKey)}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={item.localKey}
+                  ref={(el) => {
+                    if (el) inventoryLineRefs.current.set(item.localKey, el);
+                    else inventoryLineRefs.current.delete(item.localKey);
+                  }}
+                  className="space-y-3 rounded-lg border border-[#E5E7EB] p-3"
+                >
+                  {item.id != null || inventoryDraft.length > 1 ? (
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-[#111827]">
+                        {inventoryLineTitle(item)}
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        {!isInventoryLineIncomplete(item, inventoryCatalog) ? (
+                          <button
+                            type="button"
+                            aria-label="Collapse inventory line"
+                            disabled={inventoryBusy}
+                            className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-orange-200 hover:text-orange-700 disabled:opacity-50"
+                            onClick={() => setActiveInventoryLine(null)}
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          aria-label="Remove inventory line"
+                          disabled={inventoryBusy}
+                          className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-400 hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                          onClick={() => removeInventoryLine(item.localKey)}
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <ModalCatalogField
+                    label="Product Group"
+                    value={item.category ?? ""}
+                    options={getCatalogProductGroups(inventoryCatalog)}
+                    disabled={inventoryBusy}
+                    onChange={(category) =>
                       setInventoryDraft((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, label } : row
-                        )
+                        patchInventoryLine(prev, item.localKey, {
+                          category,
+                          profileType: "",
+                          size: "",
+                          materialGrade: "",
+                          masterInventoryId: undefined,
+                        })
                       )
                     }
-                    placeholder="e.g. Profiles | Channel | 254x70 | IsoFR"
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-profileType-${item.category}`}
+                    label="Attribute 1"
+                    value={item.profileType ?? ""}
+                    options={getCatalogProfileTypes(
+                      inventoryCatalog,
+                      item.category ?? ""
+                    )}
+                    disabled={inventoryBusy}
+                    onChange={(profileType) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          profileType,
+                          size: "",
+                          materialGrade: "",
+                          masterInventoryId: undefined,
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-desc2-${item.category}-${item.profileType}`}
+                    label="Attribute 2"
+                    value={meshSpec}
+                    options={desc2Options}
+                    allowBlank={attr2Ready && desc2Options.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(nextMeshSpec) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          size: nextMeshSpec,
+                          materialGrade: "",
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-desc3-${item.category}-${item.profileType}-${meshSpec}`}
+                    label="Attribute 3"
+                    value={dimension}
+                    options={desc3Options}
+                    allowBlank={attr3Ready && desc3Options.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(nextDimension) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          size: combineCatalogSize(meshSpec, nextDimension),
+                          materialGrade: "",
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-grade-${item.category}-${item.profileType}-${item.size}`}
+                    label="Resin / Material"
+                    value={
+                      splitCatalogMaterialGrade(item.materialGrade ?? "").resin
+                    }
+                    options={resinOptions}
+                    allowBlank={materialReady && resinOptions.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(resin) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          materialGrade: resin,
+                        })
+                      )
+                    }
+                  />
+                  <ModalCatalogField
+                    key={`${item.localKey}-colour-${item.category}-${
+                      item.profileType
+                    }-${item.size}-${
+                      splitCatalogMaterialGrade(item.materialGrade ?? "").resin
+                    }`}
+                    label="Primary Colour"
+                    value={
+                      splitCatalogMaterialGrade(item.materialGrade ?? "").colour
+                    }
+                    options={colourOptions}
+                    allowBlank={colourReady && colourOptions.length === 0}
+                    disabled={inventoryBusy}
+                    onChange={(colour) =>
+                      setInventoryDraft((prev) =>
+                        patchInventoryLine(prev, item.localKey, {
+                          materialGrade: combineCatalogMaterialGrade(
+                            splitCatalogMaterialGrade(item.materialGrade ?? "")
+                              .resin,
+                            colour
+                          ),
+                        })
+                      )
+                    }
                   />
                   <ModalField
                     label="Quantity"
-                    value={item.qty}
+                    value={item.quantity != null ? String(item.quantity) : ""}
+                    disabled={inventoryBusy}
+                    type="number"
+                    min={1}
+                    step={1}
+                    error={
+                      item.quantity != null && item.quantity < 1
+                        ? "Quantity must be at least 1"
+                        : undefined
+                    }
                     onChange={(qty) =>
                       setInventoryDraft((prev) =>
-                        prev.map((row, i) => (i === index ? { ...row, qty } : row))
+                        patchInventoryLine(prev, item.localKey, {
+                          quantity: parseInventoryQuantity(qty),
+                        })
                       )
                     }
-                    type="number"
                   />
-                </>
-              ) : (
-                <ModalField
-                  label={item.label}
-                  value={item.qty}
-                  onChange={(qty) =>
-                    setInventoryDraft((prev) =>
-                      prev.map((row, i) => (i === index ? { ...row, qty } : row))
-                    )
-                  }
-                  type="number"
-                />
-              )}
-            </div>
-          ))}
+                </div>
+              );
+            })}
+          </div>
           <button
+            type="button"
             className="btn-primary w-full"
-            disabled={isSaving}
-            onClick={() =>
-              void onSavePatch({
-                printDetails: {
-                  ...pd,
-                  workflowExtras: {
-                    ...extras,
-                    requiredInventory: inventoryDraft.filter(
-                      (item) => item.label.trim() || item.qty.trim()
-                    ),
-                  },
-                },
-              }).then(() => setShowInventoryModal(false))
-            }
+            disabled={inventoryBusy || !job.dbId}
+            onClick={() => void saveInventory()}
           >
-            {isSaving ? "Saving…" : "Save inventory"}
+            {inventoryBusy ? "Saving…" : "Save"}
           </button>
         </div>
       </EditModal>
 
-      <EditModal open={showFileModal} title="Upload File" onClose={() => setShowFileModal(false)}>
+      <EditModal
+        open={showFileModal}
+        title="Upload File"
+        onClose={() => {
+          if (fileUploading) return;
+          setShowFileModal(false);
+        }}
+      >
         <div className="space-y-3">
+          {!job.dbId ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              This job is not linked to the backend yet — documents cannot be
+              uploaded.
+            </p>
+          ) : null}
           <label className="block text-sm font-medium text-slate-700">
             Select File
             <input
               type="file"
+              disabled={!job.dbId || fileUploading}
               onChange={(e) =>
                 setFileUploadDraft((prev) => ({
                   ...prev,
-                  fileName: e.target.files?.[0]?.name ?? "",
+                  file: e.target.files?.[0] ?? null,
                 }))
               }
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
+              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700 disabled:opacity-60"
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
-            Select Category
+            Folder
             <select
-              value={fileUploadDraft.category}
-              onChange={(e) => setFileUploadDraft((prev) => ({ ...prev, category: e.target.value }))}
-              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+              value={
+                fileUploadDraft.milestoneId === ""
+                  ? ""
+                  : String(fileUploadDraft.milestoneId)
+              }
+              // Not gated on milestones.length: "Others" is always a valid
+              // target, so the picker stays usable on a job with no stages.
+              disabled={!job.dbId || fileUploading}
+              onChange={(e) =>
+                setFileUploadDraft((prev) => ({
+                  ...prev,
+                  milestoneId:
+                    e.target.value === ""
+                      ? ""
+                      : e.target.value === "others"
+                        ? "others"
+                        : Number(e.target.value),
+                }))
+              }
+              className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm disabled:opacity-60"
             >
-              <option value="Specification">Specification</option>
-              <option value="Drawing">Drawing</option>
-              <option value="Purchase Order">Purchase Order</option>
-              <option value="QA Document">QA Document</option>
-              <option value="Delivery">Delivery</option>
-              <option value="Other">Other</option>
+              <option value="">Select folder…</option>
+              <option value="others">Others</option>
+              {milestones.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.stageName ?? m.stageKey ?? `Stage ${m.id}`}
+                </option>
+              ))}
             </select>
           </label>
+          {fileUploadError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {fileUploadError}
+            </p>
+          ) : null}
           <button
-            className="btn-primary w-full"
-            onClick={() => {
-              if (!fileUploadDraft.fileName.trim()) return;
-              setFiles((prev) =>
-                normalizeJobFiles([
-                  {
-                    name: fileUploadDraft.fileName,
-                    category: fileUploadDraft.category,
-                    time: "just now",
-                    uploadedAt: Date.now(),
-                  },
-                  ...prev,
-                ])
-              );
-              setFileUploadDraft({ fileName: "", category: "Specification" });
-              setShowFileModal(false);
-            }}
+            className="btn-primary inline-flex w-full items-center justify-center gap-2"
+            disabled={
+              fileUploading ||
+              !job.dbId ||
+              !fileUploadDraft.file ||
+              fileUploadDraft.milestoneId === ""
+            }
+            onClick={() => void handleUploadProjectDocument()}
           >
-            Save File
+            {fileUploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+              </>
+            ) : (
+              "Upload document"
+            )}
           </button>
         </div>
       </EditModal>
-    </div>
-  );
-}
 
-function WidgetCard({
-  title,
-  icon: Icon,
-  children,
-  onEdit,
-  headerAction,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  onEdit?: () => void;
-  headerAction?: React.ReactNode;
-}) {
-  return (
-    <article className="group app-card-interactive p-4 sm:p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#111827]">
-          <Icon className="h-4 w-4 shrink-0 text-[#F97316]" />
-          <span className="truncate">{title}</span>
-        </p>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {headerAction}
-          {onEdit && (
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 hover:text-[#111827] group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
-              onClick={onEdit}
-              aria-label={`Edit ${title}`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="space-y-1 text-sm text-slate-700">{children}</div>
-    </article>
+      <DocumentPreviewModal
+        file={previewFile}
+        onClose={() => setPreviewFile(null)}
+        onDownload={(file) => void handleDownloadVersionFile(file)}
+      />
+    </div>
   );
 }
 
@@ -979,71 +2282,10 @@ function CustomerRow({
     <div className="flex items-start gap-2">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </p>
         <p className="break-words text-sm text-slate-700">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function ModalField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block text-sm font-medium text-slate-700">
-      {label}
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300"
-      />
-    </label>
-  );
-}
-
-function EditModal({
-  open,
-  title,
-  onClose,
-  children,
-  headerAction,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  headerAction?: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl p-5">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="min-w-0 truncate text-lg font-semibold text-[#111827]">{title}</h3>
-          <div className="flex shrink-0 items-center gap-2">
-            {headerAction}
-            <button
-              type="button"
-              className="rounded-lg border border-[#E5E7EB] px-2 py-1 text-xs text-slate-600 hover:border-orange-200"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-        {children}
       </div>
     </div>
   );

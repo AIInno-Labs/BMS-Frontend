@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileText, Trash2, Upload } from "lucide-react";
+import { Download, FileText, Plus, Trash2, Upload, X } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { useJobs } from "@/context/JobsContext";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
+import { JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
 import { jobPriorities, resinTypes } from "@/lib/jobData";
+import { JobItemRowSchema } from "@/lib/schemas/job";
 import type { Job, JobPriority, JobStatus, ResinType } from "@/lib/types";
 import {
   getAssignableWorkers,
@@ -23,6 +25,18 @@ const inputClass =
 const labelClass =
   "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
 
+const CURRENCY_OPTIONS = [
+  "AUD",
+  "USD",
+  "NZD",
+  "GBP",
+  "EUR",
+  "INR",
+  "SAR",
+  "AED",
+  "CAD",
+] as const;
+
 const STATUS_PILLS: { label: string; status: JobStatus }[] = [
   { label: "Not Started", status: "Pending" },
   { label: "Manufacturing", status: "In Fabrication" },
@@ -38,16 +52,104 @@ type FormErrors = Partial<
     | "projectName"
     | "dateReceived"
     | "contactEmail"
+    | "status"
+    | "qaCompleted"
+    | "items"
     | "submit",
     string
   >
 >;
+
+const WIZARD_STEPS = [
+  { id: "customer", label: "Customer" },
+  { id: "project", label: "Project" },
+  { id: "items", label: "Items" },
+  { id: "scope", label: "Scope" },
+  { id: "assignment", label: "Assignment" },
+] as const;
+
+type WizardStepId = (typeof WIZARD_STEPS)[number]["id"];
+
+/**
+ * Errors each step owns. Advancing is gated on the current step's fields only,
+ * so a problem later in the form never blocks progress through earlier steps.
+ */
+const STEP_FIELDS: Record<WizardStepId, (keyof FormErrors)[]> = {
+  customer: ["jobId", "clientName", "contactEmail"],
+  project: ["projectName", "dateReceived"],
+  items: ["items"],
+  scope: ["status", "qaCompleted"],
+  assignment: [],
+};
 
 interface PendingFile {
   id: string;
   name: string;
   sizeLabel: string;
   file: File;
+}
+
+export interface JobItemRow {
+  itemCode: string;
+  itemName: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+}
+
+function emptyJobItemRow(): JobItemRow {
+  return {
+    itemCode: "",
+    itemName: "",
+    description: "",
+    quantity: "",
+    unitPrice: "",
+  };
+}
+
+function parseOptionalNumber(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isFilledJobItem(item: JobItemRow): boolean {
+  return Boolean(
+    item.itemCode.trim() ||
+      item.itemName.trim() ||
+      item.description.trim() ||
+      item.quantity.trim() ||
+      item.unitPrice.trim()
+  );
+}
+
+/**
+ * Items step → `JobDTO.selectedItems`. Same keys Quotient `selected_items` uses
+ * (`item_code`, `heading`, `quantity`, `unit_price`) so the job screen can
+ * render factory-raised lines with the existing `orderItemFields` reader.
+ */
+function jobItemsToSelectedItems(
+  items: JobItemRow[]
+): Array<Record<string, unknown>> | null {
+  const rows = items.filter(isFilledJobItem);
+  if (rows.length === 0) return null;
+  return rows.map((item) => {
+    const quantity = parseOptionalNumber(item.quantity);
+    const unitPrice = parseOptionalNumber(item.unitPrice);
+    const itemTotal =
+      quantity != null && unitPrice != null
+        ? Math.round(quantity * unitPrice * 100) / 100
+        : null;
+    return {
+      item_code: item.itemCode.trim() || null,
+      heading: item.itemName.trim() || null,
+      description: item.description.trim() || null,
+      quantity,
+      unit_price: unitPrice,
+      item_total: itemTotal,
+    };
+  });
 }
 
 export interface CreateJobFormValues {
@@ -57,16 +159,26 @@ export interface CreateJobFormValues {
   contactPhone: string;
   contactEmail: string;
   projectName: string;
+  orderNo: string;
   description: string;
+  jobType: string;
   resinType: ResinType;
   priority: JobPriority;
   dueDate: string;
   dateReceived: string;
   status: JobStatus;
+  currency: string;
+  items: JobItemRow[];
   assignedWorkerId: string;
   estimatedHours: string;
   alert: string;
-  manufacturingRequired: boolean;
+  notes: string;
+  /**
+   * PRD "Needs Job Card" flag (§2.1). `false` marks a delivery-docket-only job.
+   * Persisted to the existing `jobs.manufacturing_required` column until the
+   * backend migration gives it a dedicated `needs_job_card` field.
+   */
+  needsJobCard: boolean;
   installRequired: boolean;
   qaCompleted: boolean;
   transportCompany: string;
@@ -78,6 +190,18 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * A starting point for the operator, not an allocation.
+ *
+ * It reads only the jobs this browser has loaded — one page, and the list is
+ * capped — so with more jobs than that, or two people creating at once, it will
+ * propose a number that is already taken. That is why it is an editable field
+ * and why the server owns uniqueness: `uk_job_org_job_number` rejects a
+ * duplicate with a 409 no matter what this suggests.
+ *
+ * Leaving the field empty is also valid — the backend then allocates from the
+ * per-organization sequence, which is the only collision-free option.
+ */
 function suggestNextJobId(jobs: Job[]): string {
   let max = 1000;
   for (const job of jobs) {
@@ -101,22 +225,42 @@ function buildInitialForm(jobs: Job[]): CreateJobFormValues {
     contactPhone: "",
     contactEmail: "",
     projectName: "",
+    orderNo: "",
     description: "",
+    jobType: "",
     resinType: resinTypes[0],
     priority: "Normal",
     dueDate: "",
     dateReceived: todayIsoDate(),
     status: "Pending",
+    currency: "",
+    items: [emptyJobItemRow()],
     assignedWorkerId: "",
     estimatedHours: "",
     alert: "",
-    manufacturingRequired: true,
+    notes: "",
+    needsJobCard: true,
     installRequired: false,
     qaCompleted: false,
     transportCompany: "",
     freightAccount: "",
     deliveryInstructions: "",
   };
+}
+
+/** First quantity/unit price validation failure across all item rows, or
+ *  null if every row's quantity/unit price is blank or a plain decimal
+ *  number. */
+function firstJobItemRowsError(items: JobItemRow[]): string | null {
+  for (const item of items) {
+    const result = JobItemRowSchema.safeParse(item);
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      const label = issue.path[0] === "unitPrice" ? "Unit price" : "Quantity";
+      return `${label}: ${issue.message}`;
+    }
+  }
+  return null;
 }
 
 function validateForm(
@@ -126,11 +270,18 @@ function validateForm(
   const errors: FormErrors = {};
   const jobId = values.jobId.trim().toUpperCase();
 
+  // No prefix is required — any identifier the column can hold is valid. The
+  // character set and length mirror the server's own check in
+  // JobServiceImpl.normaliseJobNumber, which is the boundary that decides.
   if (!jobId) {
     errors.jobId = "Job ID is required.";
-  } else if (!/^JOB-[A-Z0-9-]+$/i.test(jobId)) {
-    errors.jobId = "Use format JOB-10421.";
+  } else if (jobId.length > 64) {
+    errors.jobId = "Use 64 characters or fewer.";
+  } else if (!/^[A-Z0-9._-]+$/i.test(jobId)) {
+    errors.jobId = "Use letters, digits, dot, underscore or hyphen only.";
   } else if (existingIds.has(jobId)) {
+    // Only catches jobs this browser has loaded. The authority is the
+    // per-organization unique constraint, which answers with a 409 on save.
     errors.jobId = "This job ID already exists.";
   }
 
@@ -147,6 +298,25 @@ function validateForm(
   const email = values.contactEmail.trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.contactEmail = "Enter a valid email address.";
+  }
+
+  const itemsError = firstJobItemRowsError(values.items);
+  if (itemsError) {
+    errors.items = itemsError;
+  }
+
+  // Conditional flag rules (PRD §2.1 — "validation for conditional flags").
+  if (
+    !values.needsJobCard &&
+    (values.status === "Ready to Manufacture" || values.status === "In Fabrication")
+  ) {
+    errors.status =
+      "Delivery-docket-only jobs cannot start in a manufacturing status.";
+  }
+
+  if (values.qaCompleted && values.needsJobCard) {
+    errors.qaCompleted =
+      "QA cannot already be complete on a job that still needs fabrication.";
   }
 
   return errors;
@@ -175,13 +345,18 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
     status: values.status,
     priority: values.priority,
     alert: values.alert.trim() || null,
-    manufacturingRequired: values.manufacturingRequired,
+    notes: values.notes.trim() || null,
+    description: values.description.trim() || null,
+    jobType: values.jobType.trim() || null,
+    manufacturingRequired: values.needsJobCard,
     installRequired: values.installRequired,
     qaCompleted: values.qaCompleted,
     clientContactName: values.clientContactName.trim(),
     assignedWorkerId: values.assignedWorkerId || null,
     assignedWorkerName: assignedWorkerName || null,
     manualInstructions: values.description.trim(),
+    selectedItems: jobItemsToSelectedItems(values.items),
+    currency: values.currency.trim() || null,
     printDetails: ensurePrintDetails({
       id: values.jobId,
       clientName: values.clientName,
@@ -194,7 +369,8 @@ function buildJobFromForm(values: CreateJobFormValues): Job {
       status: values.status,
       priority: values.priority,
       alert: null,
-      manufacturingRequired: values.manufacturingRequired,
+      notes: null,
+      manufacturingRequired: values.needsJobCard,
       installRequired: values.installRequired,
       qaCompleted: values.qaCompleted,
       clientContactName: values.clientContactName,
@@ -228,14 +404,18 @@ export function CreateNewJobDrawer({
   jobs,
 }: CreateNewJobDrawerProps) {
   const router = useRouter();
-  const { updateJob, refreshJobs } = useJobs();
+  const { createJobFromUi, refreshJobs } = useJobs();
   const [form, setForm] = useState<CreateJobFormValues>(() =>
     buildInitialForm(jobs)
   );
   const [errors, setErrors] = useState<FormErrors>({});
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const currentStep = WIZARD_STEPS[stepIndex];
+  const isLastStep = stepIndex === WIZARD_STEPS.length - 1;
 
   const existingIds = useMemo(
     () => new Set(jobs.map((j) => j.id.trim().toUpperCase())),
@@ -249,6 +429,7 @@ export function CreateNewJobDrawer({
     setErrors({});
     setPendingFiles([]);
     setIsSubmitting(false);
+    setStepIndex(0);
   }, [jobs]);
 
   useEffect(() => {
@@ -282,10 +463,40 @@ export function CreateNewJobDrawer({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  /** Errors belonging to a given step, so Next only gates on that step. */
+  const errorsForStep = (all: FormErrors, step: WizardStepId): FormErrors => {
+    const owned: FormErrors = {};
+    for (const field of STEP_FIELDS[step]) {
+      if (all[field]) owned[field] = all[field];
+    }
+    return owned;
+  };
+
+  const handleNext = () => {
+    const all = validateForm(form, existingIds);
+    const blocking = errorsForStep(all, currentStep.id);
+    if (Object.keys(blocking).length > 0) {
+      setErrors(blocking);
+      return;
+    }
+    setErrors({});
+    setStepIndex((i) => Math.min(i + 1, WIZARD_STEPS.length - 1));
+  };
+
+  const handleBack = () => {
+    setErrors({});
+    setStepIndex((i) => Math.max(i - 1, 0));
+  };
+
   const handleSubmit = async () => {
     const nextErrors = validateForm(form, existingIds);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      // Surface the earliest step that still has a problem.
+      const firstBadStep = WIZARD_STEPS.findIndex(
+        (step) => Object.keys(errorsForStep(nextErrors, step.id)).length > 0
+      );
+      if (firstBadStep >= 0) setStepIndex(firstBadStep);
       return;
     }
 
@@ -293,10 +504,13 @@ export function CreateNewJobDrawer({
     setErrors({});
     try {
       const job = buildJobFromForm(form);
-      await updateJob(job, "job_card_saved");
+      const created = await createJobFromUi(
+        job,
+        pendingFiles.map((p) => p.file)
+      );
       await refreshJobs({ silent: true });
       onClose();
-      router.push(`/jobs/${encodeURIComponent(job.id)}`);
+      router.push(`/jobs/${encodeURIComponent(created.id)}`);
     } catch (e) {
       setErrors({
         submit:
@@ -313,21 +527,64 @@ export function CreateNewJobDrawer({
     <div className="flex items-center justify-between gap-3">
       <button
         type="button"
-        onClick={onClose}
+        onClick={stepIndex === 0 ? onClose : handleBack}
         disabled={isSubmitting}
         className="inline-flex min-h-[42px] items-center justify-center rounded-full border border-[#BFDBFE] bg-white px-5 text-sm font-semibold text-[#2563EB] transition-colors hover:bg-[#EFF6FF] disabled:opacity-50"
       >
-        Cancel
+        {stepIndex === 0 ? "Cancel" : "Back"}
       </button>
-      <button
-        type="button"
-        onClick={() => void handleSubmit()}
-        disabled={isSubmitting}
-        className="inline-flex min-h-[42px] items-center justify-center rounded-full bg-[#2563EB] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
-      >
-        {isSubmitting ? "Creating…" : "Create Job"}
-      </button>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-slate-500">
+          Step {stepIndex + 1} of {WIZARD_STEPS.length}
+        </span>
+        {isLastStep ? (
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting}
+            className="inline-flex min-h-[42px] items-center justify-center rounded-full bg-[#2563EB] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+          >
+            {isSubmitting ? "Creating…" : "Create Job"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleNext}
+            disabled={isSubmitting}
+            className="inline-flex min-h-[42px] items-center justify-center rounded-full bg-[#2563EB] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#1D4ED8] disabled:opacity-60"
+          >
+            Next
+          </button>
+        )}
+      </div>
     </div>
+  );
+
+  const stepIndicator = (
+    <ol className="flex items-center gap-1.5" aria-label="Progress">
+      {WIZARD_STEPS.map((step, index) => {
+        const done = index < stepIndex;
+        const active = index === stepIndex;
+        return (
+          <li key={step.id} className="flex flex-1 flex-col gap-1">
+            <span
+              aria-hidden
+              className={`h-1 rounded-full transition-colors ${
+                done || active ? "bg-[#2563EB]" : "bg-[#E2E8F0]"
+              }`}
+            />
+            <span
+              className={`text-[10px] font-semibold uppercase tracking-wide ${
+                active ? "text-[#2563EB]" : "text-slate-400"
+              }`}
+              aria-current={active ? "step" : undefined}
+            >
+              {step.label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 
   return (
@@ -341,13 +598,15 @@ export function CreateNewJobDrawer({
       ariaLabelledBy="create-job-title"
     >
       <form
-        className="space-y-4 p-4 sm:p-5"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSubmit();
         }}
         noValidate
       >
+        {stepIndicator}
+
         {errors.submit && (
           <p
             className="rounded-[14px] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
@@ -357,6 +616,7 @@ export function CreateNewJobDrawer({
           </p>
         )}
 
+        {currentStep.id === "customer" && (
         <FormSection title="Basic Info">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Job ID" error={errors.jobId} className="sm:col-span-2">
@@ -403,7 +663,9 @@ export function CreateNewJobDrawer({
             </Field>
           </div>
         </FormSection>
+        )}
 
+        {currentStep.id === "project" && (
         <FormSection title="Project Details">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Project Name" error={errors.projectName} className="sm:col-span-2">
@@ -414,14 +676,37 @@ export function CreateNewJobDrawer({
                 className={`${inputClass} ${errors.projectName ? "border-red-300 ring-red-100" : ""}`}
               />
             </Field>
+            <Field label="Order No" className="sm:col-span-2">
+              <input
+                type="text"
+                value={form.orderNo}
+                onChange={(e) => patch({ orderNo: e.target.value })}
+                className={inputClass}
+                placeholder="e.g. PO-248074"
+              />
+            </Field>
             <Field label="Project Description" className="sm:col-span-2">
               <textarea
                 value={form.description}
                 onChange={(e) => patch({ description: e.target.value })}
                 rows={3}
-                className={`${inputClass} min-h-[88px] resize-y`}
+                className={`${inputClass} min-h-[88px] resize-y p-2`}
                 placeholder="Scope, lay-up notes, site requirements…"
               />
+            </Field>
+            <Field label="Job type">
+              <select
+                value={form.jobType}
+                onChange={(e) => patch({ jobType: e.target.value })}
+                className={inputClass}
+              >
+                <option value="">Not set</option>
+                {JOB_TYPE_OPTIONS.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Fabrication Type">
               <select
@@ -467,7 +752,165 @@ export function CreateNewJobDrawer({
             </Field>
           </div>
         </FormSection>
+        )}
 
+        {currentStep.id === "items" && (
+        <FormSection title="Item Details">
+          <Field label="Currency" className="mb-3 sm:w-1/2">
+            <select
+              value={form.currency}
+              onChange={(e) => patch({ currency: e.target.value })}
+              className={inputClass}
+            >
+              <option value="">Choose currency</option>
+              {CURRENCY_OPTIONS.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="space-y-3">
+            {form.items.map((item, index) => {
+              const quantityCheck = JobItemRowSchema.shape.quantity.safeParse(
+                item.quantity
+              );
+              const unitPriceCheck = JobItemRowSchema.shape.unitPrice.safeParse(
+                item.unitPrice
+              );
+              return (
+              <div
+                key={index}
+                className="rounded-[14px] border border-[#E2E8F0] bg-[#F8FAFC] p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Item {index + 1}
+                  </span>
+                  {form.items.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patch({
+                          items: form.items.filter((_, i) => i !== index),
+                        })
+                      }
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      aria-label={`Remove item ${index + 1}`}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <Field label="Item Code">
+                    <input
+                      type="text"
+                      value={item.itemCode}
+                      onChange={(e) =>
+                        patch({
+                          items: form.items.map((it, i) =>
+                            i === index ? { ...it, itemCode: e.target.value } : it
+                          ),
+                        })
+                      }
+                      className={inputClass}
+                    />
+                  </Field>
+                  <Field label="Item Name">
+                    <input
+                      type="text"
+                      value={item.itemName}
+                      onChange={(e) =>
+                        patch({
+                          items: form.items.map((it, i) =>
+                            i === index ? { ...it, itemName: e.target.value } : it
+                          ),
+                        })
+                      }
+                      className={inputClass}
+                    />
+                  </Field>
+                  <Field label="Description" className="sm:col-span-2">
+                    <textarea
+                      value={item.description}
+                      onChange={(e) =>
+                        patch({
+                          items: form.items.map((it, i) =>
+                            i === index
+                              ? { ...it, description: e.target.value }
+                              : it
+                          ),
+                        })
+                      }
+                      rows={2}
+                      className={`${inputClass} min-h-[72px] resize-y p-2`}
+                    />
+                  </Field>
+                  <Field
+                    label="Quantity"
+                    error={
+                      quantityCheck.success
+                        ? undefined
+                        : quantityCheck.error.issues[0]?.message
+                    }
+                  >
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={item.quantity}
+                      onChange={(e) =>
+                        patch({
+                          items: form.items.map((it, i) =>
+                            i === index ? { ...it, quantity: e.target.value } : it
+                          ),
+                        })
+                      }
+                      className={`${inputClass} ${quantityCheck.success ? "" : "border-red-300 ring-red-100"}`}
+                    />
+                  </Field>
+                  <Field
+                    label="Unit Price"
+                    error={
+                      unitPriceCheck.success
+                        ? undefined
+                        : unitPriceCheck.error.issues[0]?.message
+                    }
+                  >
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={item.unitPrice}
+                      onChange={(e) =>
+                        patch({
+                          items: form.items.map((it, i) =>
+                            i === index ? { ...it, unitPrice: e.target.value } : it
+                          ),
+                        })
+                      }
+                      className={`${inputClass} ${unitPriceCheck.success ? "" : "border-red-300 ring-red-100"}`}
+                      placeholder="0.00"
+                    />
+                  </Field>
+                </div>
+              </div>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              patch({ items: [...form.items, emptyJobItemRow()] })
+            }
+            className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[#2563EB] hover:text-[#1D4ED8]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            Add Item
+          </button>
+        </FormSection>
+        )}
+
+        {currentStep.id === "scope" && (
         <FormSection title="Job Status">
           <div className="flex flex-wrap gap-2">
             {STATUS_PILLS.map((pill) => {
@@ -488,8 +931,16 @@ export function CreateNewJobDrawer({
               );
             })}
           </div>
+          {errors.status && (
+            <p className="mt-2 text-xs text-red-600" role="alert">
+              {errors.status}
+            </p>
+          )}
         </FormSection>
+        )}
 
+        {currentStep.id === "assignment" && (
+        <>
         <FormSection title="Assignment">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Assigned Staff" className="sm:col-span-2">
@@ -623,6 +1074,14 @@ export function CreateNewJobDrawer({
                 className={inputClass}
               />
             </Field>
+            <Field label="Notes" className="sm:col-span-2">
+              <textarea
+                value={form.notes}
+                onChange={(e) => patch({ notes: e.target.value })}
+                rows={3}
+                className={inputClass}
+              />
+            </Field>
             <Field label="Transport Company" className="sm:col-span-2">
               <input
                 type="text"
@@ -647,32 +1106,10 @@ export function CreateNewJobDrawer({
                 className={`${inputClass} min-h-[72px] resize-y`}
               />
             </Field>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.manufacturingRequired}
-                onChange={(e) => patch({ manufacturingRequired: e.target.checked })}
-              />
-              Manufacturing required
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.installRequired}
-                onChange={(e) => patch({ installRequired: e.target.checked })}
-              />
-              Install required
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={form.qaCompleted}
-                onChange={(e) => patch({ qaCompleted: e.target.checked })}
-              />
-              QA completed
-            </label>
           </div>
         </details>
+        </>
+        )}
       </form>
     </EnterpriseDrawer>
   );

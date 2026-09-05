@@ -6,6 +6,8 @@ import { FrpLogo } from "@/components/FrpLogo";
 import { useAuth } from "@/context/AuthContext";
 import { homePathForRole, resolveAppRole } from "@/lib/frp/roles";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoginSchema, MfaSchema } from "@/lib/schemas/login";
+import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -23,6 +25,7 @@ export default function LoginPage() {
   const [mfaCode, setMfaCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!loading && isAuthenticated) {
@@ -33,9 +36,15 @@ export default function LoginPage() {
   async function onSubmitPassword(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setFieldErrors({});
+    const parsed = LoginSchema.safeParse({ email, password });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
     setSubmitting(true);
     try {
-      const result = await login(email.trim(), password);
+      const result = await login(parsed.data.email, parsed.data.password);
       if (result.status === "requires2fa") {
         setMfaToken(result.mfaToken);
         setMfaCode("");
@@ -59,9 +68,15 @@ export default function LoginPage() {
     e.preventDefault();
     if (!mfaToken) return;
     setError(null);
+    setFieldErrors({});
+    const parsed = MfaSchema.safeParse({ mfaCode });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
     setSubmitting(true);
     try {
-      const me = await completeMfaLogin(mfaToken, mfaCode.trim());
+      const me = await completeMfaLogin(mfaToken, parsed.data.mfaCode);
       router.replace(homePathForRole(resolveAppRole(me)));
     } catch (err) {
       const message =
@@ -82,9 +97,11 @@ export default function LoginPage() {
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <FrpLogo variant="lockup" size="sidebar" />
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              FRP platform
-            </p>
+            {false && (
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                FRP platform
+              </p>
+            )}
             <h1 className="mt-1 text-lg font-semibold text-[#111827]">
               {mfaToken ? "Authenticator code" : "Sign in"}
             </h1>
@@ -114,6 +131,9 @@ export default function LoginPage() {
                 minLength={6}
                 maxLength={8}
               />
+              {fieldErrors.mfaCode && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.mfaCode}</p>
+              )}
             </div>
             {error && (
               <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -134,6 +154,7 @@ export default function LoginPage() {
                 setMfaToken(null);
                 setMfaCode("");
                 setError(null);
+                setFieldErrors({});
               }}
             >
               Back to email and password
@@ -155,6 +176,9 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
+              {fieldErrors.email && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+              )}
             </div>
             <div>
               <label htmlFor="password" className={labelClass}>
@@ -171,6 +195,9 @@ export default function LoginPage() {
                 required
                 minLength={8}
               />
+              {fieldErrors.password && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+              )}
             </div>
 
             {error && (

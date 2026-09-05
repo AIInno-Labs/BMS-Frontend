@@ -1,11 +1,21 @@
-export type JobStatus =
-  | "Pending"
-  | "Awaiting Manager Approval"
-  | "Ready to Manufacture"
-  | "In Fabrication"
-  | "On Hold"
-  | "Complete"
-  | "Cancelled";
+import type { AnyJobStatus } from "@/lib/jobStatus";
+import type { ProjectRequirementKind } from "@/lib/frp/project-requirements";
+
+/**
+ * Widened during the DEL-01 status-model migration.
+ *
+ * Accepts both the canonical PRD lifecycle and the seven legacy states so
+ * existing call sites keep compiling while new work targets the canonical
+ * model. Import the precise unions (`JobStatus`, `LegacyJobStatus`) from
+ * `@/lib/jobStatus` directly when you need to exclude one or the other.
+ */
+export type JobStatus = AnyJobStatus;
+
+export type {
+  AnyJobStatus,
+  JobExceptionStatus,
+  LegacyJobStatus,
+} from "@/lib/jobStatus";
 
 export type ResinType =
   | "Isophthalic Polyester"
@@ -33,16 +43,8 @@ export interface JobMaterialRow {
   availability: string;
 }
 
-export interface RequiredInventoryItem {
-  label: string;
-  qty: string;
-}
-
 /** Extended job-card fields (serialized in pack_dimensions JSON). */
 export interface JobWorkflowExtras {
-  documentsRequired?: boolean;
-  sampleRequired?: boolean;
-  coiRequired?: boolean;
   jobType?: string;
   projectedStartDate?: string;
   productionStatus?: string;
@@ -59,7 +61,6 @@ export interface JobWorkflowExtras {
   additionalNotes?: string;
   resinMatQty?: string;
   fiberRollQty?: string;
-  requiredInventory?: RequiredInventoryItem[];
   jobCardNotes?: string;
   /** `true` = Yes, `false` = No, `null` = not set */
   paymentReceived?: boolean | null;
@@ -91,11 +92,18 @@ export interface JobCardPrintDetails {
 }
 
 export interface Job {
-  /** Supabase UUID (for updates). */
+  /**
+   * Spring Boot job primary key (stringified).
+   *
+   * Every write path addresses the job by this, not by `id` — the backend
+   * routes are `/jobs/{id}` with a numeric `@PathVariable Long`.
+   */
   dbId?: string;
-  /** Public job number, e.g. JOB-1001 */
+  /** Public job number, e.g. JOB-1001. Server-allocated, read-only. */
   id: string;
   clientName: string;
+  /** From `contactDetails.address` when present. */
+  clientAddress?: string;
   projectName: string;
   date: string;
   /** Factory due date — set manually on the job card. */
@@ -107,15 +115,91 @@ export interface Job {
   status: JobStatus;
   priority: JobPriority;
   alert: string | null;
+  /** Free working notes on the job. Distinct from the short `alert` flag. */
+  notes: string | null;
+  /** What the job is, in prose. Distinct from notes. */
+  description?: string | null;
+  /** Kind of work (`JobType`). Null on jobs raised before the field existed. */
+  jobType?: string | null;
   manufacturingRequired: boolean;
   installRequired: boolean;
   qaCompleted: boolean;
   clientContactName: string;
   assignedWorkerId: string | null;
-  /** Stored in Supabase `assigned_worker_name` */
+  /** Assigned worker display name (`assignedTo` on Spring Boot). */
   assignedWorkerName?: string | null;
+  /** Quote owner's name (e.g. a Quotient salesperson); may have no user. */
+  ownerName?: string | null;
+  /** Customer order/PO number, from a Quotient acceptance. */
+  orderNumber?: string | null;
+  /** The quote's selected items (Quotient `selected_items`), verbatim. */
+  selectedItems?: Array<Record<string, unknown>> | null;
+  /** ISO 4217 code from the originating quote's payload, if any. */
+  currency?: string | null;
   manualInstructions: string;
+  /** How and when the job ships — one row per job, saved on the job. */
+  schedulingLogistics?: JobSchedulingLogistics | null;
   printDetails?: JobCardPrintDetails;
-  /** ISO timestamp from Supabase `created_at` (for sorting / display). */
+  /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
+  /** Set for quote-derived jobs; drives `origin` on the backend. */
+  quoteNumber?: string | null;
+  /** `QUOTE` when raised from a quote, `FACTORY` when raised in-house. */
+  origin?: "QUOTE" | "FACTORY";
+  /** Stage-tree completion, served on the list projection only. */
+  percentComplete?: number | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
+  /** Id of that milestone — `JobDTO.currentStageId`. Sent as `jobStageId` on document upload. */
+  currentStageId?: number | null;
+  /** Material lines for the job (backend `job_inventory`). Inline on
+   *  `GET /jobs/{id}`; mutated via `/jobs/{id}/job-inventory`. */
+  inventory?: JobInventoryLine[];
+  /** Documents / sample / COI flags — backend `job_project_requirements`. */
+  requirements?: JobProjectRequirement[];
+}
+
+/** One project requirement row — `kind` mirrors backend `ProjectRequirement`. */
+export interface JobProjectRequirement {
+  kind: ProjectRequirementKind;
+  label: string;
+  /** `null` = not decided yet; distinct from an explicit `false`. */
+  isRequired: boolean | null;
+  remarks?: string | null;
+}
+
+/** One row of the job's material/inventory table (`JobInventoryDTO`). */
+export interface JobInventoryLine {
+  id?: number;
+  masterInventoryId?: number;
+  category?: string | null;
+  profileType?: string | null;
+  size?: string | null;
+  materialGrade?: string | null;
+  /** Integer; backend `JobInventoryDTO.quantity` is never negative. */
+  quantity?: number | null;
+}
+
+export type ShipmentMethod =
+  | "INHOUSE_DELIVERY"
+  | "CUSTOMER_COLLECT"
+  | "THIRD_PARTY_COURIER"
+  | "FREIGHT_FORWARDER"
+  | "OTHER";
+
+/**
+ * How and when one job ships. One-to-one with the job. `jobStatus` is a local
+ * logistics status (raw backend value) — it does not move the job's stage.
+ */
+export interface JobSchedulingLogistics {
+  jobStatus: string | null;
+  responsiblePersonId: number | null;
+  accountable: string | null;
+  contactId: number | null;
+  shipDate: string | null;
+  shipmentMethod: ShipmentMethod | null;
+  freightAccount: string | null;
+  carrierAccount: string | null;
+  billingAddress: string | null;
+  deliveryAddress: string | null;
 }

@@ -4,17 +4,13 @@ import { useEffect, useState } from "react";
 import {
   ClipboardList,
   FileText,
+  ListChecks,
   Pencil,
   Truck,
 } from "lucide-react";
 import { JobFilesDocumentStrip } from "@/components/JobFilesDocumentStrip";
 import type { JobFileRecord, JobFileSortMode } from "@/lib/jobFilesSort";
 import {
-  COLOUR_OPTIONS,
-  FINISH_OPTIONS,
-  MESH_OPTIONS,
-  SCOPE_TYPE_OPTIONS,
-  THICKNESS_OPTIONS,
   scopeLinesToText,
   textToScopeLines,
 } from "@/lib/jobCardFormDefaults";
@@ -22,12 +18,18 @@ import {
   appendProgramHistory,
   ensureWorkflowExtras,
   JOB_TYPE_OPTIONS,
-  PRODUCTION_STATUS_OPTIONS,
   SHIPMENT_METHOD_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/supabase/jobs-repository";
-import type { Job, JobCardPrintDetails, JobMaterialRow, JobWorkflowExtras } from "@/lib/types";
+import { setJobRequirement, saveJobMeasurements } from "@/lib/frp/api";
+import { isCancelledJob } from "@/lib/frp/job-status";
+import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
+import {
+  PROJECT_REQUIREMENT_LABELS,
+  type ProjectRequirementKind,
+} from "@/lib/frp/project-requirements";
+import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
+import type { Job, JobCardPrintDetails, JobProjectRequirement, JobWorkflowExtras } from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
 
 interface JobWorkflowExtrasSectionProps {
@@ -42,7 +44,18 @@ interface JobWorkflowExtrasSectionProps {
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
   onUploadFile: () => void;
-  onDownloadFile: (fileName: string) => void;
+  onDownloadFile: (file: JobFileRecord) => void;
+  onOpenFile?: (file: JobFileRecord) => void;
+  /** PDF/image thumbnail click — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
+  /** Detail-panel "Download" for versioned PO/drawing docs. */
+  onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** Called after a document is soft-deleted, so the parent can refetch the file list. */
+  onDeletedFile?: () => void;
+  /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
+  onFailedFile?: (file: JobFileRecord) => void;
+  /** Refetch job after a dedicated API write (requirements, payment, …). */
+  onJobChanged?: () => void | Promise<void>;
 }
 
 function addDaysIso(days: number): string {
@@ -61,14 +74,28 @@ export function JobWorkflowExtrasSection({
   onFileSortChange,
   onUploadFile,
   onDownloadFile,
+  onOpenFile,
+  onPreviewFile,
+  onDownloadVersionFile,
+  onDeletedFile,
+  onFailedFile,
+  onJobChanged,
 }: JobWorkflowExtrasSectionProps) {
+  const cancelled = isCancelledJob(job.status);
+  const cashPaymentLocked = isJobLockedForCashPayment(job);
+  const editsBlocked = cancelled || cashPaymentLocked;
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const requirements = job.requirements ?? [];
   const workers = getAssignableWorkers();
+
+  const [requirementsBusy, setRequirementsBusy] = useState(false);
+  const [requirementsError, setRequirementsError] = useState<string | null>(null);
+  const [materialsBusy, setMaterialsBusy] = useState(false);
+  const [materialsError, setMaterialsError] = useState<string | null>(null);
 
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
   const [logisticsDraft, setLogisticsDraft] = useState({
-    productionStatus: extras.productionStatus ?? "",
     responsibleParty: extras.responsibleParty ?? "",
     accountable: extras.accountable ?? "",
     contactName: job.clientContactName,
@@ -82,20 +109,12 @@ export function JobWorkflowExtrasSection({
   });
   const [materialsDraft, setMaterialsDraft] = useState({
     materialsList: extras.materialsList ?? "",
-    scopeType: pd.scopeType ?? "",
-    thickness: pd.thickness ?? "",
-    mesh: pd.mesh ?? "",
-    colour: pd.colour ?? "",
-    finish: pd.finish ?? "",
-    materialRows: extras.materialRows ?? [],
-    customFields: extras.customFields ?? Array(9).fill(""),
     additionalNotes: extras.additionalNotes ?? "",
   });
 
   useEffect(() => {
     const x = ensureWorkflowExtras(pd.workflowExtras, job);
     setLogisticsDraft({
-      productionStatus: x.productionStatus ?? "",
       responsibleParty: x.responsibleParty ?? "",
       accountable: x.accountable ?? "",
       contactName: job.clientContactName,
@@ -109,13 +128,6 @@ export function JobWorkflowExtrasSection({
     });
     setMaterialsDraft({
       materialsList: x.materialsList ?? "",
-      scopeType: pd.scopeType ?? "",
-      thickness: pd.thickness ?? "",
-      mesh: pd.mesh ?? "",
-      colour: pd.colour ?? "",
-      finish: pd.finish ?? "",
-      materialRows: x.materialRows ?? [],
-      customFields: x.customFields ?? Array(9).fill(""),
       additionalNotes: x.additionalNotes ?? "",
     });
   }, [job, pd]);
@@ -138,28 +150,30 @@ export function JobWorkflowExtrasSection({
     });
   };
 
-  const patchRequirements = async (
-    key: "documentsRequired" | "sampleRequired" | "coiRequired",
-    value: boolean
+  const patchRequirement = async (
+    kind: ProjectRequirementKind,
+    required: boolean
   ) => {
-    const next = { ...extras, [key]: value };
-    const label =
-      key === "documentsRequired"
-        ? "Documents required"
-        : key === "sampleRequired"
-          ? "Sample required"
-          : "COI required";
-    await saveExtras(
-      next,
-      undefined,
-      `${label} ${value ? "enabled" : "disabled"}`
-    );
+    if (!job.dbId) return;
+    setRequirementsBusy(true);
+    setRequirementsError(null);
+    try {
+      await setJobRequirement(job.dbId, kind, required);
+      await onJobChanged?.();
+    } catch (e) {
+      setRequirementsError(
+        e instanceof Error ? e.message : "Could not update project requirement"
+      );
+    } finally {
+      setRequirementsBusy(false);
+    }
   };
 
   const saveLogistics = () => {
     const nextExtras: JobWorkflowExtras = {
       ...extras,
-      productionStatus: logisticsDraft.productionStatus,
+      // productionStatus is not saved here: it mirrors the job's status, and
+      // writing a copy back is what let the two disagree.
       responsibleParty: logisticsDraft.responsibleParty,
       accountable: logisticsDraft.accountable,
       shipmentMethod: logisticsDraft.shipmentMethod,
@@ -185,69 +199,60 @@ export function JobWorkflowExtrasSection({
   };
 
   const saveMaterials = () => {
-    const nextExtras: JobWorkflowExtras = {
-      ...extras,
-      materialsList: materialsDraft.materialsList,
-      materialRows: materialsDraft.materialRows,
-      customFields: materialsDraft.customFields,
-      additionalNotes: materialsDraft.additionalNotes,
-    };
-    void saveExtras(
-      nextExtras,
-      {
-        scopeType: materialsDraft.scopeType,
-        thickness: materialsDraft.thickness,
-        mesh: materialsDraft.mesh,
-        colour: materialsDraft.colour,
-        finish: materialsDraft.finish,
-        scopeLines: textToScopeLines(materialsDraft.materialsList),
-      },
-      "Materials & specifications updated"
-    ).then(() => setShowMaterialsModal(false));
-  };
-
-  const updateMaterialRow = (
-    index: number,
-    patch: Partial<JobMaterialRow>
-  ) => {
-    setMaterialsDraft((prev) => ({
-      ...prev,
-      materialRows: prev.materialRows.map((row, i) =>
-        i === index ? { ...row, ...patch } : row
-      ),
-    }));
+    if (!job.dbId) return;
+    setMaterialsBusy(true);
+    setMaterialsError(null);
+    void saveJobMeasurements(job.dbId, {
+      materials: { materialsList: materialsDraft.materialsList },
+      notes: materialsDraft.additionalNotes,
+    })
+      .then(async () => {
+        await onJobChanged?.();
+        setShowMaterialsModal(false);
+      })
+      .catch((e) => {
+        setMaterialsError(
+          e instanceof Error ? e.message : "Could not save materials"
+        );
+      })
+      .finally(() => setMaterialsBusy(false));
   };
 
   return (
     <>
       <section className="mt-4 grid gap-4 lg:grid-cols-3">
-        <article className="app-card-interactive p-4">
-          <p className="text-sm font-semibold text-[#111827]">Project requirements</p>
-          <div className="mt-3 space-y-2">
-            {(
-              [
-                ["documentsRequired", "Documents required"],
-                ["sampleRequired", "Sample required"],
-                ["coiRequired", "COI required"],
-              ] as const
-            ).map(([key, label]) => (
+        <WidgetCard title="Project Requirements" icon={ListChecks}>
+          {requirementsError ? (
+            <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {requirementsError}
+            </p>
+          ) : null}
+          <div className="space-y-2">
+            {requirements.map((row: JobProjectRequirement) => (
               <label
-                key={key}
+                key={row.kind}
                 className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
               >
                 <input
                   type="checkbox"
-                  checked={Boolean(extras[key])}
-                  onChange={(e) => void patchRequirements(key, e.target.checked)}
-                  disabled={isSaving}
+                  checked={row.isRequired === true}
+                  onChange={(e) =>
+                    void patchRequirement(row.kind, e.target.checked)
+                  }
+                  disabled={
+                    isSaving || requirementsBusy || cancelled || !job.dbId
+                  }
                   className="h-4 w-4 rounded border-slate-300 text-orange-600"
                 />
-                {label}
+                {row.label || PROJECT_REQUIREMENT_LABELS[row.kind]}
               </label>
             ))}
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Job type: <span className="font-medium text-slate-700">{extras.jobType}</span>
+            Job type:{" "}
+            <span className="font-medium text-slate-700">
+              {job.jobType || extras.jobType || "—"}
+            </span>
             {extras.projectedStartDate ? (
               <>
                 {" "}
@@ -255,14 +260,17 @@ export function JobWorkflowExtrasSection({
               </>
             ) : null}
           </p>
-        </article>
+        </WidgetCard>
 
         <WidgetCard
           title="Scheduling & logistics"
           icon={Truck}
-          onEdit={() => setShowLogisticsModal(true)}
+          onEdit={editsBlocked ? undefined : () => setShowLogisticsModal(true)}
         >
-          <Row label="Production status" value={extras.productionStatus || "—"} />
+          {/* The job's own status, not a separate logistics field. Two
+              editable copies of "where is this job up to" drift apart, and the
+              stage machinery already derives this one. */}
+          <Row label="Production status" value={job.status || "—"} />
           <Row label="Responsible" value={extras.responsibleParty || "—"} />
           <Row label="Accountable" value={extras.accountable || "—"} />
           <Row
@@ -276,18 +284,15 @@ export function JobWorkflowExtrasSection({
         <WidgetCard
           title="Materials & specifications"
           icon={ClipboardList}
-          onEdit={() => setShowMaterialsModal(true)}
+          onEdit={editsBlocked ? undefined : () => setShowMaterialsModal(true)}
         >
-          <p className="line-clamp-3 text-sm text-slate-600">
+          <p className="text-xs font-medium text-slate-500">List of materials</p>
+          <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm text-slate-600">
             {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No materials list."}
           </p>
-          <p className="mt-2 text-xs text-slate-500">
-            {pd.scopeType || "—"} · {pd.thickness || "—"} mm · {pd.mesh || "—"} ·{" "}
-            {pd.colour || "—"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {(extras.materialRows ?? []).filter((r) => r.qty?.trim()).length} material line(s) with
-            qty
+          <p className="mt-3 text-xs font-medium text-slate-500">Additional notes</p>
+          <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-slate-600">
+            {extras.additionalNotes?.trim() || "—"}
           </p>
         </WidgetCard>
 
@@ -297,8 +302,13 @@ export function JobWorkflowExtrasSection({
           files={files}
           fileSort={fileSort}
           onFileSortChange={onFileSortChange}
-          onUpload={onUploadFile}
+          onUpload={editsBlocked ? undefined : onUploadFile}
           onDownload={onDownloadFile}
+          onOpenFile={onOpenFile}
+          onPreviewFile={onPreviewFile}
+          onDownloadVersionFile={onDownloadVersionFile}
+          onDeleted={onDeletedFile}
+          onFailedFile={onFailedFile}
         />
       </section>
 
@@ -309,12 +319,18 @@ export function JobWorkflowExtrasSection({
         wide
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          <SelectField
-            label="Production status"
-            value={logisticsDraft.productionStatus}
-            options={[...PRODUCTION_STATUS_OPTIONS]}
-            onChange={(v) => setLogisticsDraft((p) => ({ ...p, productionStatus: v }))}
-          />
+          <div>
+            <span className="block text-sm font-medium text-slate-700">
+              Production status
+            </span>
+            <p className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              {job.status || "—"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Follows the job&apos;s stage progress — change it from Status
+              Control.
+            </p>
+          </div>
           <SelectField
             label="Responsible party"
             value={logisticsDraft.responsibleParty}
@@ -411,121 +427,33 @@ export function JobWorkflowExtrasSection({
       <EditModal
         open={showMaterialsModal}
         title="Edit materials & specifications"
-        onClose={() => setShowMaterialsModal(false)}
+        onClose={() => !materialsBusy && setShowMaterialsModal(false)}
         wide
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          {materialsError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {materialsError}
+            </p>
+          ) : null}
           <TextAreaField
             label="List of materials for this job"
             value={materialsDraft.materialsList}
             onChange={(v) => setMaterialsDraft((p) => ({ ...p, materialsList: v }))}
-            rows={4}
+            rows={6}
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <SelectField
-              label="Type"
-              value={materialsDraft.scopeType}
-              options={[...SCOPE_TYPE_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, scopeType: v }))}
-            />
-            <SelectField
-              label="Thickness (mm)"
-              value={materialsDraft.thickness}
-              options={[...THICKNESS_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, thickness: v }))}
-            />
-            <SelectField
-              label="Mesh"
-              value={materialsDraft.mesh}
-              options={[...MESH_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, mesh: v }))}
-            />
-            <SelectField
-              label="Colour"
-              value={materialsDraft.colour}
-              options={[...COLOUR_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, colour: v }))}
-            />
-            <SelectField
-              label="Finish"
-              value={materialsDraft.finish}
-              options={[...FINISH_OPTIONS]}
-              onChange={(v) => setMaterialsDraft((p) => ({ ...p, finish: v }))}
-            />
-          </div>
-          <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
-            <table className="w-full min-w-[420px] text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">Material</th>
-                  <th className="px-3 py-2 w-20">Qty</th>
-                  <th className="px-3 py-2 w-28">Availability</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materialsDraft.materialRows.map((row, index) => (
-                  <tr key={row.material} className="border-t border-[#E5E7EB]">
-                    <td className="px-3 py-2 font-medium text-slate-800">{row.material}</td>
-                    <td className="px-2 py-1">
-                      <input
-                        value={row.qty}
-                        onChange={(e) => updateMaterialRow(index, { qty: e.target.value })}
-                        className="w-full rounded border border-[#E5E7EB] px-2 py-1 text-sm"
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <select
-                        value={row.availability}
-                        onChange={(e) =>
-                          updateMaterialRow(index, { availability: e.target.value })
-                        }
-                        className="w-full rounded border border-[#E5E7EB] px-2 py-1 text-sm"
-                      >
-                        <option value="In stock">In stock</option>
-                        <option value="Low stock">Low stock</option>
-                        <option value="On order">On order</option>
-                        <option value="N/A">N/A</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Custom fields
-          </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {[0, 1, 2].map((col) => (
-              <div key={col} className="space-y-2">
-                <p className="text-xs font-medium text-slate-600">Field {col + 1}</p>
-                {[0, 1, 2].map((row) => {
-                  const idx = col * 3 + row;
-                  return (
-                    <input
-                      key={idx}
-                      value={materialsDraft.customFields[idx] ?? ""}
-                      onChange={(e) => {
-                        const next = [...materialsDraft.customFields];
-                        next[idx] = e.target.value;
-                        setMaterialsDraft((p) => ({ ...p, customFields: next }));
-                      }}
-                      placeholder={`Row ${row + 1}`}
-                      className="w-full rounded-lg border border-[#E5E7EB] px-2 py-1.5 text-sm"
-                    />
-                  );
-                })}
-              </div>
-            ))}
-          </div>
           <TextAreaField
             label="Additional notes"
             value={materialsDraft.additionalNotes}
             onChange={(v) => setMaterialsDraft((p) => ({ ...p, additionalNotes: v }))}
-            rows={3}
+            rows={4}
           />
-          <button className="btn-primary w-full" onClick={saveMaterials} disabled={isSaving}>
-            {isSaving ? "Saving…" : "Save materials"}
+          <button
+            className="btn-primary w-full"
+            onClick={saveMaterials}
+            disabled={isSaving || materialsBusy || !job.dbId}
+          >
+            {materialsBusy || isSaving ? "Saving…" : "Save materials"}
           </button>
         </div>
       </EditModal>
@@ -562,7 +490,7 @@ function WidgetCard({
         {onEdit && (
           <button
             type="button"
-            className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-0 pointer-events-none transition-opacity duration-150 hover:border-orange-200 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus:opacity-100"
+            className="rounded-lg border border-[#E5E7EB] p-1.5 text-slate-500 opacity-100 pointer-events-auto transition-opacity duration-150 hover:border-orange-200 focus:opacity-100 lg:opacity-0 lg:pointer-events-none lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto"
             onClick={onEdit}
             aria-label={`Edit ${title}`}
           >
@@ -665,6 +593,14 @@ function EditModal({
   children: React.ReactNode;
   wide?: boolean;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-sm">
