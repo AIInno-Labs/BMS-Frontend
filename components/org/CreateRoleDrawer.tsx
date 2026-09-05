@@ -216,6 +216,25 @@ export function CreateRoleDrawer({
           : "Assign ACTION (API), MENU (sidebar), and FIELD (per-field) privileges for this organization."
       }
       panelClassName="md:w-[min(640px,92vw)]"
+      banner={
+        error && (
+          <p
+            className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            onMouseEnter={errorDismiss.onMouseEnter}
+            onMouseLeave={errorDismiss.onMouseLeave}
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </p>
+        )
+      }
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
           <button
@@ -243,23 +262,6 @@ export function CreateRoleDrawer({
       }
     >
       <form id="role-form" onSubmit={onSubmit} className="space-y-4">
-        {error && (
-          <p
-            className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-            onMouseEnter={errorDismiss.onMouseEnter}
-            onMouseLeave={errorDismiss.onMouseLeave}
-          >
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              aria-label="Dismiss"
-              className="shrink-0 rounded p-0.5 text-current opacity-70 transition-opacity hover:opacity-100"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          </p>
-        )}
         <div>
           <label className={labelClass} htmlFor="roleName">
             Role name *

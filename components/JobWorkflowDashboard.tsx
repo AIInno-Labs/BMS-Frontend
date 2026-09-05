@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Calendar,
   ChevronUp,
   CircleCheckBig,
   CircleDollarSign,
@@ -95,7 +96,11 @@ import {
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
-import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
+import {
+  isCancelledJob,
+  isOnHoldJob,
+  needsDraftDueDateWarning,
+} from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
@@ -476,6 +481,12 @@ export function JobWorkflowDashboard({
   // job while it's still a quote-origin draft, whether dismissed before or not.
   const isQuoteDraft = job.origin === "QUOTE" && job.currentStageKey === "draft";
   const [draftBannerDismissed, setDraftBannerDismissed] = useState(false);
+  // No stage/origin condition here on purpose — just whether a due date is
+  // set at all (same rule as the inline "Due date is missing" pill above).
+  // Dismissal is local-only, so it reappears on every fresh visit while the
+  // due date is still missing, whether dismissed before or not.
+  const missingDueDate = needsDraftDueDateWarning(job);
+  const [dueDateBannerDismissed, setDueDateBannerDismissed] = useState(false);
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.selectedItems ?? [];
@@ -1174,6 +1185,23 @@ export function JobWorkflowDashboard({
             type="button"
             onClick={() => setDraftBannerDismissed(true)}
             className="shrink-0 text-blue-500 hover:text-blue-700"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      )}
+
+      {missingDueDate && !dueDateBannerDismissed && (
+        <div className="mt-3 flex items-start justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900">
+          <span className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 shrink-0" aria-hidden />
+            This job has no due date set. Please add a due date from Job Details.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDueDateBannerDismissed(true)}
+            className="shrink-0 text-amber-600 hover:text-amber-800"
             aria-label="Dismiss"
           >
             <X className="h-3.5 w-3.5" aria-hidden />
