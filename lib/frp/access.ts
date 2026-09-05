@@ -21,8 +21,8 @@ export const ACCESS_KEYS = {
   NOTIFICATIONS_VIEW: "NOTIFICATIONS_VIEW",
   JOB_CHAT_VIEW: "JOB_CHAT_VIEW",
   JOB_CHAT_SEND: "JOB_CHAT_SEND",
-  // One key per Dashboard KPI card — see DASHBOARD_CARD_PRIVILEGE_GROUPS
-  // below for how these 8 group into "0, 4, or 8 visible" categories.
+  // One key per Dashboard KPI card — see DASHBOARD_CARD_PRIVILEGE_CODES
+  // below; CreateRoleDrawer validates the count granted is 0, 4, or 8.
   DASHBOARD_CARD_TOTAL: "DASHBOARD_CARD_TOTAL",
   DASHBOARD_CARD_ACTIVE: "DASHBOARD_CARD_ACTIVE",
   DASHBOARD_CARD_OVERDUE: "DASHBOARD_CARD_OVERDUE",
@@ -154,26 +154,23 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
   ]);
 
 /**
- * Dashboard KPI card privileges, grouped into two sets of 4 that must be
- * granted or revoked together. This is a frontend-only concept — the
- * backend stores 8 flat, independently assignable MENU rows with no notion
- * of "category." CreateRoleDrawer uses this to auto-select/deselect a whole
- * group when any one code in it is toggled, so a role only ever ends up
- * holding 0, 4, or 8 of these 8 codes — never a partial group.
+ * The 8 Dashboard KPI card privileges. This is a frontend-only concept —
+ * the backend stores 8 flat, independently assignable MENU rows with no
+ * notion of "category." Checkboxes for these in CreateRoleDrawer are plain
+ * and independent (no auto-select) — the admin can pick any combination
+ * freely. Validation instead happens at save time: the total number
+ * selected from this list must be 0, 4, or 8, or the save is rejected with
+ * an error. That count check is the only place "category" logic lives.
  */
-export const DASHBOARD_CARD_PRIVILEGE_GROUPS: readonly (readonly string[])[] = [
-  [
-    "MENU_DASHBOARD_CARD_TOTAL",
-    "MENU_DASHBOARD_CARD_ACTIVE",
-    "MENU_DASHBOARD_CARD_OVERDUE",
-    "MENU_DASHBOARD_CARD_DELIVERED",
-  ],
-  [
-    "MENU_DASHBOARD_CARD_NOT_STARTED",
-    "MENU_DASHBOARD_CARD_AWAITING_APPROVAL",
-    "MENU_DASHBOARD_CARD_READY",
-    "MENU_DASHBOARD_CARD_MANUFACTURING",
-  ],
+export const DASHBOARD_CARD_PRIVILEGE_CODES: readonly string[] = [
+  "MENU_DASHBOARD_CARD_TOTAL",
+  "MENU_DASHBOARD_CARD_ACTIVE",
+  "MENU_DASHBOARD_CARD_OVERDUE",
+  "MENU_DASHBOARD_CARD_DELIVERED",
+  "MENU_DASHBOARD_CARD_NOT_STARTED",
+  "MENU_DASHBOARD_CARD_AWAITING_APPROVAL",
+  "MENU_DASHBOARD_CARD_READY",
+  "MENU_DASHBOARD_CARD_MANUFACTURING",
 ];
 
 export function getPrivileges(user: UserDTO | null | undefined): string[] {
