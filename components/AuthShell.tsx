@@ -11,12 +11,13 @@ import { useAuth } from "@/context/AuthContext";
 import { JobsProvider } from "@/context/JobsContext";
 import { PersonaProvider } from "@/context/PersonaContext";
 import { NotificationProvider } from "@/context/NotificationContext";
+import { LoadingState } from "@/components/ui/Loading";
 import { Suspense } from "react";
 
 function AuthLoadingStub() {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-slate-50">
-      <p className="text-sm text-slate-600">Loading…</p>
+      <LoadingState />
     </div>
   );
 }

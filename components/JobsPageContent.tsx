@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { JobsList } from "@/components/JobsList";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
+import { LoadingState } from "@/components/ui/Loading";
 
 export function JobsPageContent() {
   const { jobs } = useJobs();
@@ -20,7 +21,9 @@ export function JobsPageContent() {
         <section className="min-w-0">
           <Suspense
             fallback={
-              <p className="py-8 text-center text-sm text-slate-500">Loading jobs…</p>
+              <div className="flex justify-center py-8">
+                <LoadingState />
+              </div>
             }
           >
             <JobsList jobs={jobs} />

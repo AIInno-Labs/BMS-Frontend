@@ -10,6 +10,7 @@ import {
   updateJobEmailRecipients,
 } from "@/lib/frp/api";
 import type { JobEmailRecipientDTO, UserDTO } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 
 export function NotificationRulesAdminPage() {
   const { loading: authLoading, isAuthenticated, appRole } = useAuth();
@@ -75,7 +76,7 @@ export function NotificationRulesAdminPage() {
   if (authLoading || !isAuthenticated || appRole !== "orgadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { notFound, useSearchParams } from "next/navigation";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 import {
   ArrowLeft,
   Calendar,
@@ -261,9 +262,11 @@ export function JobCard({ jobId }: JobCardProps) {
   if (loading || detailLoading || !job || !draft) {
     return (
       <main className="flex min-h-[40vh] items-center justify-center bg-slate-50">
-        <p className="text-base text-slate-600">
-          {error ?? "Loading job card from database…"}
-        </p>
+        {error ? (
+          <p className="text-base text-slate-600">{error}</p>
+        ) : (
+          <LoadingState label="Loading job card…" />
+        )}
       </main>
     );
   }

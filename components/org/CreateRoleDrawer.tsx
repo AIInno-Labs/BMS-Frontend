@@ -8,6 +8,7 @@ import type { PrivilegeDTO, RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
 import { CreateRoleSchema, RoleNameSchema } from "@/lib/schemas/role";
 import { fieldErrorsFrom } from "@/lib/schemas/shared";
+import { InlineLoading } from "@/components/ui/Loading";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -292,7 +293,9 @@ export function CreateRoleDrawer({
             controls.
           </p>
           {loadingPrivs ? (
-            <p className="mt-2 text-sm text-slate-500">Loading privileges…</p>
+            <div className="mt-2">
+              <InlineLoading label="Loading privileges…" />
+            </div>
           ) : (
             <div className="mt-2 space-y-4 rounded-xl border border-slate-200 p-3">
               {groupedByType.map(({ type, domains }) => (

@@ -46,7 +46,7 @@ import {
   totalPriceFromRows,
   type PoItemRow,
 } from "@/lib/poLineItems";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import type { Job } from "@/lib/types";
 
@@ -479,7 +479,9 @@ export function JobDocumentRevisionsCard({
   onDocumentsChanged,
 }: JobDocumentRevisionsCardProps) {
   const locked =
-    isCancelledJob(job.status) || isJobLockedForCashPayment(job);
+    isCancelledJob(job.status) ||
+    isJobLockedForCashPayment(job) ||
+    isOnHoldJob(job.status);
   const { user: me, can } = useAuth();
   const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
   const canUploadDocument = hasPrivilege(me, "DOCUMENT_CREATE");

@@ -340,28 +340,36 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       audit?: JobUpdateAuditAction,
       auditDetail?: string | null
     ): Promise<Job> => {
-      // PUT /jobs also applies a status change — it rewrites the stages and
-      // recomputes the status from them.
-      const saved = await updateJobApi(uiJobToUpdateRequest(job));
+      // Built and validated up front, but sent LAST: PUT /jobs also applies a
+      // status change (it rewrites the stages and recomputes the status from
+      // them), and once that lands the job on ON_HOLD, JobOnHoldInterceptor
+      // blocks every other job-mutating call below except resume/cancel. Ending
+      // the chain with it (instead of starting with it) means a save that puts
+      // a job on hold no longer fails partway through on its own follow-up
+      // calls, leaving local state stuck on the pre-save data until a reload.
+      const updateRequest = uiJobToUpdateRequest(job);
+      // uiJobToUpdateRequest throws above if job.dbId is missing, so id is set.
+      const jobId = updateRequest.id!;
 
-      let latest = saved;
-      if (job.printDetails && latest.id != null) {
-        latest = await saveJobCard(latest.id, uiJobToJobCardPayload(job));
+      if (job.printDetails) {
+        await saveJobCard(jobId, uiJobToJobCardPayload(job));
       }
 
       // The customer and logistics panels are persisted through their own
       // endpoints (no longer folded into the PUT /jobs body). Order does not
       // matter for correctness - writes are last-write-wins.
       const contactDetails = uiJobToContactDetails(job);
-      if (contactDetails.companyName && latest.id != null) {
-        latest = await saveContactDetails(latest.id, contactDetails);
+      if (contactDetails.companyName) {
+        await saveContactDetails(jobId, contactDetails);
       }
       const schedulingLogistics = schedulingLogisticsToBackend(
         job.schedulingLogistics
       );
-      if (schedulingLogistics && latest.id != null) {
-        latest = await saveSchedulingLogistics(latest.id, schedulingLogistics);
+      if (schedulingLogistics) {
+        await saveSchedulingLogistics(jobId, schedulingLogistics);
       }
+
+      const latest = await updateJobApi(updateRequest);
 
       const ui = frpJobToUi(latest);
       setJobs((prev) => prev.map((j) => (j.id === ui.id ? ui : j)));

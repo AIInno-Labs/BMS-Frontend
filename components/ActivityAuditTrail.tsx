@@ -7,6 +7,7 @@ import {
   auditTrailPageSize,
   getJobAuditTrailPage,
 } from "@/lib/frp/job-audit";
+import { InlineLoading, Spinner } from "@/components/ui/Loading";
 
 function AuditIcon({ type }: { type: JobAuditIcon }) {
   const className = "h-5 w-5 shrink-0";
@@ -122,7 +123,9 @@ export function ActivityAuditTrail({
       </div>
 
       {loading && (
-        <p className="mt-4 text-base text-slate-600">Loading activity…</p>
+        <div className="mt-4">
+          <InlineLoading label="Loading activity…" />
+        </div>
       )}
 
       {error && !loading && (
@@ -171,14 +174,7 @@ export function ActivityAuditTrail({
                 disabled={loadingMore}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-orange-800 disabled:opacity-60"
               >
-                {loadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    Loading…
-                  </>
-                ) : (
-                  "Show more"
-                )}
+                {loadingMore ? <Spinner size="xs" /> : "Show more"}
               </button>
             </div>
           ) : null}

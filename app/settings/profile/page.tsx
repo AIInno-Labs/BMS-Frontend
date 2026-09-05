@@ -13,6 +13,7 @@ import {
 } from "@/lib/frp/api";
 import type { MfaSetupResponse } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 import { ACCESS_KEYS } from "@/lib/frp/access";
 import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 
@@ -167,7 +168,7 @@ export default function ProfileSettingsPage() {
   if (loading || !isAuthenticated || !user) {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }

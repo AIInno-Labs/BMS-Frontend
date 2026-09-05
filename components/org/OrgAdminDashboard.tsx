@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Package, Plug, Shield, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { LoadingState } from "@/components/ui/Loading";
 
 export function OrgAdminDashboard() {
   const { user, loading, isAuthenticated, appRole } = useAuth();
@@ -25,7 +26,7 @@ export function OrgAdminDashboard() {
   if (loading || !isAuthenticated || appRole !== "orgadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }

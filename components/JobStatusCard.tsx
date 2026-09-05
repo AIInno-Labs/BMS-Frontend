@@ -24,7 +24,7 @@ import {
   type PoItemRow,
 } from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 
 interface JobStatusCardProps {
@@ -96,7 +96,9 @@ export function JobStatusCard({
   const { can } = useAuth();
   const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
   const locked =
-    isCancelledJob(job.status) || isJobLockedForCashPayment(job);
+    isCancelledJob(job.status) ||
+    isJobLockedForCashPayment(job) ||
+    isOnHoldJob(job.status);
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

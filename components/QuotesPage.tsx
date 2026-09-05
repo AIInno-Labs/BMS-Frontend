@@ -13,6 +13,7 @@ import { mapQuoteRow } from "@/lib/quotient/map-quote-row";
 import { formatCreatedDate, formatShortDate } from "@/lib/mockData";
 import { searchQuotes, type FrpQuoteStatus } from "@/lib/frp/api";
 import { JobsPagination } from "@/components/JobsPagination";
+import { InlineLoading, SkeletonRows } from "@/components/ui/Loading";
 
 const QUOTES_PAGE_SIZE = 10;
 
@@ -396,9 +397,9 @@ export function QuotesPage() {
 
         <div className="space-y-3 md:hidden">
           {loading ? (
-            <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
-              Loading quotes…
-            </p>
+            <div className="flex justify-center rounded-xl border border-slate-200 bg-white px-4 py-8">
+              <InlineLoading label="Loading quotes…" />
+            </div>
           ) : totalItems === 0 ? (
             <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-500">
               {hasActiveFilters
@@ -429,14 +430,7 @@ export function QuotesPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr>
-                    <td
-                      colSpan={10}
-                      className="px-4 py-8 text-center text-slate-500"
-                    >
-                      Loading quotes…
-                    </td>
-                  </tr>
+                  <SkeletonRows columns={10} />
                 ) : totalItems === 0 ? (
                   <tr>
                     <td

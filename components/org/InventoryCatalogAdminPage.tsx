@@ -18,6 +18,7 @@ import {
   type InventoryCatalogEntry,
   type InventoryCatalogItem,
 } from "@/lib/frp/inventory-catalog";
+import { LoadingState, SkeletonRows } from "@/components/ui/Loading";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -386,7 +387,7 @@ export function InventoryCatalogAdminPage() {
   if (authLoading || !isAuthenticated || appRole !== "orgadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -498,13 +499,7 @@ export function InventoryCatalogAdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {catalogLoading && (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
-                      Loading catalog…
-                    </td>
-                  </tr>
-                )}
+                {catalogLoading && <SkeletonRows columns={7} />}
                 {!catalogLoading && sorted.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-12 text-center">

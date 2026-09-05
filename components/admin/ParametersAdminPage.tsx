@@ -13,6 +13,7 @@ import {
 } from "@/lib/frp/api";
 import type { ApplicationParameterDTO, OrganizationDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -207,7 +208,7 @@ export function ParametersAdminPage() {
   if (authLoading || appRole !== "superadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -365,7 +366,9 @@ export function ParametersAdminPage() {
         )}
 
         {loading ? (
-          <p className="mt-4 text-sm text-slate-500">Loading…</p>
+          <div className="mt-4 flex justify-center">
+            <LoadingState />
+          </div>
         ) : scope === "org" && orgId === "" ? (
           <p className="mt-4 text-sm text-slate-500">Select an organization.</p>
         ) : (

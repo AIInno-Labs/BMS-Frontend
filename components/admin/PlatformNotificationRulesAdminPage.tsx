@@ -17,6 +17,7 @@ import type {
   OrganizationDTO,
   UserDTO,
 } from "@/lib/frp/types";
+import { LoadingState, SkeletonSections } from "@/components/ui/Loading";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -352,7 +353,7 @@ export function PlatformNotificationRulesAdminPage() {
   if (authLoading || !isAuthenticated || appRole !== "superadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -441,7 +442,9 @@ export function PlatformNotificationRulesAdminPage() {
         ) : null}
 
         {loading ? (
-          <p className="mt-4 text-sm text-slate-600">Loading notification events…</p>
+          <div className="mt-6">
+            <SkeletonSections columns={orgScope ? 4 : 6} />
+          </div>
         ) : orgScope && orgId === "" ? (
           <p className="mt-4 text-sm text-slate-600">Select an organization.</p>
         ) : orgScope ? (

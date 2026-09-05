@@ -18,6 +18,7 @@ import {
   YAxis,
 } from "recharts";
 import { ArrowLeft } from "lucide-react";
+import { InlineLoading } from "@/components/ui/Loading";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
 import { fetchAllJobs } from "@/lib/crm/fetch-all-jobs";
 import { formatCreatedDate, formatShortDate } from "@/lib/jobData";
@@ -441,7 +442,7 @@ export function CrmPage({ company }: { company: string }) {
 
         {(overviewError || overviewLoading) && (
           <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {overviewError ?? "Loading customer overview…"}
+            {overviewError ?? <InlineLoading label="Loading customer overview…" />}
           </p>
         )}
 
@@ -569,9 +570,11 @@ export function CrmPage({ company }: { company: string }) {
                     </ResponsiveContainer>
                   ) : (
                     <p className="flex h-full items-center justify-center text-sm text-slate-500">
-                    {overviewLoading
-                      ? "Loading pipeline…"
-                      : "No jobs on record for this account yet."}
+                    {overviewLoading ? (
+                      <InlineLoading label="Loading pipeline…" />
+                    ) : (
+                      "No jobs on record for this account yet."
+                    )}
                     </p>
                   )}
                 </div>
@@ -748,9 +751,11 @@ export function CrmPage({ company }: { company: string }) {
                   </ResponsiveContainer>
                 ) : (
                   <p className="flex h-full items-center justify-center text-sm text-slate-500">
-                    {eventsLoading
-                      ? "Loading quote events…"
-                      : "No quote events for this account in this period."}
+                    {eventsLoading ? (
+                      <InlineLoading label="Loading quote events…" />
+                    ) : (
+                      "No quote events for this account in this period."
+                    )}
                   </p>
                 )}
               </div>
@@ -761,7 +766,7 @@ export function CrmPage({ company }: { company: string }) {
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Customer questions</h2>
             <div className="app-card">
               {questionsLoading ? (
-                <p className="text-sm text-slate-500">Loading questions…</p>
+                <InlineLoading label="Loading questions…" />
               ) : questionPreviews.length > 0 ? (
                 <ul className="space-y-2">
                   {questionPreviews.map((q) => (
@@ -830,7 +835,7 @@ export function CrmPage({ company }: { company: string }) {
             <div className="app-card">
               <h2 className="text-lg font-semibold text-slate-900">Recent quotes</h2>
               <p className="mt-1 text-sm text-slate-500">
-                {quotesLoading ? "Loading…" : `Showing ${recentQuotes.length} of ${quotesTotal}`}
+                {quotesLoading ? <InlineLoading /> : `Showing ${recentQuotes.length} of ${quotesTotal}`}
               </p>
               {recentQuotes.length > 0 ? (
                 <ul className="mt-4 space-y-2">
@@ -863,7 +868,11 @@ export function CrmPage({ company }: { company: string }) {
                 </ul>
               ) : (
                 <p className="mt-4 text-sm text-slate-500">
-                  {quotesLoading ? "Loading quotes…" : "No quotes on record for this account yet."}
+                  {quotesLoading ? (
+                    <InlineLoading label="Loading quotes…" />
+                  ) : (
+                    "No quotes on record for this account yet."
+                  )}
                 </p>
               )}
             </div>

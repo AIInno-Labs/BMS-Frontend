@@ -15,6 +15,7 @@ import { CreateNewJobDrawer } from "@/components/CreateNewJobDrawer";
 import { JobsPagination } from "@/components/JobsPagination";
 import { PriorityAlertsCell } from "@/components/PriorityAlertsCell";
 import { ReadyToManufactureIndicator } from "@/components/ReadyToManufactureIndicator";
+import { LoadingState } from "@/components/ui/Loading";
 import { parseNaturalLanguageQuery } from "@/lib/aiMock";
 import {
   formatCreatedDate,
@@ -674,7 +675,9 @@ export function JobsList({ jobs }: JobsListProps) {
                   </button>
                 </div>
                 {groupLoading && groupRows.length === 0 ? (
-                  <p className="mt-3 text-sm text-slate-600">Loading jobs in this stage…</p>
+                  <div className="mt-3 flex justify-center">
+                    <LoadingState />
+                  </div>
                 ) : groupError ? (
                   <p className="mt-3 text-sm text-red-600">{groupError}</p>
                 ) : (
@@ -822,17 +825,17 @@ export function JobsList({ jobs }: JobsListProps) {
       )}
 
       {!isWorker && !stageGroupFilter && defaultLoading && defaultRows.length === 0 ? (
-        <p className="app-card text-center text-base font-medium text-slate-600">
-          Loading jobs…
-        </p>
+        <div className="app-card flex justify-center">
+          <LoadingState />
+        </div>
       ) : !isWorker && stageGroupFilter && groupLoading && groupRows.length === 0 ? (
-        <p className="app-card text-center text-base font-medium text-slate-600">
-          Loading jobs…
-        </p>
+        <div className="app-card flex justify-center">
+          <LoadingState />
+        </div>
       ) : isWorker && workerLoading && workerRows.length === 0 ? (
-        <p className="app-card text-center text-base font-medium text-slate-600">
-          Loading jobs…
-        </p>
+        <div className="app-card flex justify-center">
+          <LoadingState />
+        </div>
       ) : displayedError ? (
         <p className="app-card text-center text-base font-medium text-red-600">{displayedError}</p>
       ) : displayedTotalItems === 0 ? (

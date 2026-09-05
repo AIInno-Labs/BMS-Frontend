@@ -785,7 +785,7 @@ export function JobTimelineAnalytics({
                 Assigned to you
               </span>
             ) : null}
-            {isOverdue && !isCancelledJob(job.status) ? (
+            {(isOverdue || onHold) && !isCancelledJob(job.status) ? (
               <button
                 type="button"
                 onClick={() => void toggleHold()}

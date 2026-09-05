@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { AtSign, CheckCheck, Loader2 } from "lucide-react";
+import { AtSign, CheckCheck } from "lucide-react";
 import { useNotifications } from "@/context/NotificationContext";
 import type { NotificationDTO } from "@/lib/frp/types";
+import { Spinner } from "@/components/ui/Loading";
 
 function relativeTime(iso?: string): string {
   if (!iso) return "";
@@ -90,10 +91,9 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
 
       <div className="max-h-[24rem] overflow-y-auto overscroll-contain">
         {notifications?.loadingItems && items.length === 0 ? (
-          <p className="flex items-center justify-center gap-2 px-4 py-8 text-xs text-slate-400">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            Loading…
-          </p>
+          <div className="flex items-center justify-center px-4 py-8">
+            <Spinner size="sm" />
+          </div>
         ) : items.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs text-slate-400">
             Nothing yet. You’ll be notified when someone posts{" "}

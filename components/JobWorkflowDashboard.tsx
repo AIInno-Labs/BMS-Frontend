@@ -14,6 +14,7 @@ import {
   History,
   Mail,
   Package,
+  PauseCircle,
   Phone,
   Plus,
   Settings,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InlineLoading } from "@/components/ui/Loading";
 import { DocumentPreviewModal } from "@/components/DocumentPreviewModal";
 import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
@@ -92,7 +94,7 @@ import {
   getWorkerDisplayName,
   resolveWorkerNameFromId,
 } from "@/lib/workers";
-import { isCancelledJob } from "@/lib/frp/job-status";
+import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
@@ -465,7 +467,8 @@ export function JobWorkflowDashboard({
   const { can } = useAuth();
   const cancelled = isCancelledJob(job.status);
   const cashPaymentLocked = isJobLockedForCashPayment(job);
-  const editsBlocked = cancelled || cashPaymentLocked;
+  const onHold = isOnHoldJob(job.status);
+  const editsBlocked = cancelled || cashPaymentLocked || onHold;
   const pd = ensurePrintDetails(job);
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const orderItems = job.selectedItems ?? [];
@@ -1146,6 +1149,13 @@ export function JobWorkflowDashboard({
           </button>
         </div>
       </div>
+
+      {onHold && (
+        <p className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900">
+          <PauseCircle className="h-4 w-4 shrink-0" aria-hidden />
+          This job is on hold. Resume it before making changes.
+        </p>
+      )}
 
       {(saveError || saveWarning || saveSuccess) && (
         <p
@@ -1833,7 +1843,7 @@ export function JobWorkflowDashboard({
             </p>
           ) : null}
           {catalogLoading ? (
-            <p className="text-sm text-slate-500">Loading catalog…</p>
+            <InlineLoading label="Loading catalog…" />
           ) : null}
           {!catalogLoading && !catalogError && inventoryCatalog.length === 0 ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
