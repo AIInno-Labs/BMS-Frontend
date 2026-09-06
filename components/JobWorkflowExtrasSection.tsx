@@ -19,6 +19,8 @@ import {
   ensureWorkflowExtras,
   JOB_TYPE_OPTIONS,
   SHIPMENT_METHOD_OPTIONS,
+  shipmentMethodToBackend,
+  shipmentMethodToLabel,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
 import { setJobRequirement, saveJobMeasurements } from "@/lib/frp/api";
@@ -28,8 +30,14 @@ import {
   PROJECT_REQUIREMENT_LABELS,
   type ProjectRequirementKind,
 } from "@/lib/frp/project-requirements";
-import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import type { Job, JobCardPrintDetails, JobProjectRequirement, JobWorkflowExtras } from "@/lib/types";
+import { userIdToBackend, type JobUpdateAuditAction } from "@/lib/frp/job-mapper";
+import type {
+  Job,
+  JobCardPrintDetails,
+  JobProjectRequirement,
+  JobSchedulingLogistics,
+  JobWorkflowExtras,
+} from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
 
 interface JobWorkflowExtrasSectionProps {
@@ -57,6 +65,20 @@ interface JobWorkflowExtrasSectionProps {
   /** Refetch job after a dedicated API write (requirements, payment, …). */
   onJobChanged?: () => void | Promise<void>;
 }
+
+/** Every field null - the shape to spread over when a job has no row yet. */
+const EMPTY_LOGISTICS: JobSchedulingLogistics = {
+  jobStatus: null,
+  responsiblePersonId: null,
+  accountable: null,
+  contactId: null,
+  shipDate: null,
+  shipmentMethod: null,
+  freightAccount: null,
+  carrierAccount: null,
+  billingAddress: null,
+  deliveryAddress: null,
+};
 
 function addDaysIso(days: number): string {
   const d = new Date();
@@ -87,6 +109,14 @@ export function JobWorkflowExtrasSection({
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
   const requirements = job.requirements ?? [];
   const workers = getAssignableWorkers();
+  // Everything this panel shows comes from job_scheduling_logistics, the record
+  // its own endpoint owns - except production status, which is the job's.
+  // The job-card JSON still holds copies for the printed card, but reading
+  // those was how the panel could show something the table did not have.
+  const sl = job.schedulingLogistics ?? EMPTY_LOGISTICS;
+  const responsibleName =
+    workers.find((w) => userIdToBackend(w.id) === sl.responsiblePersonId)
+      ?.display_name ?? "";
 
   const [requirementsBusy, setRequirementsBusy] = useState(false);
   const [requirementsError, setRequirementsError] = useState<string | null>(null);
@@ -95,17 +125,18 @@ export function JobWorkflowExtrasSection({
 
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
   const [showMaterialsModal, setShowMaterialsModal] = useState(false);
+  // Seeded from the logistics record, so the form opens on what it will save.
   const [logisticsDraft, setLogisticsDraft] = useState({
-    responsibleParty: extras.responsibleParty ?? "",
-    accountable: extras.accountable ?? "",
+    responsibleParty: responsibleName,
+    accountable: sl.accountable ?? "",
     contactName: job.clientContactName,
     contactEmail: pd.contactEmail ?? "",
-    shipDate: pd.despatchDate ?? "",
-    shipmentMethod: extras.shipmentMethod ?? "",
-    freightAccount: pd.freightAccount ?? "",
-    carrierAccount: extras.carrierAccount ?? "",
-    billingAddress: extras.billingAddress ?? "",
-    deliveryAddress: extras.deliveryAddress ?? "",
+    shipDate: sl.shipDate ?? "",
+    shipmentMethod: shipmentMethodToLabel(sl.shipmentMethod),
+    freightAccount: sl.freightAccount ?? "",
+    carrierAccount: sl.carrierAccount ?? "",
+    billingAddress: sl.billingAddress ?? "",
+    deliveryAddress: sl.deliveryAddress ?? "",
   });
   const [materialsDraft, setMaterialsDraft] = useState({
     materialsList: extras.materialsList ?? "",
@@ -114,17 +145,23 @@ export function JobWorkflowExtrasSection({
 
   useEffect(() => {
     const x = ensureWorkflowExtras(pd.workflowExtras, job);
+    // Same source as the initial state: the logistics record, not the card
+    // JSON. Reseeding from the JSON here would have quietly undone an edit the
+    // moment the job refetched.
+    const next = job.schedulingLogistics ?? EMPTY_LOGISTICS;
     setLogisticsDraft({
-      responsibleParty: x.responsibleParty ?? "",
-      accountable: x.accountable ?? "",
+      responsibleParty:
+        workers.find((w) => userIdToBackend(w.id) === next.responsiblePersonId)
+          ?.display_name ?? "",
+      accountable: next.accountable ?? "",
       contactName: job.clientContactName,
       contactEmail: pd.contactEmail ?? "",
-      shipDate: pd.despatchDate ?? "",
-      shipmentMethod: x.shipmentMethod ?? "",
-      freightAccount: pd.freightAccount ?? "",
-      carrierAccount: x.carrierAccount ?? "",
-      billingAddress: x.billingAddress ?? "",
-      deliveryAddress: x.deliveryAddress ?? "",
+      shipDate: next.shipDate ?? "",
+      shipmentMethod: shipmentMethodToLabel(next.shipmentMethod),
+      freightAccount: next.freightAccount ?? "",
+      carrierAccount: next.carrierAccount ?? "",
+      billingAddress: next.billingAddress ?? "",
+      deliveryAddress: next.deliveryAddress ?? "",
     });
     setMaterialsDraft({
       materialsList: x.materialsList ?? "",
@@ -185,8 +222,30 @@ export function JobWorkflowExtrasSection({
       nextExtras,
       "Scheduling & logistics updated"
     );
+    // Written to both stores. job_scheduling_logistics is the real record -
+    // JobsContext.updateJob PUTs it to /jobs/{id}/scheduling-logistics - while
+    // the job-card JSON is what the printed card renders from. Saving only the
+    // JSON, as this panel used to, left the table holding whatever it had when
+    // the job was created.
+    //
+    // jobStatus and contactId are carried through untouched: this panel does
+    // not own them, and sending null would clear them.
+    const responsibleId = workers.find(
+      (w) => w.display_name === logisticsDraft.responsibleParty
+    )?.id;
     void onSavePatch({
       clientContactName: logisticsDraft.contactName.trim(),
+      schedulingLogistics: {
+        ...(job.schedulingLogistics ?? EMPTY_LOGISTICS),
+        responsiblePersonId: userIdToBackend(responsibleId) ?? null,
+        accountable: logisticsDraft.accountable || null,
+        shipDate: logisticsDraft.shipDate || null,
+        shipmentMethod: shipmentMethodToBackend(logisticsDraft.shipmentMethod),
+        freightAccount: logisticsDraft.freightAccount || null,
+        carrierAccount: logisticsDraft.carrierAccount || null,
+        billingAddress: logisticsDraft.billingAddress || null,
+        deliveryAddress: logisticsDraft.deliveryAddress || null,
+      },
       printDetails: {
         ...pd,
         despatchDate: logisticsDraft.shipDate,
@@ -271,14 +330,17 @@ export function JobWorkflowExtrasSection({
               editable copies of "where is this job up to" drift apart, and the
               stage machinery already derives this one. */}
           <Row label="Production status" value={job.status || "—"} />
-          <Row label="Responsible" value={extras.responsibleParty || "—"} />
-          <Row label="Accountable" value={extras.accountable || "—"} />
+          <Row label="Responsible" value={responsibleName || "—"} />
+          <Row label="Accountable" value={sl.accountable || "—"} />
           <Row
             label="Ship date"
-            value={pd.despatchDate ? formatShortDate(pd.despatchDate) : "Not set"}
+            value={sl.shipDate ? formatShortDate(sl.shipDate) : "Not set"}
           />
-          <Row label="Shipment" value={extras.shipmentMethod || "—"} />
-          <Row label="Freight acct" value={pd.freightAccount || "—"} />
+          <Row
+            label="Shipment"
+            value={shipmentMethodToLabel(sl.shipmentMethod) || "—"}
+          />
+          <Row label="Freight acct" value={sl.freightAccount || "—"} />
         </WidgetCard>
 
         <WidgetCard
