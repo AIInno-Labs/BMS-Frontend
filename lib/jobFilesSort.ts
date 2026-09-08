@@ -3,6 +3,18 @@ export type JobFileRecord = {
   category: string;
   time: string;
   uploadedAt?: number;
+  /** Backend document id when the row came from `GET /jobs/{id}/documents`. */
+  documentId?: number;
+  /** Backend `documentType` — PRODUCTION / DRAWING open in Document Versions. */
+  documentType?: "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
+  /** PO entered by hand with no file attached (see `isManualPoDocument`). */
+  isManualEntry?: boolean;
+  /** Backend review status — mirrors `FrpDocumentStatus`. */
+  reviewStatus?: "ACTIVE" | "ACCEPTED" | "REJECTED";
+  /** SharePoint upload. PENDING while the file is still going up; FAILED if it never landed. */
+  storageStatus?: "NOT_APPLICABLE" | "PENDING" | "STORED" | "FAILED";
+  /** Backend remarks — used for a SharePoint failure reason when present. */
+  remarks?: string | null;
 };
 
 export type JobFileSortMode = "recents" | "newest" | "name" | "category";

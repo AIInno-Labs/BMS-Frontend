@@ -15,6 +15,8 @@ export interface OfficialJobCardData {
   validUntil: string;
   raisedBy: string;
   customer: string;
+  /** Site / postal address from contact details (shown under customer). */
+  customerAddress: string;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -44,6 +46,8 @@ export interface OfficialJobCardData {
   priority: string;
   assignedWorker: string;
   estimatedHours: string;
+  /** Footer version from GET /jobs/{id}/audit totalElements (job audit rows only). */
+  jobCardVersion: number;
 }
 
 export const STANDARD_CLIP_ROWS: JobCardClipRow[] = [
@@ -99,8 +103,10 @@ const EMPTY_PACK: JobCardPack = {
 };
 
 export function formatJobCardDate(isoDate: string | null | undefined): string {
-  if (!isoDate?.trim()) return "—";
-  const d = new Date(isoDate + "T12:00:00");
+  const trimmed = isoDate?.trim();
+  if (!trimmed) return "—";
+  const d = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
   const months = [
     "Jan",
     "Feb",
@@ -121,60 +127,149 @@ export function formatJobCardDate(isoDate: string | null | undefined): string {
   return `${day}-${month}-${year}`;
 }
 
+function nonempty(value?: string | null): string | undefined {
+  const v = (value ?? "").trim();
+  return v ? v : undefined;
+}
+
+/** Footer label: audit length 3 → "Rev 03". */
+export function formatJobCardVersionLabel(version: number | null | undefined): string {
+  const n = Number.isFinite(version) ? Math.max(0, Math.trunc(version as number)) : 0;
+  return `Rev ${String(n).padStart(2, "0")}`;
+}
+
+/** Bottom-left print footer: job number plus revision. */
+export function formatJobCardIdVersionFooter(
+  jobNumber: string,
+  version: number | null | undefined
+): string {
+  const id = (jobNumber ?? "").trim() || "—";
+  return `JOB ${id} · ${formatJobCardVersionLabel(version)}`;
+}
+
 export function buildOfficialJobCardData(
   job: Job,
-  printDetails?: JobCardPrintDetails
+  printDetails?: JobCardPrintDetails,
+  auditCount = 0
 ): OfficialJobCardData {
   const pd = printDetails ?? job.printDetails;
+  const sl = job.schedulingLogistics;
   const jobNumber = job.id.replace(/^JOB-/, "");
 
-  const scopeLines = pd?.scopeLines ?? [
-    job.projectName,
-    ...(job.manualInstructions
-      ? job.manualInstructions.split(/\n+/).filter(Boolean)
-      : []),
-  ];
+  const materialsList = nonempty(pd?.workflowExtras?.materialsList);
+  const fromMaterials = materialsList
+    ? materialsList
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const fromCardScope = (pd?.scopeLines ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const fromSelectedItems = (job.selectedItems ?? [])
+    .map((item) => {
+      const desc =
+        (typeof item.description === "string" && item.description) ||
+        (typeof item.name === "string" && item.name) ||
+        (typeof item.item === "string" && item.item) ||
+        "";
+      const qty =
+        item.quantity != null
+          ? String(item.quantity)
+          : typeof item.qty === "string" || typeof item.qty === "number"
+            ? String(item.qty)
+            : "";
+      if (!desc.trim()) return "";
+      return qty ? `${desc.trim()} × ${qty}` : desc.trim();
+    })
+    .filter(Boolean);
+  // Prefer materials (job_measurements); then card scope; then quote line items;
+  // then project name / instructions.
+  const scopeLines = fromMaterials.length
+    ? fromMaterials
+    : fromCardScope.length
+      ? fromCardScope
+      : fromSelectedItems.length
+        ? fromSelectedItems
+        : [
+            job.projectName,
+            ...(job.manualInstructions
+              ? job.manualInstructions.split(/\n+/).filter(Boolean)
+              : []),
+          ].filter(Boolean);
 
+  // Only print clip rows that were actually filled on the job — never invent
+  // the STANDARD_CLIP_ROWS catalogue into export data.
   const clipRows =
-    pd?.clipRows && pd.clipRows.length > 0
+    pd?.clipRows && pd.clipRows.some((r) => nonempty(r.qty) || nonempty(r.packedBy))
       ? mergeClipRows(pd.clipRows)
-      : STANDARD_CLIP_ROWS;
+      : STANDARD_CLIP_ROWS.map((row) => ({ ...row, qty: "", packedBy: "" }));
 
   const packs = pd?.packs ?? [EMPTY_PACK, EMPTY_PACK, EMPTY_PACK];
+
+  const assignedName = job.assignedWorkerId
+    ? getWorkerDisplayName(job.assignedWorkerId)
+    : "";
+  const raisedBy =
+    nonempty(pd?.raisedBy) ??
+    (assignedName && assignedName !== "Unassigned"
+      ? assignedName
+      : undefined) ??
+    "";
+
+  const customerAddress =
+    nonempty(job.clientAddress) ??
+    nonempty(pd?.workflowExtras?.deliveryAddress) ??
+    nonempty(sl?.deliveryAddress) ??
+    nonempty(sl?.billingAddress) ??
+    "";
 
   return {
     jobNumber,
     date: formatJobCardDate(job.date),
     dueDate: formatJobCardDate(job.dueDate),
     validUntil: formatJobCardDate(job.quoteValidUntil),
-    raisedBy:
-      pd?.raisedBy ??
-      (job.assignedWorkerId
-        ? getWorkerDisplayName(job.assignedWorkerId)
-        : "Production Manager"),
+    raisedBy,
     customer: job.clientName,
+    customerAddress,
     contactName: job.clientContactName || "",
-    contactPhone: pd?.contactPhone ?? "",
-    contactEmail: pd?.contactEmail ?? "",
-    purchaseOrderNo: pd?.purchaseOrderNo ?? "",
+    contactPhone:
+      nonempty(pd?.contactPhone) ??
+      nonempty(job.printDetails?.contactPhone) ??
+      "",
+    contactEmail:
+      nonempty(pd?.contactEmail) ??
+      nonempty(job.printDetails?.contactEmail) ??
+      "",
+    purchaseOrderNo: nonempty(job.orderNumber) ?? nonempty(pd?.purchaseOrderNo) ?? "",
     accountYesNo: pd?.accountYesNo === false ? "No" : "Yes",
-    transport: pd?.transport ?? "FRP Engineering",
-    transportCompany: pd?.transportCompany ?? "",
-    freightAccount: pd?.freightAccount ?? "",
-    consignmentNote: pd?.consignmentNote ?? "",
-    despatchDate: pd?.despatchDate ?? "",
-    deliveryDocket: pd?.deliveryDocket ?? "",
+    transport:
+      nonempty(pd?.transport) ??
+      nonempty(sl?.shipmentMethod) ??
+      nonempty(pd?.workflowExtras?.shipmentMethod) ??
+      "FRP Engineering",
+    transportCompany: nonempty(pd?.transportCompany) ?? "",
+    freightAccount:
+      nonempty(pd?.freightAccount) ??
+      nonempty(sl?.freightAccount) ??
+      nonempty(sl?.carrierAccount) ??
+      "",
+    consignmentNote: nonempty(pd?.consignmentNote) ?? "",
+    despatchDate: nonempty(pd?.despatchDate) ?? nonempty(sl?.shipDate) ?? "",
+    deliveryDocket: nonempty(pd?.deliveryDocket) ?? "",
     scopeLines,
-    scopeType: pd?.scopeType ?? "",
-    thickness: pd?.thickness ?? "",
-    mesh: pd?.mesh ?? "",
+    scopeType: nonempty(pd?.scopeType) ?? "",
+    thickness: nonempty(pd?.thickness) ?? "",
+    mesh: nonempty(pd?.mesh) ?? "",
     resin: job.resinType,
-    colour: pd?.colour ?? "",
-    finish: pd?.finish ?? "",
+    colour: nonempty(pd?.colour) ?? "",
+    finish: nonempty(pd?.finish) ?? "",
     clipRows,
-    notes: pd?.workflowExtras?.jobCardNotes?.trim() ?? "",
+    notes: nonempty(job.notes) ?? "",
     deliveryInstructions:
-      pd?.deliveryInstructions ??
+      nonempty(pd?.deliveryInstructions) ??
+      nonempty(pd?.workflowExtras?.deliveryAddress) ??
+      nonempty(sl?.deliveryAddress) ??
       (job.installRequired
         ? "Install on site per approved drawing. Confirm delivery docket on arrival."
         : ""),
@@ -188,9 +283,9 @@ export function buildOfficialJobCardData(
     qaCompleted: job.qaCompleted,
     status: job.status,
     priority: job.priority,
-    assignedWorker: getWorkerDisplayName(job.assignedWorkerId),
-    estimatedHours:
-      job.estimatedHours != null ? `${job.estimatedHours}h` : "",
+    assignedWorker: assignedName,
+    estimatedHours: job.estimatedHours != null ? `${job.estimatedHours}h` : "",
+    jobCardVersion: auditCount,
   };
 }
 

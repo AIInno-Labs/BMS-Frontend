@@ -1,3 +1,5 @@
+import { stampExportTimestamp } from "@/lib/exportTimestamp";
+
 const MM_TO_PX = 96 / 25.4;
 
 /** A4 portrait printable area (2 mm margins). */
@@ -10,7 +12,7 @@ function a4PortraitPrintablePx(): { width: number; height: number } {
 }
 
 /**
- * Compact rules so measurement matches print output
+ * Compact rules so print layout matches print output
  * (@media print is not active until the print dialog opens).
  */
 function injectPrePrintLayout(doc: Document): void {
@@ -205,7 +207,14 @@ function fitJobCardToOnePage(doc: Document): void {
  */
 export async function printJobCardPdf(jobId: string): Promise<void> {
   const url = `/api/jobs/${encodeURIComponent(jobId)}/job-card-html`;
-  const response = await fetch(url);
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("frp_access_token")
+      : null;
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: "no-store",
+  });
 
   if (!response.ok) {
     throw new Error("Could not load job card for printing.");
@@ -233,6 +242,7 @@ export async function printJobCardPdf(jobId: string): Promise<void> {
   doc.open();
   doc.write(html);
   doc.close();
+  stampExportTimestamp(doc, ".jc-watermark");
 
   await new Promise<void>((resolve) => {
     const done = () => resolve();
@@ -281,7 +291,11 @@ export async function printJobCardPdf(jobId: string): Promise<void> {
 
 /** @deprecated Use printJobCardPdf */
 export function openJobCardPdfPrint(jobId: string): void {
-  void printJobCardPdf(jobId).catch(() => {
-    window.alert("Failed to prepare job card PDF. Please try again.");
+  void printJobCardPdf(jobId).catch((err) => {
+    // Callers should prefer async printJobCardPdf + in-app error UI.
+    // Avoid window.alert — surface via console for any leftover call sites.
+    console.error(
+      err instanceof Error ? err.message : "Failed to prepare job card PDF."
+    );
   });
 }

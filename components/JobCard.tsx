@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { notFound, useSearchParams } from "next/navigation";
+import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 import {
   ArrowLeft,
   Calendar,
@@ -15,6 +17,8 @@ import {
   Save,
   User,
   UserCircle,
+  StickyNote,
+  Truck,
   Wrench,
   X,
 } from "lucide-react";
@@ -26,6 +30,7 @@ import { JobQrCode } from "@/components/JobQrCode";
 import { PriorityAlertsCell } from "@/components/PriorityAlertsCell";
 import { ActivityAuditTrail } from "@/components/ActivityAuditTrail";
 import { printJobCardPdf } from "@/lib/openJobCardPdfPrint";
+import { printLocPdf } from "@/lib/openLocPdfPrint";
 import { JobCardPrintDetailsForm } from "@/components/JobCardPrintDetailsForm";
 import { JobCardQuotientPanel } from "@/components/JobCardQuotientPanel";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
@@ -34,6 +39,7 @@ import { QaTraceabilitySection } from "@/components/QaTraceabilitySection";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
+import { useAutoDismiss } from "@/hooks/useAutoDismiss";
 import { generateAiEstimate } from "@/lib/aiMock";
 import {
   formatEstimatedHoursLong,
@@ -43,8 +49,26 @@ import {
   jobStatuses,
   resinTypes,
 } from "@/lib/mockData";
-import type { JobUpdateAuditAction } from "@/lib/supabase/jobs-repository";
-import type { Job, JobPriority, JobStatus, ResinType } from "@/lib/types";
+import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
+import { downloadJobCard, recordJobAudit, getQuote, cancelJob, listJobStages } from "@/lib/frp/api";
+import {
+  DRAFT_DUE_DATE_WARNING,
+  isCancelledJob,
+  needsDraftDueDateWarning,
+} from "@/lib/frp/job-status";
+import {
+  CASH_PAYMENT_BLOCK_MESSAGE,
+  isJobLockedForCashPayment,
+} from "@/lib/frp/job-cash-payment-gate";
+import { JOB_TYPE_OPTIONS } from "@/lib/jobWorkflowExtras";
+import type {
+  Job,
+  JobPriority,
+  JobSchedulingLogistics,
+  JobStatus,
+  ResinType,
+  ShipmentMethod,
+} from "@/lib/types";
 import {
   getAssignableWorkers,
   getWorkerDisplayName,
@@ -56,8 +80,18 @@ interface JobCardProps {
 }
 
 export function JobCard({ jobId }: JobCardProps) {
-  const { jobs, getJobById, updateJob, hydrated, loading, error } = useJobs();
+  const {
+    jobs,
+    getJobById,
+    loadJobDetail,
+    updateJob,
+    updateJobStatus,
+    hydrated,
+    loading,
+    error,
+  } = useJobs();
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isClearingAlert, setIsClearingAlert] = useState(false);
   const { isManager, isWorker, workerId, workerName } = usePersona();
@@ -78,12 +112,51 @@ export function JobCard({ jobId }: JobCardProps) {
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingLoc, setIsExportingLoc] = useState(false);
+  const [qcCompleted, setQcCompleted] = useState(false);
+  const [detailMissing, setDetailMissing] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    setDetailMissing(false);
+    setDetailLoading(false);
+  }, [jobId]);
+
+  // Auto-dismiss the "Saved" banner; hovering it pauses the countdown, and
+  // the X button (rendered by JobWorkflowDashboard) still closes it early.
+  const saveSuccessDismiss = useAutoDismiss(saveSuccess, () =>
+    setSaveSuccess(false)
+  );
 
   useEffect(() => {
     if (!sourceJob || isSaving) return;
     setJob(sourceJob);
     if (!isEditing) setDraft(sourceJob);
   }, [sourceJob, isEditing, isSaving]);
+
+  // `getJobById` only ever has the `GET /jobs` list projection, which the
+  // backend deliberately strips of customer/contact detail to keep the list
+  // payload small. Fetch the full record once per job so customer contact,
+  // stages, etc. show up here. Guarded by a ref (not just the jobId dep)
+  // because `loadJobDetail`'s identity changes on every jobs-list update, and
+  // without the guard that would refetch on every list refresh.
+  const detailFetchedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hydrated || !jobId) return;
+    if (detailFetchedForRef.current === jobId) return;
+    detailFetchedForRef.current = jobId;
+    setDetailLoading(true);
+    void loadJobDetail(jobId)
+      .catch((err) => {
+        detailFetchedForRef.current = null;
+        if (err instanceof FrpApiError && err.status === 404) {
+          setDetailMissing(true);
+        }
+      })
+      .finally(() => {
+        setDetailLoading(false);
+      });
+  }, [jobId, hydrated, loadJobDetail]);
 
   useEffect(() => {
     if (!isWorker) return;
@@ -98,6 +171,8 @@ export function JobCard({ jobId }: JobCardProps) {
   useEffect(() => {
     if (editFromUrlApplied.current) return;
     if (searchParams.get("edit") !== "1" || !isManager || isWorker || !sourceJob) return;
+    if (isCancelledJob(sourceJob.status)) return;
+    if (isJobLockedForCashPayment(sourceJob)) return;
     editFromUrlApplied.current = true;
     const base = { ...sourceJob, printDetails: ensurePrintDetails(sourceJob) };
     setDraft(base);
@@ -105,22 +180,33 @@ export function JobCard({ jobId }: JobCardProps) {
 
     const qMatch = /^JOB-Q-(.+)$/i.exec(sourceJob.id);
     if (!qMatch) return;
-    void fetch(`/api/quotes/${encodeURIComponent(qMatch[1])}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { quote?: { accepted_order_number?: string; quote_for_phone?: string; quote_for_email?: string; quote_for_contact_name?: string } } | null) => {
-        if (!data?.quote) return;
-        const q = data.quote;
+    void getQuote(qMatch[1])
+      .then((raw) => {
+        if (!raw) return;
+        const q = raw as {
+          accepted_order_number?: string;
+          acceptedOrderNumber?: string;
+          quote_for_phone?: string;
+          quoteForPhone?: string;
+          quote_for_email?: string;
+          quoteForEmail?: string;
+          quote_for_contact_name?: string;
+          quoteForContactName?: string;
+        };
         setDraft((d) => {
           if (!d) return d;
           const pd = { ...ensurePrintDetails(d) };
-          if (q.accepted_order_number && !pd.purchaseOrderNo) {
-            pd.purchaseOrderNo = q.accepted_order_number;
-          }
-          if (q.quote_for_phone && !pd.contactPhone) pd.contactPhone = q.quote_for_phone;
-          if (q.quote_for_email && !pd.contactEmail) pd.contactEmail = q.quote_for_email;
+          const po = q.accepted_order_number ?? q.acceptedOrderNumber;
+          const phone = q.quote_for_phone ?? q.quoteForPhone;
+          const email = q.quote_for_email ?? q.quoteForEmail;
+          const contact =
+            q.quote_for_contact_name ?? q.quoteForContactName;
+          if (po && !pd.purchaseOrderNo) pd.purchaseOrderNo = po;
+          if (phone && !pd.contactPhone) pd.contactPhone = phone;
+          if (email && !pd.contactEmail) pd.contactEmail = email;
           return {
             ...d,
-            clientContactName: d.clientContactName || q.quote_for_contact_name || "",
+            clientContactName: d.clientContactName || contact || "",
             printDetails: pd,
           };
         });
@@ -140,16 +226,47 @@ export function JobCard({ jobId }: JobCardProps) {
     };
   }, []);
 
-  if (hydrated && !loading && !sourceJob) {
+  // Letter of Compliance needs the qc milestone to have completed — its
+  // completedAt gates the button. (The date/name actually shown on the
+  // document come from the audit log's STAGE_COMPLETED/qc row instead, see
+  // getQcSignoff in job-mapper.ts, but that's a separate lookup.) Re-checked
+  // on auditRefreshKey so the button appears without a full page reload once
+  // qc completes elsewhere on this page.
+  useEffect(() => {
+    let cancelled = false;
+    async function checkQc() {
+      if (!job?.dbId) {
+        if (!cancelled) setQcCompleted(false);
+        return;
+      }
+      try {
+        const stages = await listJobStages(job.dbId);
+        if (cancelled) return;
+        setQcCompleted(
+          stages.some((s) => s.stageKey === "qc" && s.completedAt != null)
+        );
+      } catch {
+        if (!cancelled) setQcCompleted(false);
+      }
+    }
+    void checkQc();
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.dbId, auditRefreshKey]);
+
+  if (hydrated && !loading && detailMissing && !sourceJob) {
     notFound();
   }
 
-  if (loading || !job || !draft) {
+  if (loading || detailLoading || !job || !draft) {
     return (
       <main className="flex min-h-[40vh] items-center justify-center bg-slate-50">
-        <p className="text-base text-slate-600">
-          {error ?? "Loading job card from database…"}
-        </p>
+        {error ? (
+          <p className="text-base text-slate-600">{error}</p>
+        ) : (
+          <LoadingState label="Loading job card…" />
+        )}
       </main>
     );
   }
@@ -187,17 +304,102 @@ export function JobCard({ jobId }: JobCardProps) {
 
   const handlePrint = async () => {
     if (isExporting) return;
+    setSaveError(null);
     setIsExporting(true);
     try {
-      await printJobCardPdf(job.id);
-    } catch {
-      setSaveError("Could not open job card PDF. Please try again.");
+      if (!job.dbId) {
+        throw new Error("Job has no database id — reload the job list.");
+      }
+      // The print route resolves jobs by database id, not job number.
+      await printJobCardPdf(job.dbId);
+      // Log the pull for the audit trail (JOB_CARD_DOWNLOADED). Best-effort:
+      // the card is already open, so a failed audit must not surface an error.
+      void downloadJobCard(job.dbId).catch(() => {});
+    } catch (e) {
+      setSaveError(
+        e instanceof Error
+          ? e.message
+          : "Could not open job card PDF. Please try again."
+      );
     } finally {
       setIsExporting(false);
     }
   };
 
+  const handlePrintLoc = async () => {
+    if (isExportingLoc) return;
+    setSaveError(null);
+    setSaveWarning(null);
+    setIsExportingLoc(true);
+    try {
+      if (!job.dbId) {
+        throw new Error("Job has no database id — reload the job list.");
+      }
+      const { warning } = await printLocPdf(job.dbId);
+      setSaveWarning(warning ?? null);
+      // Log the export for the audit trail (LOC_EXPORTED). Best-effort:
+      // the PDF is already open, so a failed audit must not surface an error.
+      // Bumps auditRefreshKey on success so the trail shows it without a
+      // manual page refresh.
+      void recordJobAudit(job.dbId, "LOC")
+        .then(() => setAuditRefreshKey((k) => k + 1))
+        .catch(() => {});
+    } catch (e) {
+      setSaveError(
+        e instanceof Error
+          ? e.message
+          : "Could not open Letter of Compliance PDF. Please try again."
+      );
+    } finally {
+      setIsExportingLoc(false);
+    }
+  };
+
+  const handleCancelJob = async () => {
+    if (!job.dbId) {
+      setSaveError("Job has no database id — reload the job list.");
+      return;
+    }
+    setSaveError(null);
+    setSaveSuccess(false);
+    setIsSaving(true);
+    try {
+      await cancelJob(job.dbId);
+      const cancelled = {
+        ...job,
+        status: "Cancelled" as Job["status"],
+      };
+      setJob(cancelled);
+      setDraft(cancelled);
+      setSaveSuccess(true);
+      setAuditRefreshKey((k) => k + 1);
+      // Refresh from server so version / audit stay in sync.
+      try {
+        const fresh = await loadJobDetail(jobId);
+        setJob(fresh);
+        setDraft(fresh);
+      } catch {
+        /* local Cancelled state is enough if reload fails */
+      }
+    } catch (e) {
+      setSaveError(
+        e instanceof FrpApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not cancel job"
+      );
+      throw e;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (isJobLockedForCashPayment(job)) {
+      setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
     setSaveError(null);
     setSaveSuccess(false);
     setIsSaving(true);
@@ -273,7 +475,43 @@ export function JobCard({ jobId }: JobCardProps) {
   const patchPrintDetails = (printDetails: JobCardPrintDetails) =>
     setDraft((d) => (d ? { ...d, printDetails } : d));
 
+  const EMPTY_SCHEDULING_LOGISTICS: JobSchedulingLogistics = {
+    jobStatus: null,
+    responsiblePersonId: null,
+    accountable: null,
+    contactId: null,
+    shipDate: null,
+    shipmentMethod: null,
+    freightAccount: null,
+    carrierAccount: null,
+    billingAddress: null,
+    deliveryAddress: null,
+  };
+
+  const patchSchedulingLogistics = (patch: Partial<JobSchedulingLogistics>) =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            schedulingLogistics: {
+              ...EMPTY_SCHEDULING_LOGISTICS,
+              ...(d.schedulingLogistics ?? {}),
+              ...patch,
+            },
+          }
+        : d
+    );
+
+  const SHIPMENT_METHOD_OPTIONS: { value: ShipmentMethod; label: string }[] = [
+    { value: "INHOUSE_DELIVERY", label: "In-house delivery" },
+    { value: "CUSTOMER_COLLECT", label: "Customer collect" },
+    { value: "THIRD_PARTY_COURIER", label: "Third-party courier" },
+    { value: "FREIGHT_FORWARDER", label: "Freight forwarder" },
+    { value: "OTHER", label: "Other" },
+  ];
+
   const startEditing = () => {
+    if (isCancelledJob(job.status) || isJobLockedForCashPayment(job)) return;
     setSaveSuccess(false);
     const base = { ...job, printDetails: ensurePrintDetails(job) };
     setDraft(base);
@@ -281,22 +519,33 @@ export function JobCard({ jobId }: JobCardProps) {
 
     const qMatch = /^JOB-Q-(.+)$/i.exec(job.id);
     if (!qMatch) return;
-    void fetch(`/api/quotes/${encodeURIComponent(qMatch[1])}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { quote?: { accepted_order_number?: string; quote_for_phone?: string; quote_for_email?: string; quote_for_contact_name?: string } } | null) => {
-        if (!data?.quote) return;
-        const q = data.quote;
+    void getQuote(qMatch[1])
+      .then((raw) => {
+        if (!raw) return;
+        const q = raw as {
+          accepted_order_number?: string;
+          acceptedOrderNumber?: string;
+          quote_for_phone?: string;
+          quoteForPhone?: string;
+          quote_for_email?: string;
+          quoteForEmail?: string;
+          quote_for_contact_name?: string;
+          quoteForContactName?: string;
+        };
         setDraft((d) => {
           if (!d) return d;
           const pd = { ...ensurePrintDetails(d) };
-          if (q.accepted_order_number && !pd.purchaseOrderNo) {
-            pd.purchaseOrderNo = q.accepted_order_number;
-          }
-          if (q.quote_for_phone && !pd.contactPhone) pd.contactPhone = q.quote_for_phone;
-          if (q.quote_for_email && !pd.contactEmail) pd.contactEmail = q.quote_for_email;
+          const po = q.accepted_order_number ?? q.acceptedOrderNumber;
+          const phone = q.quote_for_phone ?? q.quoteForPhone;
+          const email = q.quote_for_email ?? q.quoteForEmail;
+          const contact =
+            q.quote_for_contact_name ?? q.quoteForContactName;
+          if (po && !pd.purchaseOrderNo) pd.purchaseOrderNo = po;
+          if (phone && !pd.contactPhone) pd.contactPhone = phone;
+          if (email && !pd.contactEmail) pd.contactEmail = email;
           return {
             ...d,
-            clientContactName: d.clientContactName || q.quote_for_contact_name || "",
+            clientContactName: d.clientContactName || contact || "",
             printDetails: pd,
           };
         });
@@ -314,6 +563,10 @@ export function JobCard({ jobId }: JobCardProps) {
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
   ) => {
+    if (isJobLockedForCashPayment(job) && patch.status !== "Cancelled") {
+      setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
     setSaveError(null);
     setSaveSuccess(false);
     setIsSaving(true);
@@ -336,9 +589,82 @@ export function JobCard({ jobId }: JobCardProps) {
       setSaveSuccess(true);
       setAuditRefreshKey((k) => k + 1);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      if (e instanceof FrpApiError && e.status === 409) {
+        // Someone else's write (or our own retry) moved the version past what
+        // this screen loaded with. Re-pull the job so the version in state is
+        // current again — otherwise every retry keeps sending the same stale
+        // version and keeps failing the same way.
+        setSaveError(
+          "This job changed elsewhere and your edit couldn't be applied. Reloaded the latest version — please try again."
+        );
+        try {
+          const fresh = await loadJobDetail(jobId);
+          setJob(fresh);
+          if (!isEditing) setDraft(fresh);
+        } catch {
+          // Refresh failed too; the error above still tells the user what to do.
+        }
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      }
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  /**
+   * A pure status change (e.g. the "Ready to Manufacture" checkbox). Sends
+   * only `{id, stageStatusLabel}` via `updateJobStatus`, instead of routing
+   * through `handleSavePatch`/`updateJob`, which resends every field on the
+   * job — a due date or estimated-hours value left in a bad shape elsewhere
+   * on the job would 400 the whole save and the checkbox would never move.
+   */
+  const handleStatusChange = async (status: Job["status"]) => {
+    if (isJobLockedForCashPayment(job) && status !== "Cancelled") {
+      setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
+    setSaveError(null);
+    setSaveSuccess(false);
+    setIsSaving(true);
+    try {
+      const saved = await updateJobStatus(job, status);
+      setJob(saved);
+      setDraft(saved);
+      setSaveSuccess(true);
+      setAuditRefreshKey((k) => k + 1);
+    } catch (e) {
+      if (e instanceof FrpApiError && e.status === 409) {
+        setSaveError(
+          "This job changed elsewhere and your edit couldn't be applied. Reloaded the latest version — please try again."
+        );
+        try {
+          const fresh = await loadJobDetail(jobId);
+          setJob(fresh);
+          if (!isEditing) setDraft(fresh);
+        } catch {
+          // Refresh failed too; the error above still tells the user what to do.
+        }
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Could not save changes");
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // A stage change (from Status Control) can move the job's status/percent, so
+  // re-pull the job detail to keep the page's badge, timeline, and % in sync.
+  // Plain function (not a hook) — it sits after the component's early returns
+  // and is only ever called imperatively.
+  const handleJobChanged = async () => {
+    try {
+      const fresh = await loadJobDetail(jobId);
+      setJob(fresh);
+      if (!isEditing) setDraft(fresh);
+      setAuditRefreshKey((k) => k + 1);
+    } catch {
+      /* keep current data; Status Control already reflects the stage change */
     }
   };
 
@@ -378,16 +704,35 @@ export function JobCard({ jobId }: JobCardProps) {
         </div>
       )}
 
+      {!isEditing && isCancelledJob(display.status) && (
+        <p className="no-print mx-auto mb-4 max-w-6xl rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 sm:px-6">
+          This job is cancelled and cannot be edited.
+        </p>
+      )}
+
       {!isEditing && (
         <JobWorkflowDashboard
           job={display}
           isSaving={isSaving}
           isExporting={isExporting}
+          isExportingLoc={isExportingLoc}
           saveError={saveError}
           saveSuccess={saveSuccess}
+          saveWarning={saveWarning}
+          onSaveSuccessMouseEnter={saveSuccessDismiss.onMouseEnter}
+          onSaveSuccessMouseLeave={saveSuccessDismiss.onMouseLeave}
           auditRefreshKey={auditRefreshKey}
           onPrint={handlePrint}
+          onPrintLoc={handlePrintLoc}
+          onDismissMessage={() => {
+            setSaveError(null);
+            setSaveSuccess(false);
+            setSaveWarning(null);
+          }}
+          onCancelJob={handleCancelJob}
           onSavePatch={handleSavePatch}
+          onStatusChange={handleStatusChange}
+          onJobChanged={handleJobChanged}
         />
       )}
 
@@ -432,17 +777,14 @@ export function JobCard({ jobId }: JobCardProps) {
         </>
       )}
 
+      {isEditing && (
       <div
-        className={`mx-auto w-full min-w-0 px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8 ${
-          isEditing ? "max-w-3xl" : "hidden"
-        }`}
+        className="mx-auto w-full min-w-0 max-w-3xl px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8"
       >
-        {isEditing && (
-          <Link href="/jobs" className="no-print btn-ghost mb-4">
-            <ArrowLeft className="h-5 w-5" aria-hidden />
-            Back to Jobs
-          </Link>
-        )}
+        <Link href="/jobs" className="no-print btn-ghost mb-4">
+          <ArrowLeft className="h-5 w-5" aria-hidden />
+          Back to Jobs
+        </Link>
 
         <article
           id="job-card-print"
@@ -498,11 +840,24 @@ export function JobCard({ jobId }: JobCardProps) {
                       <button
                         type="button"
                         onClick={startEditing}
-                        className="btn-secondary min-h-[48px] w-full flex-1 justify-center"
+                        disabled={isCancelledJob(job.status)}
+                        className="btn-secondary min-h-[48px] w-full flex-1 justify-center disabled:opacity-50"
                       >
                         <Pencil className="h-5 w-5" aria-hidden />
                         Edit details
                       </button>
+                      {qcCompleted && (
+                        <button
+                          type="button"
+                          onClick={handlePrintLoc}
+                          disabled={isExportingLoc}
+                          aria-busy={isExportingLoc}
+                          className="btn-secondary min-h-[48px] w-full flex-1 justify-center disabled:cursor-wait disabled:opacity-80"
+                        >
+                          <Download className="h-5 w-5" aria-hidden />
+                          {isExportingLoc ? "Exporting…" : "Letter of Compliance"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={handlePrint}
@@ -566,9 +921,26 @@ export function JobCard({ jobId }: JobCardProps) {
                   )}
                 </div>
               )}
+              {needsDraftDueDateWarning(display) && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <p className="flex items-start gap-2 text-sm font-semibold text-amber-900 sm:text-base">
+                      <span className="shrink-0" aria-hidden>
+                        ⚠️
+                      </span>
+                      <span className="min-w-0 break-words">
+                        {DRAFT_DUE_DATE_WARNING}
+                      </span>
+                    </p>
+                  </div>
+                )}
               {saveError && !isEditing && (
                 <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                   {saveError}
+                </p>
+              )}
+              {saveWarning && !isEditing && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {saveWarning}
                 </p>
               )}
             </div>
@@ -638,6 +1010,29 @@ export function JobCard({ jobId }: JobCardProps) {
                 ) : (
                   <p className="text-base font-semibold text-slate-900">
                     {formatShortDate(display.date)}
+                  </p>
+                )}
+              </FieldBlock>
+
+              <FieldBlock label="Job type" icon={Wrench}>
+                {isEditing && isManager ? (
+                  <select
+                    value={draft.jobType ?? ""}
+                    onChange={(e) =>
+                      patchDraft({ jobType: e.target.value.trim() || null })
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Not set</option>
+                    {JOB_TYPE_OPTIONS.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-base font-semibold text-slate-900">
+                    {display.jobType || "—"}
                   </p>
                 )}
               </FieldBlock>
@@ -847,6 +1242,30 @@ export function JobCard({ jobId }: JobCardProps) {
 
             <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
               <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <StickyNote className="h-4 w-4" aria-hidden />
+                Description
+              </h2>
+              {isEditing && isManager ? (
+                <textarea
+                  value={draft.description ?? ""}
+                  onChange={(e) =>
+                    patchDraft({ description: e.target.value || null })
+                  }
+                  rows={3}
+                  className={`${inputClass} mt-2 min-h-[80px] resize-y`}
+                  placeholder="What this job is, in prose…"
+                />
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
+                  {display.description?.trim() ||
+                    display.manualInstructions ||
+                    "—"}
+                </p>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
                 <Wrench className="h-4 w-4" aria-hidden />
                 Manual fabrication instructions
               </h2>
@@ -867,11 +1286,191 @@ export function JobCard({ jobId }: JobCardProps) {
               )}
             </section>
 
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <StickyNote className="h-4 w-4" aria-hidden />
+                Notes
+              </h2>
+              {isEditing ? (
+                <textarea
+                  value={draft.notes ?? ""}
+                  onChange={(e) =>
+                    patchDraft({ notes: e.target.value || null })
+                  }
+                  rows={4}
+                  className={`${inputClass} mt-2 min-h-[100px] resize-y`}
+                  placeholder="Working notes for this job…"
+                />
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap text-base leading-relaxed text-slate-700">
+                  {display.notes || "—"}
+                </p>
+              )}
+            </section>
+
+            <section className="rounded-xl border border-slate-200 p-4 print:border-slate-300">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <Truck className="h-4 w-4" aria-hidden />
+                Scheduling &amp; logistics
+              </h2>
+              {isEditing ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* The job's status, shown not edited. A second editable
+                      copy in schedulingLogistics.jobStatus is what let the two
+                      disagree - a cancelled job reading PENDING here. Status
+                      Control owns it. */}
+                  <label className="text-sm">
+                    <span className="text-slate-500">Production status</span>
+                    <p className={`${inputClass} mt-1 flex items-center bg-slate-50 text-slate-600`}>
+                      {display.status || "—"}
+                    </p>
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Shipment method</span>
+                    <select
+                      value={draft.schedulingLogistics?.shipmentMethod ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          shipmentMethod:
+                            (e.target.value as ShipmentMethod) || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    >
+                      <option value="">—</option>
+                      {SHIPMENT_METHOD_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Ship date</span>
+                    <input
+                      type="date"
+                      value={draft.schedulingLogistics?.shipDate ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({ shipDate: e.target.value || null })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Responsible person (user id)</span>
+                    <input
+                      type="number"
+                      value={draft.schedulingLogistics?.responsiblePersonId ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          responsiblePersonId: e.target.value
+                            ? Number(e.target.value)
+                            : null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Accountable</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.accountable ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({ accountable: e.target.value || null })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Freight account</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.freightAccount ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          freightAccount: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="text-slate-500">Carrier account</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.carrierAccount ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          carrierAccount: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm sm:col-span-2">
+                    <span className="text-slate-500">Billing address</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.billingAddress ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          billingAddress: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <label className="text-sm sm:col-span-2">
+                    <span className="text-slate-500">Delivery address</span>
+                    <input
+                      type="text"
+                      value={draft.schedulingLogistics?.deliveryAddress ?? ""}
+                      onChange={(e) =>
+                        patchSchedulingLogistics({
+                          deliveryAddress: e.target.value || null,
+                        })
+                      }
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  {(
+                    [
+                      ["Production status", display.status],
+                      ["Shipment method", display.schedulingLogistics?.shipmentMethod],
+                      ["Ship date", display.schedulingLogistics?.shipDate],
+                      [
+                        "Responsible person",
+                        display.schedulingLogistics?.responsiblePersonId ?? null,
+                      ],
+                      ["Accountable", display.schedulingLogistics?.accountable],
+                      ["Freight account", display.schedulingLogistics?.freightAccount],
+                      ["Carrier account", display.schedulingLogistics?.carrierAccount],
+                      ["Billing address", display.schedulingLogistics?.billingAddress],
+                      ["Delivery address", display.schedulingLogistics?.deliveryAddress],
+                    ] as [string, string | number | null | undefined][]
+                  ).map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-4">
+                      <dt className="text-slate-500">{label}</dt>
+                      <dd className="text-right text-slate-700">
+                        {value === null || value === undefined || value === ""
+                          ? "—"
+                          : value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </section>
+
             <QaTraceabilitySection jobId={display.id} />
 
             {isManager && (
               <ActivityAuditTrail
-                jobId={display.id}
+                jobId={display.dbId ?? ""}
                 refreshKey={auditRefreshKey}
               />
             )}
@@ -881,6 +1480,7 @@ export function JobCard({ jobId }: JobCardProps) {
 
         </article>
       </div>
+      )}
     </main>
   );
 }

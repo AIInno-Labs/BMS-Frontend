@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { ArrowLeft } from "lucide-react";
 import { AnimatedStatTile } from "@/components/analytics/AnimatedStatTile";
+import { InlineLoading } from "@/components/ui/Loading";
 import {
   ANALYTICS_POLL_MS,
   AnalyticsRefreshControl,
@@ -27,11 +28,20 @@ import {
   jobsCreatedTrend,
   readyManufactureTrend,
 } from "@/lib/analytics/jobMetrics";
+import {
+  emptyAnalyticsSnapshot,
+  type AnalyticsSnapshot,
+} from "@/lib/analytics/types";
 import { formatCreatedDate } from "@/lib/jobData";
+import { getJobResinCounts, getQuoteEventCounts, getTopClients } from "@/lib/frp/api";
 import { STATUS_THEME } from "@/lib/statusColors";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { AnalyticsSnapshot } from "@/lib/supabase/analytics-repository";
-import { journeyOutcomeLabel } from "@/lib/supabase/quotes-repository";
+import { journeyOutcomeLabel } from "@/lib/quotes/labels";
+
+const RESIN_CHART_COLORS = [
+  STATUS_THEME.notStarted.strong,
+  STATUS_THEME.manufacturing.strong,
+  STATUS_THEME.delivered.strong,
+];
 
 const STATUS_COLORS: Record<string, string> = {
   Pending: STATUS_THEME.notStarted.strong,
@@ -105,6 +115,9 @@ export function AnalyticsPage() {
     withAlerts: null,
   });
   const [quotientDelta, setQuotientDelta] = useState<number | null>(null);
+  const [resinChartData, setResinChartData] = useState<
+    { resin: string; count: number; fill: string }[]
+  >([]);
 
   const prevJobsRef = useRef<ReturnType<typeof computeJobAnalytics> | null>(null);
   const prevQuotientRef = useRef<number | null>(null);
@@ -119,12 +132,33 @@ export function AnalyticsPage() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/analytics", { cache: "no-store" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? "Failed to load analytics");
-      }
-      const data = (await res.json()) as AnalyticsSnapshot;
+      const empty = emptyAnalyticsSnapshot();
+      const [quoteCounts, topClients, resinCounts] = await Promise.all([
+        getQuoteEventCounts().catch(() => null),
+        getTopClients(5).catch(() => null),
+        getJobResinCounts().catch(() => null),
+      ]);
+
+      setResinChartData(
+        (resinCounts?.byResin ?? []).map((row, index) => ({
+          resin: (row.label ?? row.resinCode ?? "Other").split(" ")[0],
+          count: row.count ?? 0,
+          fill: RESIN_CHART_COLORS[index % RESIN_CHART_COLORS.length],
+        }))
+      );
+
+      const data: AnalyticsSnapshot = {
+        ...empty,
+        quotientEvents: quoteCounts
+          ? quoteCounts.byType.map((event) => ({
+              event_name: event.eventType,
+              label: event.label,
+              count: event.count,
+            }))
+          : empty.quotientEvents,
+        quotientTotal: quoteCounts?.total ?? 0,
+        topClients: topClients ?? [],
+      };
       setSnapshot(data);
 
       const total = data.quotientTotal ?? 0;
@@ -180,7 +214,10 @@ export function AnalyticsPage() {
     [loadAnalytics, recordJobPulse, refreshJobs]
   );
 
+  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     void refreshAll(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
   }, []);
@@ -194,46 +231,6 @@ export function AnalyticsPage() {
 
     return () => clearInterval(id);
   }, [autoRefresh, refreshAll]);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-
-    let supabase: ReturnType<typeof createSupabaseBrowserClient> | null = null;
-    try {
-      supabase = createSupabaseBrowserClient();
-    } catch {
-      return;
-    }
-
-    const channel = supabase
-      .channel("analytics-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "jobs" },
-        () => {
-          if (autoRefreshRef.current) void refreshAll(true);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "quote_events_history" },
-        () => {
-          if (autoRefreshRef.current) void loadAnalytics(true);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "inventory" },
-        () => {
-          if (autoRefreshRef.current) void loadAnalytics(true);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase?.removeChannel(channel);
-    };
-  }, [autoRefresh, refreshAll, loadAnalytics]);
 
   const createdTrend = useMemo(() => jobsCreatedTrend(jobs), [jobs]);
   const readyTrend = useMemo(() => readyManufactureTrend(jobs), [jobs]);
@@ -249,24 +246,10 @@ export function AnalyticsPage() {
     [jobStats.byStatus]
   );
 
-  const resinChartData = useMemo(
-    () =>
-      Object.entries(jobStats.resinMix).map(([resin, count], index) => ({
-        resin: resin.split(" ")[0],
-        count,
-        fill: [
-          STATUS_THEME.notStarted.strong,
-          STATUS_THEME.manufacturing.strong,
-          STATUS_THEME.delivered.strong,
-        ][index % 3],
-      })),
-    [jobStats.resinMix]
-  );
-
   const quotientChartData = useMemo(
     () =>
       (snapshot?.quotientEvents ?? []).map((e) => ({
-        name: QUOTIENT_LABELS[e.event_name] ?? e.event_name,
+        name: e.label ?? QUOTIENT_LABELS[e.event_name] ?? e.event_name,
         count: e.count,
         fill: QUOTIENT_COLORS[e.event_name] ?? STATUS_THEME.notStarted.soft,
       })),
@@ -326,7 +309,7 @@ export function AnalyticsPage() {
 
         {(error || jobsLoading) && (
           <p className="mb-1.5 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {error ?? "Loading job data…"}
+            {error ?? <InlineLoading label="Loading job data…" />}
           </p>
         )}
 
@@ -483,9 +466,8 @@ export function AnalyticsPage() {
               <div className="shrink-0">
                 <h2 className="text-sm font-semibold text-slate-900">Resin mix</h2>
                 <p className="text-xs text-slate-500">
-                  Programs by resin system — bottom scale is{" "}
-                  <span className="font-medium text-slate-600">job count</span> (0, 15, 30…
-                  = number of active jobs using that resin).
+                  Jobs by resin system — bottom scale is{" "}
+                  <span className="font-medium text-slate-600">job count</span>.
                 </p>
               </div>
               <div className="mt-1 min-h-[120px] flex-1">
@@ -530,7 +512,7 @@ export function AnalyticsPage() {
         <section className="app-card" aria-label="Quotient analytics">
           <h2 className="text-lg font-semibold text-slate-900">Quotient quote journey</h2>
           <p className="mt-1 text-base text-slate-600">
-            All webhook events from <code className="text-sm">quote_events_history</code>
+            Quote activity across sent, viewed, accepted, and declined events
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <AnimatedStatTile
@@ -578,9 +560,11 @@ export function AnalyticsPage() {
               </ResponsiveContainer>
             ) : (
               <p className="flex h-full items-center justify-center text-base text-slate-500">
-                {loading
-                  ? "Loading Quotient events…"
-                  : "No Quotient events yet — history fills when webhooks arrive."}
+                {loading ? (
+                  <InlineLoading label="Loading Quotient events…" />
+                ) : (
+                  "No Quotient events yet — history fills when webhooks arrive."
+                )}
               </p>
             )}
           </div>
@@ -697,9 +681,15 @@ export function AnalyticsPage() {
         <section className="mt-4 grid gap-4 lg:grid-cols-2">
           <div className="app-card" aria-label="Top clients">
             <h2 className="text-lg font-semibold text-slate-900">Top clients</h2>
-            <p className="mt-1 text-base text-slate-600">By active job count</p>
+            <p className="mt-1 text-base text-slate-600">By job count</p>
             <ul className="mt-4 space-y-2">
-              {jobStats.topClients.map(({ name, count }, i) => (
+              {(snapshot?.topClients.length
+                ? snapshot.topClients.map((client) => ({
+                    name: client.companyName,
+                    count: client.jobCount,
+                  }))
+                : jobStats.topClients
+              ).map(({ name, count }, i) => (
                 <li
                   key={name}
                   className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 transition-all duration-300 hover:border-slate-200"
@@ -710,6 +700,11 @@ export function AnalyticsPage() {
                 </li>
               ))}
             </ul>
+            {!loading &&
+              (snapshot?.topClients.length ?? 0) === 0 &&
+              jobStats.topClients.length === 0 && (
+                <p className="mt-4 text-base text-slate-500">No client job counts yet.</p>
+              )}
           </div>
 
           <div className="app-card" id="inventory" aria-label="Inventory alerts">

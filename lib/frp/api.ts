@@ -4,7 +4,9 @@ import {
   type AuthenticationResponse,
   type CreateOrganizationRequest,
   type CreateUserRequest,
+  type IntegrationApiKeyDTO,
   type MfaSetupResponse,
+  type QuotientIntegrationDTO,
   type OrganizationDTO,
   type OrganizationProvisionResponse,
   type PageResponse,
@@ -12,7 +14,42 @@ import {
   type RoleDTO,
   type UpdateUserRequest,
   type UserDTO,
+  type GroupChatDTO,
+  type NotificationDTO,
+  type NotificationSummaryDTO,
+  type JobEmailRecipientDTO,
 } from "@/lib/frp/types";
+import type { JobCardExportDTO } from "@/lib/frp/job-card-export";
+import type {
+  FrpDocumentDownloadDTO,
+  FrpDocumentSort,
+  FrpDocumentType,
+  FrpJobAuditHistoryDTO,
+  FrpJobCardPayload,
+  FrpJobContactDetailsDTO,
+  FrpJobCountsDTO,
+  FrpJobResinCountsDTO,
+  FrpJobDocumentDTO,
+  FrpJobDocumentUpdateRequest,
+  FrpJobDTO,
+  FrpJobInventoryDTO,
+  FrpMasterInventoryDTO,
+  FrpJobMeasurementDTO,
+  FrpJobPaymentDTO,
+  FrpJobPaymentUpdateRequest,
+  FrpJobProjectRequirementDTO,
+  FrpJobSchedulingLogisticsDTO,
+  FrpJobStageDTO,
+  FrpJobStageUpdateRequest,
+  FrpJobSummaryDTO,
+  FrpManualPoRequest,
+  FrpPoComparisonDTO,
+} from "@/lib/frp/job-mapper";
+import type { ProjectRequirementKind } from "@/lib/frp/project-requirements";
+import {
+  STATUS_TARGET_STAGE,
+  type BackendJobStatus,
+} from "@/lib/frp/job-status";
 
 const DEFAULT_BASE = "http://localhost:8080/api/v1";
 
@@ -28,7 +65,13 @@ type TokenGetter = () => string | null;
 type SessionTokens = { token: string; refreshToken: string };
 type SessionUpdater = (tokens: SessionTokens | null) => void;
 
-let getAccessToken: TokenGetter = () => null;
+/** Prefer the AuthProvider getter; always fall back to localStorage so early
+ *  page effects (e.g. RolesAdminPage) never call the API without a Bearer
+ *  token while the provider is still mounting. */
+let getAccessToken: TokenGetter = () =>
+  typeof window !== "undefined"
+    ? localStorage.getItem(FRP_ACCESS_TOKEN_KEY)
+    : null;
 let sessionUpdater: SessionUpdater | null = null;
 let refreshInFlight: Promise<SessionTokens> | null = null;
 
@@ -74,10 +117,29 @@ async function parseError(res: Response): Promise<FrpApiError> {
     if (body && typeof body === "object") {
       const o = body as Record<string, unknown>;
       if (typeof o.error === "string" && o.error) message = o.error;
-      else if (typeof o.businessErrorDescription === "string" && o.businessErrorDescription) {
+      else if (
+        typeof o.businessErrorDescription === "string" &&
+        o.businessErrorDescription
+      ) {
         message = o.businessErrorDescription;
       } else if (typeof o.message === "string" && o.message) {
         message = o.message;
+      }
+
+      // `ExceptionResponse.errors` is a field → message map. It was being
+      // dropped, so a rejected save showed only "Validation failed" with no
+      // indication of which field the backend objected to.
+      const fields = o.errors;
+      if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+        const detail = Object.entries(fields as Record<string, unknown>)
+          .map(([field, msg]) => `${field}: ${String(msg)}`)
+          .join("; ");
+        if (detail) message = `${message} — ${detail}`;
+      } else if (
+        Array.isArray(o.validationErrors) &&
+        o.validationErrors.length
+      ) {
+        message = `${message} — ${o.validationErrors.join("; ")}`;
       }
     }
   } catch {
@@ -86,7 +148,9 @@ async function parseError(res: Response): Promise<FrpApiError> {
   return new FrpApiError(res.status, message, body);
 }
 
-async function performTokenRefresh(refreshToken: string): Promise<SessionTokens> {
+async function performTokenRefresh(
+  refreshToken: string
+): Promise<SessionTokens> {
   const res = await fetch(`${getFrpApiBase()}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -129,24 +193,48 @@ export async function refreshTokens(
   };
 }
 
+function isFormDataBody(body: unknown): boolean {
+  if (body == null || typeof body !== "object") return false;
+  if (typeof FormData !== "undefined" && body instanceof FormData) return true;
+  return Object.prototype.toString.call(body) === "[object FormData]";
+}
+
 async function frpFetch<T>(
   path: string,
   init: RequestInit = {},
   opts?: { auth?: boolean; retried?: boolean }
 ): Promise<T> {
   const useAuth = opts?.auth !== false;
+  const multipart = isFormDataBody(init.body);
   const headers = new Headers(init.headers);
-  if (!headers.has("Content-Type") && init.body) {
+  // FormData must keep the browser-generated multipart boundary. Setting
+  // Content-Type: application/json here makes Spring see no `file` part.
+  if (multipart) {
+    headers.delete("Content-Type");
+  } else if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
   if (useAuth) {
-    const token = getAccessToken();
+    const token =
+      getAccessToken() ||
+      (typeof window !== "undefined"
+        ? localStorage.getItem(FRP_ACCESS_TOKEN_KEY)
+        : null);
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
+  // Plain object so fetch does not inherit a JSON Content-Type from Headers.
+  const headerInit: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    if (multipart && key.toLowerCase() === "content-type") return;
+    headerInit[key] = value;
+  });
+
   const res = await fetch(`${getFrpApiBase()}${path}`, {
-    ...init,
-    headers,
+    method: init.method,
+    body: init.body,
+    signal: init.signal,
+    headers: headerInit,
   });
 
   if (
@@ -170,6 +258,24 @@ async function frpFetch<T>(
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+export async function listJobEmailRecipients(
+  organizationId?: number | null
+): Promise<JobEmailRecipientDTO[]> {
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
+  return frpFetch<JobEmailRecipientDTO[]>(`/job-email-recipients${q}`);
+}
+
+export async function updateJobEmailRecipients(
+  body: JobEmailRecipientDTO[],
+  organizationId?: number | null
+): Promise<JobEmailRecipientDTO[]> {
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
+  return frpFetch<JobEmailRecipientDTO[]>(`/job-email-recipients${q}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export async function authenticate(
@@ -211,7 +317,10 @@ export async function enableMfa(code: string): Promise<void> {
   });
 }
 
-export async function disableMfa(password: string, code: string): Promise<void> {
+export async function disableMfa(
+  password: string,
+  code: string
+): Promise<void> {
   await frpFetch("/auth/mfa/disable", {
     method: "POST",
     body: JSON.stringify({ password, code }),
@@ -221,8 +330,7 @@ export async function disableMfa(password: string, code: string): Promise<void> 
 export async function listParameters(
   organizationId?: number | null
 ): Promise<ApplicationParameterDTO[]> {
-  const q =
-    organizationId != null ? `?organizationId=${organizationId}` : "";
+  const q = organizationId != null ? `?organizationId=${organizationId}` : "";
   return frpFetch<ApplicationParameterDTO[]>(`/admin/parameters${q}`);
 }
 
@@ -267,6 +375,71 @@ export async function upsertOrgParameter(
   });
 }
 
+// ---------------------------------------------------------------- Quotient
+
+export async function getQuotientIntegration(): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient");
+}
+
+export async function updateQuotientIntegration(
+  body: Partial<QuotientIntegrationDTO>
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Issue a new webhook token; returns the token, URL and expiry. Pass an
+ * optional ISO expiry to select the token's lifetime.
+ */
+export async function regenerateQuotientWebhookToken(
+  expiresAt?: string | null
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>("/integrations/quotient/webhook-token", {
+    method: "POST",
+    body: JSON.stringify({ webhookExpiresAt: expiresAt ?? null }),
+  });
+}
+
+/** Revoke a webhook token by id (e.g. a leaked one). */
+export async function revokeQuotientWebhookToken(
+  id: number
+): Promise<QuotientIntegrationDTO> {
+  return frpFetch<QuotientIntegrationDTO>(
+    `/integrations/quotient/webhook-token/${id}`,
+    { method: "DELETE" }
+  );
+}
+
+// ----------------------------------------------- integration API keys
+
+export async function listIntegrationApiKeys(
+  provider: string
+): Promise<IntegrationApiKeyDTO[]> {
+  return frpFetch<IntegrationApiKeyDTO[]>(`/integrations/${provider}/api-key`);
+}
+
+export async function issueIntegrationApiKey(
+  provider: string,
+  body: { apiKey: string; expiresAt?: string | null }
+): Promise<IntegrationApiKeyDTO> {
+  return frpFetch<IntegrationApiKeyDTO>(`/integrations/${provider}/api-key`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function revokeIntegrationApiKey(
+  provider: string,
+  id: number
+): Promise<IntegrationApiKeyDTO> {
+  return frpFetch<IntegrationApiKeyDTO>(`/integrations/${provider}/api-key/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export async function logout(refreshToken: string): Promise<void> {
   await frpFetch(
     "/auth/logout",
@@ -280,6 +453,53 @@ export async function logout(refreshToken: string): Promise<void> {
 
 export async function fetchMe(): Promise<UserDTO> {
   return frpFetch<UserDTO>("/auth/me");
+}
+
+/** Profile fields a user may edit about themselves. */
+export interface MyProfileUpdate {
+  displayName: string;
+  mobileNumber?: string;
+}
+
+/**
+ * Update the signed-in user's own profile.
+ *
+ * The backend has no self-service endpoint yet — `/auth/me` is GET-only and
+ * `PUT /users` is gated behind USER_UPDATE, so it only works for users who
+ * already hold that privilege (org admins, super admins). Callers should gate
+ * the UI on {@link canEditOwnProfile}.
+ *
+ * `/auth/me` doesn't return `roleIds` (only `roleCodes`), so we fetch the
+ * user's own record via `GET /users/{id}` first to get the real role IDs to
+ * preserve — sending `roleIds: []` would fail backend validation and, if it
+ * didn't, would wipe the user's own roles.
+ *
+ * When the backend adds `PATCH /auth/me`, replace this body with a single
+ * frpFetch call and drop the privilege gate — no component changes needed.
+ */
+export async function updateMyProfile(
+  me: UserDTO,
+  patch: MyProfileUpdate
+): Promise<UserDTO> {
+  if (me.id == null) {
+    throw new FrpApiError(400, "Cannot update profile: missing user id");
+  }
+  const current = await getUser(me.id);
+  return updateUser({
+    id: me.id,
+    displayName: patch.displayName,
+    mobileNumber: patch.mobileNumber,
+    enabled: me.enabled ?? true,
+    // Preserved as-is — self-service editing must never change own roles.
+    roleIds: current.roleIds ?? [],
+  });
+}
+
+/** Whether the current user can persist their own profile edits today. */
+export function canEditOwnProfile(me: UserDTO | null): boolean {
+  return Boolean(
+    me?.id != null && me?.rolesPrivileges?.includes("USER_UPDATE")
+  );
 }
 
 export async function listOrganizations(
@@ -316,9 +536,19 @@ export async function listRoles(
 
 export async function listUsers(
   page = 0,
-  size = 20
+  size = 20,
+  organizationId?: number | null
 ): Promise<PageResponse<UserDTO>> {
+  if (organizationId != null) {
+    return frpFetch<PageResponse<UserDTO>>(
+      `/job-email-recipients/users?organizationId=${organizationId}&page=${page}&size=${size}`
+    );
+  }
   return frpFetch<PageResponse<UserDTO>>(`/users?page=${page}&size=${size}`);
+}
+
+export async function getUser(id: number): Promise<UserDTO> {
+  return frpFetch<UserDTO>(`/users/${id}`);
 }
 
 export async function createUser(body: CreateUserRequest): Promise<UserDTO> {
@@ -364,7 +594,9 @@ export async function listPrivileges(params?: {
   return frpFetch<PrivilegeDTO[]>(`/privileges${qs ? `?${qs}` : ""}`);
 }
 
-export async function createPrivilege(body: PrivilegeDTO): Promise<PrivilegeDTO> {
+export async function createPrivilege(
+  body: PrivilegeDTO
+): Promise<PrivilegeDTO> {
   return frpFetch<PrivilegeDTO>("/privileges", {
     method: "POST",
     body: JSON.stringify(body),
@@ -379,4 +611,986 @@ export async function updatePrivilege(
     method: "PUT",
     body: JSON.stringify(body),
   });
+}
+
+/* ------------------------------------------------------------------ jobs */
+
+/** Sort options `GET /jobs` accepts. Bound to the `JobSort` enum — a
+ *  Spring-style `field,dir` string is a 400, not a fallback. */
+export type FrpJobSort = "DUE_DATE" | "RECENT" | "OLDEST";
+
+export interface ListJobsParams {
+  search?: string;
+  sort?: FrpJobSort;
+  /** Backend `JobStatus` enum name, not a display label. */
+  status?: string;
+  /** Backend `JobPriority` enum name. */
+  priority?: string;
+  assignedTo?: number;
+  /** Earliest due date, inclusive. ISO `yyyy-MM-dd`. */
+  dueFrom?: string;
+  /** Latest due date, inclusive. ISO `yyyy-MM-dd`. */
+  dueTo?: string;
+}
+
+/**
+ * `GET /jobs` → `PageResponse<JobSummaryDTO>`.
+ *
+ * Size is capped at 200: `bms-api.yaml` sets `maximum: 200`, and the previous
+ * `size=500` made the Prism mock unusable for the dashboard.
+ */
+export async function listJobs(
+  page = 0,
+  size = 200,
+  params?: ListJobsParams
+): Promise<PageResponse<FrpJobSummaryDTO>> {
+  const q = new URLSearchParams({
+    page: String(page),
+    size: String(Math.min(size, 200)),
+  });
+  if (params?.search) q.set("search", params.search);
+  if (params?.sort) q.set("sort", params.sort);
+  if (params?.status) q.set("status", params.status);
+  if (params?.priority) q.set("priority", params.priority);
+  if (params?.assignedTo != null)
+    q.set("assignedTo", String(params.assignedTo));
+  if (params?.dueFrom) q.set("dueFrom", params.dueFrom);
+  if (params?.dueTo) q.set("dueTo", params.dueTo);
+  return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
+}
+
+/**
+ * `GET /jobs/upcoming-due` → the next jobs to fall due, soonest first.
+ *
+ * Not `listJobs({ sort: "DUE_DATE", dueTo })`: a ceiling alone matches
+ * every job already past its date, and ascending order then puts the most
+ * overdue first — a panel asking for the next deadlines filled with the oldest
+ * misses instead. This endpoint takes a floor and needs no range at all.
+ *
+ * Returns a plain array, not a page: it fills a fixed-size panel, so there is
+ * nothing to page through.
+ *
+ * @param limit rows to return; the server clamps to 50.
+ * @param assignedTo one person's jobs; omit for the whole organization.
+ * @param dueFrom ISO date (`yyyy-MM-dd`) to count from, inclusive. Defaults to
+ *                the server's today — pass a past date to include overdue.
+ */
+export async function listUpcomingDueJobs(params?: {
+  limit?: number;
+  assignedTo?: number | null;
+  dueFrom?: string;
+}): Promise<FrpJobSummaryDTO[]> {
+  const q = new URLSearchParams();
+  if (params?.limit != null) q.set("limit", String(params.limit));
+  if (params?.assignedTo != null) q.set("assignedTo", String(params.assignedTo));
+  if (params?.dueFrom) q.set("dueFrom", params.dueFrom);
+  return frpFetch<FrpJobSummaryDTO[]>(`/jobs/upcoming-due?${q}`);
+}
+
+/** `GET /jobs/counts` — org-wide, or scoped by customer and/or resin. */
+export async function getJobCounts(params?: {
+  companyName?: string;
+  resinCode?: string;
+}): Promise<FrpJobCountsDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  if (params?.resinCode?.trim()) q.set("resinCode", params.resinCode.trim());
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpJobCountsDTO>(`/jobs/counts${suffix}`);
+}
+
+/** Org dashboard rollup from `organization_count` (amounts in cents). */
+export type FrpOrganizationCountDTO = {
+  quoteCount?: number;
+  jobCount?: number;
+  activeJobsCount?: number;
+  quoteEventCount?: number;
+  quoteSentCount?: number;
+  customerViewedCount?: number;
+  customerQuestionCount?: number;
+  quoteAcceptedCount?: number;
+  quoteDeclinedCount?: number;
+  quoteCompletedCount?: number;
+  totalPaymentReceivedCount?: number;
+  totalPaymentReceivedAmount?: number;
+  cashCollectedPaymentAmount?: number;
+  accountCollectedPaymentAmount?: number;
+};
+
+/** `GET /jobs/organization-count` — single-row org KPI rollup. */
+export async function getOrganizationCount(): Promise<FrpOrganizationCountDTO> {
+  return frpFetch<FrpOrganizationCountDTO>("/jobs/organization-count");
+}
+
+/** `GET /jobs/resin-counts` — every resin category together. */
+export async function getJobResinCounts(params?: {
+  companyName?: string;
+}): Promise<FrpJobResinCountsDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpJobResinCountsDTO>(`/jobs/resin-counts${suffix}`);
+}
+
+export type FrpPeriodUnit = "DAYS" | "MONTHS";
+
+export type FrpJobPaymentMonthDTO = {
+  year: number;
+  month: number;
+  day?: number | null;
+  receivedAmount: number;
+};
+
+export type FrpJobPaymentHistoryDTO = {
+  /** Bucket granularity the server chose for this range. */
+  unit: FrpPeriodUnit;
+  /** How many buckets came back. */
+  period: number;
+  /** Range actually used, after the server applied its defaults. */
+  from?: string;
+  to?: string;
+  byMonth: FrpJobPaymentMonthDTO[];
+  totalReceivedAmount: number;
+};
+
+/**
+ * `GET /jobs/payment-history` — received totals across a date range.
+ *
+ * Omit both dates for the last 6 months. Granularity is the server's call, not
+ * the caller's: under two months it buckets by day, beyond that by month, so a
+ * long range cannot ask for hundreds of daily bars no chart can draw. The
+ * response reports which it used.
+ */
+export async function getJobPaymentHistory(params?: {
+  companyName?: string;
+  /** ISO `yyyy-MM-dd`, inclusive. */
+  from?: string;
+  /** ISO `yyyy-MM-dd`, inclusive. */
+  to?: string;
+}): Promise<FrpJobPaymentHistoryDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  if (params?.from) q.set("from", params.from);
+  if (params?.to) q.set("to", params.to);
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpJobPaymentHistoryDTO>(`/jobs/payment-history${suffix}`);
+}
+
+export type FrpQuoteEventCountDTO = {
+  eventType: string;
+  label: string;
+  count: number;
+  known: boolean;
+};
+
+export type FrpQuoteEventCountsSummaryDTO = {
+  total: number;
+  byType: FrpQuoteEventCountDTO[];
+};
+
+/** `GET /quotes/event-counts` — org rollup, or one customer when `companyName` is set. */
+export async function getQuoteEventCounts(params?: {
+  companyName?: string;
+  months?: number;
+}): Promise<FrpQuoteEventCountsSummaryDTO> {
+  const q = new URLSearchParams();
+  if (params?.companyName?.trim()) q.set("companyName", params.companyName.trim());
+  if (params?.months != null && params.months > 0) q.set("months", String(params.months));
+  const suffix = q.size ? `?${q}` : "";
+  return frpFetch<FrpQuoteEventCountsSummaryDTO>(`/quotes/event-counts${suffix}`);
+}
+
+export type FrpJobCompanyCountDTO = {
+  rank: number;
+  companyName: string;
+  jobCount: number;
+  quoteAcceptedCount?: number;
+  quoteEventCount?: number;
+  activeJobsCount?: number;
+  totalPaymentReceivedCount?: number;
+  /** Sum of received payments (cash + account), in minor units (cents). */
+  totalPaymentReceivedAmount?: number;
+  /** Sum of received cash payments, in minor units (cents). */
+  cashCollectedPaymentAmount?: number;
+  paymentMode?: "CASH" | "ACCOUNT";
+};
+
+/** `GET /jobs/top-clients` — ranked clients by job count. */
+export async function getTopClients(limit = 5): Promise<FrpJobCompanyCountDTO[]> {
+  return frpFetch<FrpJobCompanyCountDTO[]>(`/jobs/top-clients?limit=${limit}`);
+}
+
+/** `GET /jobs/clients` — paged CRM customer list. */
+export async function listClients(
+  page = 0,
+  size = 10,
+  filters?: { company?: string; paymentMode?: "CASH" | "ACCOUNT" }
+): Promise<PageResponse<FrpJobCompanyCountDTO>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const company = filters?.company?.trim();
+  if (company) {
+    params.set("company", company);
+  }
+  if (filters?.paymentMode) {
+    params.set("paymentMode", filters.paymentMode);
+  }
+  return frpFetch<PageResponse<FrpJobCompanyCountDTO>>(`/jobs/clients?${params}`);
+}
+
+/** `GET /jobs/client-names` — company names for the CRM search box. */
+export async function listClientNames(company?: string): Promise<string[]> {
+  const params = new URLSearchParams();
+  const term = company?.trim();
+  if (term) {
+    params.set("company", term);
+  }
+  const query = params.toString();
+  return frpFetch<string[]>(query ? `/jobs/client-names?${query}` : "/jobs/client-names");
+}
+
+export type FrpCrmOverviewDTO = {
+  companyName?: string;
+  paymentMode?: "CASH" | "ACCOUNT" | null;
+  clientSince?: string | null;
+  totalJobs?: number;
+  activeJobs?: number;
+  completedJobs?: number;
+  overdueJobs?: number;
+  quoteEventCount?: number;
+  quoteAcceptedCount?: number;
+  /** Received payments, minor units (cents). */
+  totalPaymentReceivedAmount?: number;
+  /** Open (due/overdue) payments, minor units (cents). */
+  outstandingAmount?: number;
+};
+
+export type FrpCrmPipelineSliceDTO = {
+  label: string;
+  stageKey: string;
+  count: number;
+};
+
+export type FrpCrmJobPipelineDTO = {
+  byStage?: FrpCrmPipelineSliceDTO[];
+  totalJobs?: number;
+  activeJobs?: number;
+  completedJobs?: number;
+  cancelledJobs?: number;
+};
+
+function crmCompanyPath(companyName: string): string {
+  return `/crm/${encodeURIComponent(companyName.trim())}`;
+}
+
+/** `GET /crm/{companyName}/overview` — KPI strip for one customer. */
+export async function getCrmOverview(companyName: string): Promise<FrpCrmOverviewDTO> {
+  return frpFetch<FrpCrmOverviewDTO>(`${crmCompanyPath(companyName)}/overview`);
+}
+
+/** `GET /crm/{companyName}/job-pipeline` — stage pie + job totals. */
+export async function getCrmJobPipeline(
+  companyName: string
+): Promise<FrpCrmJobPipelineDTO> {
+  return frpFetch<FrpCrmJobPipelineDTO>(`${crmCompanyPath(companyName)}/job-pipeline`);
+}
+
+export type FrpCrmQuestionDTO = {
+  quoteNumber: string;
+  quoteTitle: string;
+  text: string;
+  askedBy: string;
+  occurredAt?: string | null;
+};
+
+/** `GET /crm/{companyName}/questions` — latest customer_question events on this company's quotes. */
+export async function getCrmQuestions(
+  companyName: string
+): Promise<FrpCrmQuestionDTO[]> {
+  return frpFetch<FrpCrmQuestionDTO[]>(`${crmCompanyPath(companyName)}/questions`);
+}
+
+/** `GET /jobs/{id}` — full record including `jobCard`. */
+export async function getJob(dbId: string | number): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(`/jobs/${encodeURIComponent(String(dbId))}`);
+}
+
+/** `POST /jobs` — seeds the ten stages and an empty job card. */
+export async function createJob(body: FrpJobDTO): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>("/jobs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `PUT /jobs` — id travels in the body. Last-write-wins; no version token. */
+export async function updateJobApi(body: FrpJobDTO): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>("/jobs", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `PUT /jobs/{id}/job-card` — the card is replaced as a unit. */
+export async function saveJobCard(
+  dbId: string | number,
+  jobCard: FrpJobCardPayload
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`,
+    { method: "PUT", body: JSON.stringify(jobCard) }
+  );
+}
+
+/**
+ * `GET /jobs/{id}/job-card` — assembled print DTO (records JOB_CARD_DOWNLOADED).
+ * Call only for export/print, not casual UI load.
+ */
+export async function fetchJobCardExport(
+  dbId: string | number
+): Promise<JobCardExportDTO> {
+  return frpFetch<JobCardExportDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`
+  );
+}
+
+/** `PUT /jobs/{id}/contact-details` — the customer panel, saved alone. */
+export async function saveContactDetails(
+  dbId: string | number,
+  contactDetails: FrpJobContactDetailsDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/contact-details`,
+    { method: "PUT", body: JSON.stringify(contactDetails) }
+  );
+}
+
+/** `PUT /jobs/{id}/scheduling-logistics` — the logistics panel, saved alone. */
+export async function saveSchedulingLogistics(
+  dbId: string | number,
+  schedulingLogistics: FrpJobSchedulingLogisticsDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/scheduling-logistics`,
+    { method: "PUT", body: JSON.stringify(schedulingLogistics) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/measurements` — materials & specifications (`job_measurements`).
+ * Creates the row on first save; later calls update. Null fields are left alone.
+ */
+export async function saveJobMeasurements(
+  dbId: string | number,
+  body: FrpJobMeasurementDTO
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/measurements`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/payment` — mark received (or not) and/or set estimated due date.
+ * Null fields are left unchanged. Prefers the FINAL payment when several exist.
+ */
+export async function updateJobPayment(
+  dbId: string | number,
+  body: FrpJobPaymentUpdateRequest
+): Promise<FrpJobPaymentDTO> {
+  return frpFetch<FrpJobPaymentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/payment`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/requirements/{kind}` — decide one project requirement;
+ * returns all three rows (same pattern as payment kind on `job_payment`).
+ */
+export async function setJobRequirement(
+  dbId: string | number,
+  kind: ProjectRequirementKind,
+  required: boolean,
+  remarks?: string
+): Promise<FrpJobProjectRequirementDTO[]> {
+  const params = new URLSearchParams({ required: String(required) });
+  if (remarks?.trim()) {
+    params.set("remarks", remarks.trim());
+  }
+  return frpFetch<FrpJobProjectRequirementDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/requirements/${encodeURIComponent(kind)}?${params}`,
+    { method: "PUT" }
+  );
+}
+
+/**
+ * `GET /jobs/{id}/job-card` — fetches the card and records a
+ * `JOB_CARD_DOWNLOADED` audit row against the caller. Call this when the user
+ * downloads/prints the card so the pull is tracked; the returned DTO is the
+ * same shape as {@link getJob}'s but carries the card without the detail joins.
+ */
+export async function downloadJobCard(
+  dbId: string | number
+): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-card`
+  );
+}
+
+/** Matches the backend's whitelisted `com.argus.frp.Enum.ExportKind`. */
+export type FrpExportKind = "JOB_CARD" | "LOC";
+
+/**
+ * `POST /jobs/{id}/audit` — records that this user exported a document for
+ * the job (the audit row written depends on `type`; see `ExportKind` on the
+ * backend). Generic in place of one-off `downloadX` calls per document
+ * type — call this after printing/exporting so the export is tracked;
+ * there is nothing meaningful in the response.
+ */
+export async function recordJobAudit(
+  dbId: string | number,
+  type: FrpExportKind
+): Promise<void> {
+  await frpFetch<void>(`/jobs/${encodeURIComponent(String(dbId))}/audit`, {
+    method: "POST",
+    body: JSON.stringify({ type }),
+  });
+}
+
+/** `DELETE /jobs/{id}` — soft cancel, sets `stageStatus = CANCELLED`. */
+export async function cancelJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}`, {
+    method: "DELETE",
+  });
+}
+
+/** `PUT /jobs/{id}/hold` — blocks the job's current milestone, sets `stageStatus = ON_HOLD`. */
+export async function holdJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/hold`, {
+    method: "PUT",
+  });
+}
+
+/** `PUT /jobs/{id}/resume` — un-pauses a job held via {@link holdJob}. */
+export async function resumeJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/resume`, {
+    method: "PUT",
+  });
+}
+
+export async function listJobAudit(
+  dbId: string | number,
+  page = 0,
+  size = 50
+): Promise<PageResponse<FrpJobAuditHistoryDTO>> {
+  return frpFetch<PageResponse<FrpJobAuditHistoryDTO>>(
+    `/jobs/${encodeURIComponent(String(dbId))}/audit?page=${page}&size=${size}`
+  );
+}
+
+
+/* ---------------------------------------------------------------- stages */
+
+/** `GET /jobs/{id}/stages` — milestones with their operations nested. */
+export async function listJobStages(
+  dbId: string | number
+): Promise<FrpJobStageDTO[]> {
+  return frpFetch<FrpJobStageDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/stages`
+  );
+}
+
+/** `PUT /jobs/{id}/stages/{stageId}` — recomputes `job.stageStatus`. */
+export async function updateJobStage(
+  dbId: string | number,
+  stageId: number,
+  body: FrpJobStageUpdateRequest,
+  files?: File[]
+): Promise<FrpJobStageDTO> {
+  const path = `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}`;
+  if (files && files.length > 0) {
+    const form = new FormData();
+    form.append(
+      "request",
+      new Blob([JSON.stringify(body)], { type: "application/json" })
+    );
+    for (const file of files) {
+      form.append("files", file, file.name);
+    }
+    return frpFetch<FrpJobStageDTO>(path, { method: "PUT", body: form });
+  }
+  return frpFetch<FrpJobStageDTO>(path, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `POST /jobs/{id}/stages/{stageId}/scan` — idempotent shop-floor scan. */
+export async function scanJobStage(
+  dbId: string | number,
+  stageId: number
+): Promise<FrpJobStageDTO> {
+  return frpFetch<FrpJobStageDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/stages/${stageId}/scan`,
+    { method: "POST" }
+  );
+}
+
+/* -------------------------------------------------------------- documents */
+
+/** `GET /jobs/{id}/documents` — soft-deleted excluded. */
+export async function listJobDocuments(
+  dbId: string | number,
+  params?: {
+    type?: FrpDocumentType;
+    editedBy?: number;
+    sort?: FrpDocumentSort;
+  }
+): Promise<FrpJobDocumentDTO[]> {
+  const q = new URLSearchParams();
+  if (params?.type) q.set("type", params.type);
+  if (params?.editedBy != null) q.set("editedBy", String(params.editedBy));
+  if (params?.sort) q.set("sort", params.sort);
+  const qs = q.toString();
+  return frpFetch<FrpJobDocumentDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents${qs ? `?${qs}` : ""}`
+  );
+}
+
+/** `POST /jobs/{id}/documents` — multipart upload, one file per call. */
+export async function uploadJobDocument(
+  dbId: string | number,
+  params: {
+    jobStageId?: number;
+    attachToJob?: boolean;
+    file: File;
+    documentName?: string;
+    remarks?: string;
+  }
+): Promise<FrpJobDocumentDTO> {
+  const form = new FormData();
+  if (params.attachToJob) {
+    form.set("attachToJob", "true");
+  } else if (params.jobStageId != null) {
+    form.set("jobStageId", String(params.jobStageId));
+  }
+  form.append("file", params.file, params.file.name);
+  if (params.documentName) form.set("documentName", params.documentName);
+  if (params.remarks) form.set("remarks", params.remarks);
+
+  // Query string as well: Spring binds `@RequestParam` from the URL even when
+  // multipart text fields are not exposed as request parameters. Mirrors the
+  // form body exactly — an attachToJob upload has no stage, so jobStageId is
+  // omitted rather than sent as the string "undefined".
+  const q = new URLSearchParams();
+  if (params.attachToJob) {
+    q.set("attachToJob", "true");
+  } else if (params.jobStageId != null) {
+    q.set("jobStageId", String(params.jobStageId));
+  }
+  const query = q.toString();
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents${query ? `?${query}` : ""}`,
+    { method: "POST", body: form }
+  );
+}
+
+/**
+ * `POST /jobs/{jobId}/documents/po` — hand-keyed purchase order (JSON, no file).
+ * No OCR / LLM; the server writes `documentData` in the extractor's keys with
+ * `extractionStatus=SKIPPED` so compare treats it like an extracted PO.
+ */
+export async function createManualPoDocument(
+  dbId: string | number,
+  body: FrpManualPoRequest
+): Promise<FrpJobDocumentDTO> {
+  return frpFetch<FrpJobDocumentDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents/po`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+}
+
+/**
+ * `GET /jobs/{jobId}/documents/{documentId}/compare` — PRODUCTION docs only.
+ * Compares extracted / edited PO data against the job quote.
+ */
+export async function compareJobDocument(
+  dbId: string | number,
+  documentId: number
+): Promise<FrpPoComparisonDTO> {
+  return frpFetch<FrpPoComparisonDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/documents/${documentId}/compare`
+  );
+}
+
+/** `PUT /documents/{id}` — partial update (status, remarks, editedDocumentData, …). */
+export async function updateJobDocument(
+  id: number,
+  body: FrpJobDocumentUpdateRequest
+): Promise<FrpJobDocumentDTO> {
+  return frpFetch<FrpJobDocumentDTO>(`/documents/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `GET /documents/{id}/download` — short-lived signed SharePoint URL. */
+export async function downloadJobDocument(
+  id: number
+): Promise<FrpDocumentDownloadDTO> {
+  return frpFetch<FrpDocumentDownloadDTO>(`/documents/${id}/download`);
+}
+
+/** `DELETE /documents/{id}`. */
+export async function deleteJobDocument(id: number): Promise<void> {
+  await frpFetch<void>(`/documents/${id}`, { method: "DELETE" });
+}
+
+/**
+ * `GET /master-inventory` — the org's product catalogue. Job users with
+ * `MASTER_INVENTORY_READ` (granted alongside `INVENTORY_READ`) can list it
+ * so the Add Inventory picker has something to choose from.
+ */
+export async function listMasterInventory(): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory");
+}
+
+/** `POST /master-inventory` — add one or more catalogue items (org admin). */
+export async function addMasterInventory(
+  body: FrpMasterInventoryDTO[]
+): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `PUT /master-inventory` — update catalogue items (org admin). Pass one row as `[item]`. */
+export async function updateMasterInventory(
+  body: FrpMasterInventoryDTO[]
+): Promise<FrpMasterInventoryDTO[]> {
+  return frpFetch<FrpMasterInventoryDTO[]>("/master-inventory", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `DELETE /master-inventory` — remove catalogue items. Pass one id as `[id]`. */
+export async function deleteMasterInventory(ids: number[]): Promise<void> {
+  await frpFetch<void>("/master-inventory", {
+    method: "DELETE",
+    body: JSON.stringify(ids),
+  });
+}
+
+/**
+ * `GET /jobs/{id}/job-inventory` — catalogue items this job consumes.
+ * Also returned inline on `GET /jobs/{id}` (`Job.inventory`); call this only
+ * when the list needs to be refreshed on its own.
+ */
+export async function listJobInventory(
+  dbId: string | number
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`
+  );
+}
+
+/** `PUT /jobs/{id}/job-inventory` — replace the job's lines in one call. */
+export async function replaceJobInventory(
+  dbId: string | number,
+  body: Array<{ masterInventoryId: number; quantity: number }>
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`,
+    { method: "PUT", body: JSON.stringify(body) }
+  );
+}
+
+/** `POST /jobs/{id}/job-inventory` — attach catalogue items (upsert by item). */
+export async function addJobInventory(
+  dbId: string | number,
+  body: Array<{ masterInventoryId: number; quantity: number }>
+): Promise<FrpJobInventoryDTO[]> {
+  return frpFetch<FrpJobInventoryDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+}
+
+/** `DELETE /jobs/{id}/job-inventory` — remove lines by id. */
+export async function deleteJobInventoryLines(
+  dbId: string | number,
+  ids: number[]
+): Promise<void> {
+  await frpFetch<void>(
+    `/jobs/${encodeURIComponent(String(dbId))}/job-inventory`,
+    { method: "DELETE", body: JSON.stringify(ids) }
+  );
+}
+
+/**
+ * Move a job to a target status.
+ *
+ * `stageStatus` is `READ_ONLY` on `JobDTO` and recomputed by the stage service,
+ * so a status change is a stage change. `CANCELLED` is the exception — it has
+ * its own endpoint. Throws when the target is not reachable, rather than
+ * appearing to succeed.
+ */
+export async function advanceJobStatus(
+  dbId: string | number,
+  target: BackendJobStatus
+): Promise<void> {
+  if (target === "CANCELLED") {
+    await cancelJob(dbId);
+    return;
+  }
+  const plan = STATUS_TARGET_STAGE[target];
+  if (!plan) {
+    throw new FrpApiError(400, `No stage transition maps to ${target}.`);
+  }
+  const stages = await listJobStages(dbId);
+  const match = stages.find((s) => s.stageKey === plan.stageKey);
+  if (!match?.id) {
+    throw new FrpApiError(
+      404,
+      `Job has no "${plan.stageKey}" stage, so it cannot move to ${target}.`
+    );
+  }
+  await updateJobStage(dbId, match.id, { status: plan.status });
+}
+
+/** Backend `QuoteStatus` enum — mirrors `Enum/QuoteStatus.java`. */
+export type FrpQuoteStatus =
+  | "AWAITING_ACCEPTANCE"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "EXPIRED"
+  | "COMPLETED";
+
+export async function listQuotes(
+  page = 0,
+  size = 100,
+  filters?: {
+    status?: FrpQuoteStatus | FrpQuoteStatus[];
+    company?: string | string[];
+  }
+): Promise<PageResponse<Record<string, unknown>>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const statuses = filters?.status
+    ? Array.isArray(filters.status)
+      ? filters.status
+      : [filters.status]
+    : [];
+  for (const s of statuses) {
+    if (s) params.append("status", s);
+  }
+  const companies = filters?.company
+    ? Array.isArray(filters.company)
+      ? filters.company
+      : [filters.company]
+    : [];
+  for (const c of companies) {
+    if (c?.trim()) params.append("company", c.trim());
+  }
+  return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes?${params}`);
+}
+
+/**
+ * `GET /quotes/search` — free-text across company, title, quote number
+ * (like `GET /jobs?search=`). Separate from {@link listQuotes} multi-company filter.
+ */
+export async function searchQuotes(
+  page = 0,
+  size = 100,
+  filters?: {
+    search?: string;
+    status?: FrpQuoteStatus | FrpQuoteStatus[];
+  }
+): Promise<PageResponse<Record<string, unknown>>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  const term = filters?.search?.trim();
+  if (term) params.set("search", term);
+  const statuses = filters?.status
+    ? Array.isArray(filters.status)
+      ? filters.status
+      : [filters.status]
+    : [];
+  for (const s of statuses) {
+    if (s) params.append("status", s);
+  }
+  return frpFetch<PageResponse<Record<string, unknown>>>(`/quotes/search?${params}`);
+}
+
+/** Null when no quote exists with that number in the caller's organization. */
+export async function getQuote(
+  quoteNumber: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await frpFetch<Record<string, unknown>>(
+      `/quotes/${encodeURIComponent(quoteNumber)}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && err.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** One ingest event by id, with full detail (incl. raw payload).
+ *  Null when no event exists with that id. */
+export async function getQuoteEvent(
+  eventId: number | string
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await frpFetch<Record<string, unknown>>(
+      `/quotes/events/${encodeURIComponent(String(eventId))}`
+    );
+  } catch (err) {
+    if (err instanceof FrpApiError && err.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/* --------------------------------------------------------------- job chat */
+
+/**
+ * `GET /jobs/{id}/messages` — the thread, newest first.
+ *
+ * History only: read backwards a page at a time. Polling for new messages is
+ * `getNewJobMessages`.
+ */
+export async function listJobMessages(
+  dbId: string | number,
+  opts?: { page?: number; size?: number }
+): Promise<PageResponse<GroupChatDTO>> {
+  const params = new URLSearchParams({
+    page: String(opts?.page ?? 0),
+    size: String(opts?.size ?? 20),
+  });
+  return frpFetch<PageResponse<GroupChatDTO>>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages?${params.toString()}`
+  );
+}
+
+/**
+ * `GET /jobs/{id}/messages/new` — everything after a message already held,
+ * oldest first.
+ *
+ * Keyed on an id, not a timestamp. Two messages posted in the same
+ * millisecond share a `sentAt`, so a time cursor either re-sends them on every
+ * poll or skips one permanently, and the client cannot tell which. An id is
+ * unique and monotonic, so `afterId` has exactly one answer.
+ *
+ * Returns a plain array: a poll appends to a thread the caller already holds,
+ * so there is nothing to page through.
+ */
+export async function getNewJobMessages(
+  dbId: string | number,
+  afterId: number,
+  limit = 50
+): Promise<GroupChatDTO[]> {
+  const params = new URLSearchParams({
+    afterId: String(afterId),
+    limit: String(limit),
+  });
+  return frpFetch<GroupChatDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/new?${params.toString()}`
+  );
+}
+
+/**
+ * `POST /jobs/{id}/messages`.
+ *
+ * `clientMsgId` is optional to the server but should always be sent: the
+ * unique index on it turns a retry after a dropped connection into a no-op
+ * that returns the original message, instead of posting twice.
+ *
+ * `@all` in the body is detected server-side and notifies every other
+ * MESSAGE_READ holder in the organization.
+ */
+export async function postJobMessage(
+  dbId: string | number,
+  body: string,
+  opts?: { clientMsgId?: string; tag?: GroupChatDTO["tag"] }
+): Promise<GroupChatDTO> {
+  return frpFetch<GroupChatDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        body,
+        clientMsgId: opts?.clientMsgId ?? null,
+        tag: opts?.tag ?? null,
+      }),
+    }
+  );
+}
+
+/**
+ * `POST /jobs/{id}/messages/read` — advance this user's watermark.
+ *
+ * Also clears their notifications for the job up to that message, so reading
+ * the thread puts the red dot out without a second trip to the panel.
+ */
+export async function markThreadRead(
+  dbId: string | number,
+  lastReadMessageId: number
+): Promise<void> {
+  await frpFetch<void>(
+    `/jobs/${encodeURIComponent(String(dbId))}/messages/read`,
+    { method: "POST", body: JSON.stringify({ lastReadMessageId }) }
+  );
+}
+
+/* ----------------------------------------------------------- notifications */
+
+/**
+ * `GET /notifications/summary` — the badge poll.
+ *
+ * Every signed-in user calls this every 45 seconds, so it returns two numbers
+ * and nothing else. The caller is always the current user; there is no way to
+ * request someone else's inbox.
+ */
+export async function getNotificationSummary(): Promise<NotificationSummaryDTO> {
+  return frpFetch<NotificationSummaryDTO>("/notifications/summary");
+}
+
+/** `GET /notifications` — the panel. Read and unread together by default. */
+export async function listNotifications(opts?: {
+  unreadOnly?: boolean;
+  page?: number;
+  size?: number;
+}): Promise<PageResponse<NotificationDTO>> {
+  const params = new URLSearchParams({
+    unreadOnly: String(opts?.unreadOnly ?? false),
+    page: String(opts?.page ?? 0),
+    size: String(opts?.size ?? 20),
+  });
+  return frpFetch<PageResponse<NotificationDTO>>(
+    `/notifications?${params.toString()}`
+  );
+}
+
+/**
+ * `POST /notifications/read` — mark specific rows, or everything up to an id.
+ *
+ * Only the caller's own notifications are affected: passing an id belonging to
+ * a colleague updates zero rows server-side.
+ */
+export async function markNotificationsRead(
+  target: { ids: number[] } | { upToId: number }
+): Promise<void> {
+  await frpFetch<void>("/notifications/read", {
+    method: "POST",
+    body: JSON.stringify(target),
+  });
+}
+
+/** `POST /notifications/read-all`. */
+export async function markAllNotificationsRead(): Promise<void> {
+  await frpFetch<void>("/notifications/read-all", { method: "POST" });
 }

@@ -1,49 +1,94 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CalendarDays, Layers, Sparkles } from "lucide-react";
 import { DashboardKpiCards } from "@/components/DashboardKpiCards";
 import { LaborCommandCenterDrawer } from "@/components/LaborCommandCenterDrawer";
 import { ReadyToManufacturePieChart } from "@/components/ReadyToManufacturePieChart";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
+import { useAuth } from "@/context/AuthContext";
+import { listJobs, listUpcomingDueJobs } from "@/lib/frp/api";
+import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
+import { formatShortDate } from "@/lib/jobData";
 import type { Job } from "@/lib/types";
-
-function pickRecentJobs(allJobs: Job[]): Job[] {
-  return [...allJobs]
-    .sort((a, b) => {
-      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      if (bTime !== aTime) return bTime - aTime;
-      return b.id.localeCompare(a.id);
-    })
-    .slice(0, 6);
-}
 
 function isActiveJob(job: Job): boolean {
   return job.status !== "Complete" && job.status !== "Cancelled";
 }
 
-function parseDueDate(job: Job): number | null {
-  if (!job.dueDate) return null;
-  const ts = new Date(job.dueDate).getTime();
-  return Number.isFinite(ts) ? ts : null;
+/**
+ * Row-by-row visibility for the Recent Jobs list, keyed by viewport height
+ * rather than a fixed count - the first 4 rows always show, and each
+ * further row only appears once the screen is tall enough to fit it.
+ * Literal class strings required for Tailwind's scanner.
+ */
+const RECENT_JOB_ROW_VISIBILITY_BLOCK = [
+  "block",
+  "block",
+  "block",
+  "block",
+  "hidden [@media(min-height:600px)]:block",
+  "hidden [@media(min-height:700px)]:block",
+  "hidden [@media(min-height:800px)]:block",
+  "hidden [@media(min-height:900px)]:block",
+  "hidden [@media(min-height:1000px)]:block",
+  "hidden [@media(min-height:1100px)]:block",
+] as const;
+
+const RECENT_JOB_ROW_VISIBILITY_TABLE_ROW = [
+  "table-row",
+  "table-row",
+  "table-row",
+  "table-row",
+  "hidden [@media(min-height:600px)]:table-row",
+  "hidden [@media(min-height:700px)]:table-row",
+  "hidden [@media(min-height:800px)]:table-row",
+  "hidden [@media(min-height:900px)]:table-row",
+  "hidden [@media(min-height:1000px)]:table-row",
+  "hidden [@media(min-height:1100px)]:table-row",
+] as const;
+
+const UPCOMING_DUE_LIMIT = 4;
+const RECENT_JOBS_LIMIT = 10;
+/** Org-wide upcoming + overdue table (generic, not assignee-scoped). */
+const ORG_DUE_LIST_LIMIT = 10;
+const DUE_WINDOW_MONTHS = 3;
+
+function todayIso(): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
 }
 
-function pickUpcomingJobs(allJobs: Job[]): Job[] {
-  const now = Date.now();
-  return [...allJobs]
-    .filter((job) => isActiveJob(job) && parseDueDate(job) != null)
-    .sort((a, b) => {
-      const aDue = parseDueDate(a) ?? Number.MAX_SAFE_INTEGER;
-      const bDue = parseDueDate(b) ?? Number.MAX_SAFE_INTEGER;
-      const aDelta = Math.abs(aDue - now);
-      const bDelta = Math.abs(bDue - now);
-      if (aDelta !== bDelta) return aDelta - bDelta;
-      return a.id.localeCompare(b.id);
-    })
-    .slice(0, 4);
+/** ISO date shifted by calendar months (local noon). */
+function isoDatePlusMonths(months: number): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Strictly past, matching `JobRepository.countOverdue`'s `dueDate < :today` —
+ * the KPI card and this list have to agree on what overdue means, or the count
+ * and the rows below it differ by however many jobs fall due today.
+ *
+ * The request's `dueTo=today` ceiling is inclusive, so today's jobs do
+ * arrive and are dropped here on purpose. A job due today has not missed its
+ * deadline yet; it belongs to Upcoming Due, whose floor is today.
+ */
+function isOverdueDueDate(dueDate: string | null | undefined, today: string): boolean {
+  return !!dueDate && dueDate < today;
+}
+
+function pickOverdueJobs(jobs: Job[], today: string, limit: number): Job[] {
+  return jobs
+    .filter((job) => isOverdueDueDate(job.dueDate, today))
+    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
+    .slice(0, limit);
 }
 
 function pickPriorityQueue(allJobs: Job[]): Job[] {
@@ -58,37 +103,97 @@ function pickPriorityQueue(allJobs: Job[]): Job[] {
 }
 
 export function Dashboard() {
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerRebalanceFocus, setDrawerRebalanceFocus] = useState(false);
+  const [upcomingJobs, setUpcomingJobs] = useState<Job[]>([]);
+  const [recentJobs, setRecentJobs] = useState<Job[]>([]);
+  const [orgDueJobs, setOrgDueJobs] = useState<Job[]>([]);
   const { isManager } = usePersona();
-  const { jobs } = useJobs();
-  const recentJobs = useMemo(() => pickRecentJobs(jobs), [jobs]);
+  const { user } = useAuth();
+  const myUserId = user?.id ?? null;
+  const { jobs, counts } = useJobs();
   const recentUpdates = useMemo(() => recentJobs.slice(0, 3), [recentJobs]);
-  const upcomingJobs = useMemo(() => pickUpcomingJobs(jobs), [jobs]);
   const priorityQueue = useMemo(() => pickPriorityQueue(jobs), [jobs]);
-  const delayedCount = useMemo(() => {
-    const now = Date.now();
-    return jobs.filter((job) => {
-      const due = parseDueDate(job);
-      return due != null && due < now && isActiveJob(job);
-    }).length;
-  }, [jobs]);
-  const readyCount = useMemo(
-    () => jobs.filter((job) => job.status === "Ready to Manufacture").length,
-    [jobs]
-  );
-  const fabricationCount = useMemo(
-    () => jobs.filter((job) => job.status === "In Fabrication").length,
-    [jobs]
-  );
-  const awaitingCount = useMemo(
-    () => jobs.filter((job) => job.status === "Awaiting Manager Approval").length,
-    [jobs]
-  );
-  const totalActive = useMemo(
-    () => jobs.filter((job) => isActiveJob(job)).length || 1,
-    [jobs]
-  );
+  // Every count below is org-wide, from GET /jobs/counts — not a tally of the
+  // page this browser happens to have loaded.
+  const delayedCount = counts.overdue;
+  const readyCount = counts.ready;
+  const fabricationCount = counts.manufacturing;
+  const awaitingCount = counts.awaitingApproval;
+  const totalActive = counts.active || 1;
+
+  // Jobs assigned to the signed-in user only.
+  useEffect(() => {
+    if (myUserId == null) {
+      setUpcomingJobs([]);
+      setRecentJobs([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      // The server applies the date floor, the active filter and the limit, so
+      // nothing here has to trim the result. Asking /jobs with only a
+      // instead returned everything already overdue, soonest-first — so this
+      // panel showed the oldest misses rather than the next deadlines.
+      listUpcomingDueJobs({ limit: UPCOMING_DUE_LIMIT, assignedTo: myUserId }),
+      listJobs(0, RECENT_JOBS_LIMIT, {
+        sort: "RECENT",
+        assignedTo: myUserId,
+      }),
+    ])
+      .then(([dueJobs, recentPage]) => {
+        if (cancelled) return;
+        setUpcomingJobs(dueJobs.map(frpJobSummaryToUi));
+        setRecentJobs(
+          (recentPage.content ?? [])
+            .map(frpJobSummaryToUi)
+            .slice(0, RECENT_JOBS_LIMIT)
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUpcomingJobs([]);
+          setRecentJobs([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [myUserId]);
+
+  // Org-wide overdue only (dueDate < today), ±3 month lower bound, max 10.
+  useEffect(() => {
+    if (!isManager) {
+      setOrgDueJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const today = todayIso();
+    const earliestDue = isoDatePlusMonths(-DUE_WINDOW_MONTHS);
+    void listJobs(0, 200, {
+      sort: "DUE_DATE",
+      dueTo: today,
+    })
+      .then((page) => {
+        if (cancelled) return;
+        const candidates = (page.content ?? [])
+          .map(frpJobSummaryToUi)
+          .filter(
+            (job) =>
+              isActiveJob(job) &&
+              !!job.dueDate &&
+              job.dueDate >= earliestDue
+          );
+        setOrgDueJobs(pickOverdueJobs(candidates, today, ORG_DUE_LIST_LIMIT));
+      })
+      .catch(() => {
+        if (!cancelled) setOrgDueJobs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isManager]);
 
   const openDrawer = (rebalance = false) => {
     setDrawerRebalanceFocus(rebalance);
@@ -100,31 +205,18 @@ export function Dashboard() {
     setDrawerRebalanceFocus(false);
   };
 
-  const deliveredCount = useMemo(
-    () => jobs.filter((job) => job.status === "Complete").length,
-    [jobs]
-  );
-  const manufacturingNowCount = useMemo(
-    () => jobs.filter((job) => job.status === "In Fabrication").length,
-    [jobs]
-  );
-  const notStartedCount = useMemo(
-    () =>
-      jobs.filter(
-        (job) =>
-          job.status === "Pending" ||
-          job.status === "Awaiting Manager Approval" ||
-          job.status === "Ready to Manufacture"
-      ).length,
-    [jobs]
-  );
+  const deliveredCount = counts.delivered;
+  // Same buckets as the KPI cards — do not fold awaiting/ready into "not started".
+  const manufacturingNowCount = counts.manufacturing + counts.ready;
+  const notStartedCount = counts.notStarted;
   const breakdownTotal = Math.max(
     1,
-    deliveredCount + manufacturingNowCount + notStartedCount
+    deliveredCount + manufacturingNowCount + notStartedCount + counts.awaitingApproval
   );
   const breakdownSegments = [
     { label: "DELIVERED", value: deliveredCount, color: "#10B981" },
     { label: "MANUFACTURING", value: manufacturingNowCount, color: "#F59E0B" },
+    { label: "AWAITING", value: counts.awaitingApproval, color: "#8B5CF6" },
     { label: "NOT STARTED", value: notStartedCount, color: "#EF4444" },
   ];
   const donutRadius = 34;
@@ -160,7 +252,7 @@ export function Dashboard() {
 
           <section
             className={`grid w-full min-w-0 items-start gap-3 ${
-              isManager
+              myUserId != null
                 ? "md:grid-cols-2 xl:grid-cols-[1.35fr_0.65fr] xl:items-stretch"
                 : "mx-auto w-full max-w-xl"
             }`}
@@ -254,7 +346,7 @@ export function Dashboard() {
               </details>
             </section>
 
-            {isManager && (
+            {myUserId != null && (
               <section className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm" aria-label="Upcoming due">
                 <div className="border-b border-slate-100 pb-1.5">
                   <h2 className="text-sm font-semibold text-slate-900">Upcoming Due</h2>
@@ -262,7 +354,7 @@ export function Dashboard() {
                 <div className="mt-1.5 space-y-1.5">
                   {upcomingJobs.length === 0 ? (
                     <p className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
-                      No due jobs scheduled.
+                      No jobs assigned to you with a due date.
                     </p>
                   ) : (
                     upcomingJobs.map((job) => (
@@ -277,7 +369,7 @@ export function Dashboard() {
                             <p className="truncate text-[10px] text-slate-500">{job.clientName}</p>
                           </div>
                           <span className="shrink-0 text-[10px] font-semibold text-slate-600">
-                            {job.dueDate ?? "N/A"}
+                            {formatShortDate(job.dueDate)}
                           </span>
                         </div>
                       </Link>
@@ -313,9 +405,9 @@ export function Dashboard() {
             )}
           </section>
 
-          {isManager && (
+          {myUserId != null && (
             <section
-              className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
               aria-label="Recent jobs"
             >
               <div className="border-b border-slate-100 px-3 py-2 sm:px-4">
@@ -324,9 +416,11 @@ export function Dashboard() {
                     <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
                       Recent Jobs
                     </h2>
-                    <p className="mt-0.5 text-xs text-slate-600">
-                      Latest programs entering the fabrication pipeline.
-                    </p>
+                    {false && (
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        Latest programs entering the fabrication pipeline.
+                      </p>
+                    )}
                   </div>
                   <Link
                     href="/jobs"
@@ -336,12 +430,18 @@ export function Dashboard() {
                   </Link>
                 </div>
               </div>
+              {recentJobs.length === 0 ? (
+                <p className="m-2.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+                  No jobs assigned to you yet.
+                </p>
+              ) : (
+                <>
               <div className="space-y-1 p-2.5 lg:hidden">
-                {recentJobs.map((job) => (
+                {recentJobs.map((job, index) => (
                   <Link
                     key={job.id}
                     href={`/jobs/${job.id}`}
-                    className="block rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50"
+                    className={`${RECENT_JOB_ROW_VISIBILITY_BLOCK[index] ?? "hidden"} rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-xs font-semibold text-slate-900">{job.id}</p>
@@ -355,7 +455,7 @@ export function Dashboard() {
                 ))}
               </div>
               <div className="hidden min-w-0 lg:block">
-                <div className="max-h-[8.6rem] overflow-auto">
+                <div className="overflow-auto">
                   <table className="w-full min-w-[620px] text-left">
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
@@ -366,12 +466,23 @@ export function Dashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                    {recentJobs.map((job) => (
-                      <tr key={job.id} className="hover:bg-slate-50/70">
+                    {recentJobs.map((job, index) => (
+                      <tr
+                        key={job.id}
+                        role="link"
+                        tabIndex={0}
+                        aria-label={`Open job ${job.id}`}
+                        onClick={() => router.push(`/jobs/${job.id}`)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(`/jobs/${job.id}`);
+                          }
+                        }}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
+                      >
                         <td className="px-3 py-1.5 font-medium text-slate-900">
-                          <Link href={`/jobs/${job.id}`} className="hover:text-amber-700">
-                            {job.id}
-                          </Link>
+                          {job.id}
                         </td>
                         <td className="px-3 py-1.5 text-slate-700">{job.clientName}</td>
                         <td className="px-3 py-1.5 text-slate-700">{job.projectName}</td>
@@ -386,6 +497,124 @@ export function Dashboard() {
                 </table>
                 </div>
               </div>
+                </>
+              )}
+            </section>
+          )}
+
+          {isManager && (
+            <section
+              className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              aria-label="Overdue jobs"
+            >
+              <div className="border-b border-slate-100 px-3 py-2 sm:px-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
+                      Overdue Jobs
+                    </h2>
+                  </div>
+                  <Link
+                    href="/jobs"
+                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                  >
+                    View All →
+                  </Link>
+                </div>
+              </div>
+              {orgDueJobs.length === 0 ? (
+                <p className="m-2.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+                  No overdue jobs in the ±{DUE_WINDOW_MONTHS} month window.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1 p-2.5 lg:hidden">
+                    {orgDueJobs.map((job, index) => (
+                      <Link
+                        key={`org-due-${job.id}`}
+                        href={`/jobs/${job.id}`}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_BLOCK[index] ?? "hidden"} rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-900">
+                            {job.id}
+                          </p>
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                            {job.priority}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-700">
+                          {job.clientName}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Due {formatShortDate(job.dueDate)} · {job.status}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="hidden min-w-0 lg:block">
+                    <div className="overflow-auto">
+                      <table className="w-full min-w-[620px] text-left">
+                        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Job
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Client
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Project / Description
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Due
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold text-right">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {orgDueJobs.map((job, index) => (
+                            <tr
+                              key={`org-due-row-${job.id}`}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Open job ${job.id}`}
+                              onClick={() => router.push(`/jobs/${job.id}`)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  router.push(`/jobs/${job.id}`);
+                                }
+                              }}
+                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
+                            >
+                              <td className="px-3 py-1.5 font-medium text-slate-900">
+                                {job.id}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {job.clientName}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {job.projectName}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {formatShortDate(job.dueDate)}
+                              </td>
+                              <td className="px-3 py-1.5 text-right text-slate-700">
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                                  {job.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </section>
           )}
 

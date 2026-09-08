@@ -717,7 +717,10 @@
   }
 
   .official-jc-page--2 .official-jc-footer-left {
-    display: none !important;
+    grid-column: 1;
+    justify-self: start;
+    min-width: 0;
+    font-size: 6.5pt;
   }
 
   .official-jc-page--2 .official-jc-footer-center {
