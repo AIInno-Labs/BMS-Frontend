@@ -61,6 +61,7 @@ const orgUserManagerLinks: NavLink[] = [
     href: "/crm",
     label: "Customers",
     icon: Contact,
+    accessKey: ACCESS_KEYS.CUSTOMERS_VIEW,
   },
   { href: "/settings/profile", label: "Profile", icon: UserCircle },
 ];

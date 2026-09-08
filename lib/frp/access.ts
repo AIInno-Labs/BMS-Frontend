@@ -17,6 +17,7 @@ export const ACCESS_KEYS = {
   QUOTES_VIEW: "QUOTES_VIEW",
   ANALYTICS_VIEW: "ANALYTICS_VIEW",
   QUOTIENT_VIEW: "QUOTIENT_VIEW",
+  CUSTOMERS_VIEW: "CUSTOMERS_VIEW",
   SECURITY_VIEW: "SECURITY_VIEW",
   NOTIFICATIONS_VIEW: "NOTIFICATIONS_VIEW",
   JOB_CHAT_VIEW: "JOB_CHAT_VIEW",
@@ -45,6 +46,7 @@ export const MENU_CODES = {
   QUOTES: "MENU_QUOTES",
   ANALYTICS: "MENU_ANALYTICS",
   QUOTIENT: "MENU_QUOTIENT",
+  CRM: "MENU_CRM",
 } as const;
 
 /**
@@ -122,6 +124,10 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
     // Admin (see CreateRoleDrawer) for a custom role to see it; no ACTION
     // fallback to fail open on like the keys above.
     [ACCESS_KEYS.QUOTIENT_VIEW, MENU_CODES.QUOTIENT],
+    // Same shape as QUOTIENT_VIEW above — MENU_CRM only, no ACTION fallback.
+    // Customers/CRM had no privilege gate at all until now (sidebar link
+    // always visible, /crm route reachable by any authenticated user).
+    [ACCESS_KEYS.CUSTOMERS_VIEW, MENU_CODES.CRM],
     // Security lives inside Profile now (no route/nav link of its own), so it
     // has no MENU privilege — FIELD_SECURITY_MFA is the catalog-correct type
     // (a section within an existing page, not a screen). Deliberately checked
