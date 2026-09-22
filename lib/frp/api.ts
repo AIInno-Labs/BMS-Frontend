@@ -1024,6 +1024,21 @@ export async function setJobRequirement(
 }
 
 /**
+ * `PUT /jobs/{id}/ignore-overdue` — excludes (or re-includes) the job from
+ * the "Overdue" stage tile/list regardless of its due date.
+ */
+export async function setJobIgnoreOverdue(
+  dbId: string | number,
+  ignore: boolean
+): Promise<void> {
+  const params = new URLSearchParams({ ignore: String(ignore) });
+  await frpFetch(
+    `/jobs/${encodeURIComponent(String(dbId))}/ignore-overdue?${params}`,
+    { method: "PUT" }
+  );
+}
+
+/**
  * `GET /jobs/{id}/job-card` — fetches the card and records a
  * `JOB_CARD_DOWNLOADED` audit row against the caller. Call this when the user
  * downloads/prints the card so the pull is tracked; the returned DTO is the

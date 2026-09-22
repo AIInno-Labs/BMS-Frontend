@@ -7,6 +7,7 @@ import {
   ListChecks,
   Pencil,
   Truck,
+  X,
 } from "lucide-react";
 import { JobFilesDocumentStrip } from "@/components/JobFilesDocumentStrip";
 import type { JobFileRecord, JobFileSortMode } from "@/lib/jobFilesSort";
@@ -23,7 +24,11 @@ import {
   shipmentMethodToLabel,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
-import { setJobRequirement, saveJobMeasurements } from "@/lib/frp/api";
+import {
+  setJobRequirement,
+  setJobIgnoreOverdue,
+  saveJobMeasurements,
+} from "@/lib/frp/api";
 import { isCancelledJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import {
@@ -107,7 +112,12 @@ export function JobWorkflowExtrasSection({
   const cashPaymentLocked = isJobLockedForCashPayment(job);
   const editsBlocked = cancelled || cashPaymentLocked;
   const extras = ensureWorkflowExtras(pd.workflowExtras, job);
-  const requirements = job.requirements ?? [];
+  // COI required is replaced by "Ignore Overdue" on this checklist — still a
+  // real requirement kind elsewhere (e.g. the printed job card), just not
+  // shown here.
+  const requirements = (job.requirements ?? []).filter(
+    (r) => r.kind !== "COI_REQUIRED"
+  );
   const workers = getAssignableWorkers();
   // Everything this panel shows comes from job_scheduling_logistics, the record
   // its own endpoint owns - except production status, which is the job's.
@@ -120,6 +130,10 @@ export function JobWorkflowExtrasSection({
 
   const [requirementsBusy, setRequirementsBusy] = useState(false);
   const [requirementsError, setRequirementsError] = useState<string | null>(null);
+  const [ignoreOverdueBusy, setIgnoreOverdueBusy] = useState(false);
+  const [ignoreOverdueError, setIgnoreOverdueError] = useState<string | null>(
+    null
+  );
   const [materialsBusy, setMaterialsBusy] = useState(false);
   const [materialsError, setMaterialsError] = useState<string | null>(null);
 
@@ -206,6 +220,23 @@ export function JobWorkflowExtrasSection({
     }
   };
 
+  const toggleIgnoreOverdue = async (ignore: boolean) => {
+    if (!job.dbId) return;
+    setIgnoreOverdueBusy(true);
+    setIgnoreOverdueError(null);
+    try {
+      await setJobIgnoreOverdue(job.dbId, ignore);
+      await onJobChanged?.();
+    } catch {
+      // The backend endpoint's raw error text (404s, stack traces, etc.) is
+      // not something a user should see — always show a fixed, friendly
+      // message instead of `e.message` here.
+      setIgnoreOverdueError("Could not update Ignore Overdue. Please try again.");
+    } finally {
+      setIgnoreOverdueBusy(false);
+    }
+  };
+
   const saveLogistics = () => {
     const nextExtras: JobWorkflowExtras = {
       ...extras,
@@ -282,8 +313,29 @@ export function JobWorkflowExtrasSection({
       <section className="mt-4 grid gap-4 lg:grid-cols-3">
         <WidgetCard title="Project Requirements" icon={ListChecks}>
           {requirementsError ? (
-            <p className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {requirementsError}
+            <p className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span>{requirementsError}</span>
+              <button
+                type="button"
+                onClick={() => setRequirementsError(null)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded p-0.5 text-red-500 hover:bg-red-100 hover:text-red-700"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </p>
+          ) : null}
+          {ignoreOverdueError ? (
+            <p className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span>{ignoreOverdueError}</span>
+              <button
+                type="button"
+                onClick={() => setIgnoreOverdueError(null)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded p-0.5 text-red-500 hover:bg-red-100 hover:text-red-700"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
             </p>
           ) : null}
           <div className="space-y-2">
@@ -306,6 +358,18 @@ export function JobWorkflowExtrasSection({
                 {row.label || PROJECT_REQUIREMENT_LABELS[row.kind]}
               </label>
             ))}
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={job.ignoreOverdue === true}
+                onChange={(e) => void toggleIgnoreOverdue(e.target.checked)}
+                disabled={
+                  isSaving || ignoreOverdueBusy || cancelled || !job.dbId
+                }
+                className="h-4 w-4 rounded border-slate-300 text-orange-600"
+              />
+              Ignore Overdue
+            </label>
           </div>
           <p className="mt-3 text-xs text-slate-500">
             Job type:{" "}

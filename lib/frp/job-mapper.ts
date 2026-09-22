@@ -63,6 +63,9 @@ export interface FrpJobSummaryDTO {
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   createdDate?: string;
+  /** Excludes the job from the "Overdue" tile/list. Set via `PUT
+   *  /jobs/{id}/ignore-overdue`, not writable here. */
+  ignoreOverdue?: boolean;
 }
 
 /** `JobDTO` — the full record returned by `GET /jobs/{id}`. */
@@ -132,6 +135,9 @@ export interface FrpJobDTO {
   inventory?: FrpJobInventoryDTO[];
     /** `READ_ONLY` — all requirement kinds (Documents / Sample / COI / Cash payment). */
     requirements?: FrpJobProjectRequirementDTO[];
+    /** Excludes the job from the "Overdue" tile/list. Set via `PUT
+     *  /jobs/{id}/ignore-overdue`, not writable here. */
+    ignoreOverdue?: boolean;
 }
 
 /** `JobProjectRequirementDTO` — one project requirement row. */
@@ -688,6 +694,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     manufacturingRequired: true,
     installRequired: false,
     qaCompleted: false,
+    ignoreOverdue: dto.ignoreOverdue ?? false,
     clientContactName: dto.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
@@ -909,6 +916,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     manufacturingRequired: card?.manufacturingRequired ?? true,
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
+    ignoreOverdue: dto.ignoreOverdue ?? false,
     clientContactName: dto.contactDetails?.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,

@@ -250,6 +250,122 @@ export function Dashboard() {
             </section>
           )}
 
+          {isManager && (
+            <section
+              className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+              aria-label="Overdue jobs"
+            >
+              <div className="border-b border-slate-100 px-3 py-2 sm:px-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
+                      Overdue Jobs
+                    </h2>
+                  </div>
+                  <Link
+                    href="/jobs"
+                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                  >
+                    View All →
+                  </Link>
+                </div>
+              </div>
+              {orgDueJobs.length === 0 ? (
+                <p className="m-2.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+                  No overdue jobs in the ±{DUE_WINDOW_MONTHS} month window.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-1 p-2.5 lg:hidden">
+                    {orgDueJobs.map((job, index) => (
+                      <Link
+                        key={`org-due-${job.id}`}
+                        href={`/jobs/${job.id}`}
+                        className={`${RECENT_JOB_ROW_VISIBILITY_BLOCK[index] ?? "hidden"} rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-900">
+                            {job.id}
+                          </p>
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                            {job.priority}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-700">
+                          {job.clientName}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Due {formatShortDate(job.dueDate)} · {job.status}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="hidden min-w-0 lg:block">
+                    <div className="overflow-auto">
+                      <table className="w-full min-w-[620px] text-left">
+                        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Job
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Client
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Project / Description
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
+                              Due
+                            </th>
+                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold text-right">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {orgDueJobs.map((job, index) => (
+                            <tr
+                              key={`org-due-row-${job.id}`}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Open job ${job.id}`}
+                              onClick={() => router.push(`/jobs/${job.id}`)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  router.push(`/jobs/${job.id}`);
+                                }
+                              }}
+                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
+                            >
+                              <td className="px-3 py-1.5 font-medium text-slate-900">
+                                {job.id}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {job.clientName}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {job.projectName}
+                              </td>
+                              <td className="px-3 py-1.5 text-slate-700">
+                                {formatShortDate(job.dueDate)}
+                              </td>
+                              <td className="px-3 py-1.5 text-right text-slate-700">
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                                  {job.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
           <section
             className={`grid w-full min-w-0 items-start gap-3 ${
               myUserId != null
@@ -414,7 +530,7 @@ export function Dashboard() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
-                      Recent Jobs
+                      Your Recent Jobs
                     </h2>
                     {false && (
                       <p className="mt-0.5 text-xs text-slate-600">
@@ -497,122 +613,6 @@ export function Dashboard() {
                 </table>
                 </div>
               </div>
-                </>
-              )}
-            </section>
-          )}
-
-          {isManager && (
-            <section
-              className="mt-3 mb-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-              aria-label="Overdue jobs"
-            >
-              <div className="border-b border-slate-100 px-3 py-2 sm:px-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-slate-900 sm:text-base">
-                      Overdue Jobs
-                    </h2>
-                  </div>
-                  <Link
-                    href="/jobs"
-                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
-                  >
-                    View All →
-                  </Link>
-                </div>
-              </div>
-              {orgDueJobs.length === 0 ? (
-                <p className="m-2.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
-                  No overdue jobs in the ±{DUE_WINDOW_MONTHS} month window.
-                </p>
-              ) : (
-                <>
-                  <div className="space-y-1 p-2.5 lg:hidden">
-                    {orgDueJobs.map((job, index) => (
-                      <Link
-                        key={`org-due-${job.id}`}
-                        href={`/jobs/${job.id}`}
-                        className={`${RECENT_JOB_ROW_VISIBILITY_BLOCK[index] ?? "hidden"} rounded-md border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-xs font-semibold text-slate-900">
-                            {job.id}
-                          </p>
-                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
-                            {job.priority}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-slate-700">
-                          {job.clientName}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          Due {formatShortDate(job.dueDate)} · {job.status}
-                        </p>
-                      </Link>
-                    ))}
-                  </div>
-                  <div className="hidden min-w-0 lg:block">
-                    <div className="overflow-auto">
-                      <table className="w-full min-w-[620px] text-left">
-                        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                          <tr>
-                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
-                              Job
-                            </th>
-                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
-                              Client
-                            </th>
-                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
-                              Project / Description
-                            </th>
-                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold">
-                              Due
-                            </th>
-                            <th className="sticky top-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold text-right">
-                              Status
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                          {orgDueJobs.map((job, index) => (
-                            <tr
-                              key={`org-due-row-${job.id}`}
-                              role="link"
-                              tabIndex={0}
-                              aria-label={`Open job ${job.id}`}
-                              onClick={() => router.push(`/jobs/${job.id}`)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  router.push(`/jobs/${job.id}`);
-                                }
-                              }}
-                              className={`${RECENT_JOB_ROW_VISIBILITY_TABLE_ROW[index] ?? "hidden"} cursor-pointer hover:bg-slate-50/70`}
-                            >
-                              <td className="px-3 py-1.5 font-medium text-slate-900">
-                                {job.id}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-700">
-                                {job.clientName}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-700">
-                                {job.projectName}
-                              </td>
-                              <td className="px-3 py-1.5 text-slate-700">
-                                {formatShortDate(job.dueDate)}
-                              </td>
-                              <td className="px-3 py-1.5 text-right text-slate-700">
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                                  {job.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
                 </>
               )}
             </section>

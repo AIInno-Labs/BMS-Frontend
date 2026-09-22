@@ -124,6 +124,8 @@ export interface Job {
   manufacturingRequired: boolean;
   installRequired: boolean;
   qaCompleted: boolean;
+  /** Excludes this job from the "Overdue" stage card/list even past its due date. */
+  ignoreOverdue: boolean;
   clientContactName: string;
   assignedWorkerId: string | null;
   /** Assigned worker display name (`assignedTo` on Spring Boot). */

@@ -1619,10 +1619,6 @@ export function JobDocumentRevisionsCard({
 
           {addPoMode === "upload" ? (
             <>
-              <p className="text-sm text-slate-600">
-                Uploads and extracts details automatically (OCR → LLM), same as
-                attaching a PO from Status Control.
-              </p>
               <label className="block text-sm font-medium text-slate-700">
                 File
                 <input
