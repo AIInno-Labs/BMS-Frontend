@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 import {
   createJob,
   getJob,
@@ -105,6 +106,11 @@ interface JobsContextValue {
   hydrated: boolean;
   loading: boolean;
   error: string | null;
+  /**
+   * Bumps after each {@link refreshJobs} so list pages can refetch when the
+   * shared cache is refreshed (e.g. navigating back to /jobs).
+   */
+  listRevision: number;
   refreshJobs: (options?: { silent?: boolean }) => Promise<Job[]>;
   rebalanceFloor: () => Promise<{
     reassignedCount: number;
@@ -163,6 +169,7 @@ function usersToStaff(users: UserDTO[]): DbStaffRow[] {
 }
 
 export function JobsProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [counts, setCounts] = useState<JobCounts>(EMPTY_JOB_COUNTS);
   const [staff, setStaff] = useState<DbStaffRow[]>([]);
@@ -171,6 +178,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [listRevision, setListRevision] = useState(0);
 
   const refreshJobs = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -178,7 +186,11 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       // `sort` binds to the JobSort enum — "createdDate,desc" was a 400.
-      const page = await listJobs(0, 200, { sort: "RECENT" });
+      // ignoreOverdue: false so IGNORE_OVERDUE jobs still appear in the list.
+      const page = await listJobs(0, 200, {
+        sort: "RECENT",
+        ignoreOverdue: false,
+      });
       const list = (page.content ?? []).map(frpJobSummaryToUi);
       setJobs(list);
 
@@ -186,11 +198,13 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       // past the page cap. Falling back to the page keeps tiles plausible if
       // the endpoint is missing, but they are then a floor, not a total.
       try {
-        setCounts(countsFromDto(await getJobCounts()));
+        // Jobs + dashboard overdue tiles: exclude IGNORE_OVERDUE (API default).
+        setCounts(countsFromDto(await getJobCounts({ ignoreOverdue: true })));
       } catch {
         setCounts(deriveFromJobs(list));
       }
 
+      setListRevision((n) => n + 1);
       return list;
     } catch (e) {
       // A Platform Super Admin has no organization, so the job APIs have no
@@ -249,6 +263,19 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     void refreshJobs();
     void refreshStaff();
   }, [refreshJobs, refreshStaff]);
+
+  // AuthShell keeps JobsProvider mounted for the whole session, so leaving a
+  // job detail and returning to /jobs does not remount this tree. Refetch
+  // whenever the route lands on the jobs list (not the initial paint — that
+  // is covered above).
+  const prevPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    prevPathRef.current = pathname;
+    if (pathname !== "/jobs") return;
+    if (prev === null || prev === "/jobs") return;
+    void refreshJobs({ silent: true });
+  }, [pathname, refreshJobs]);
 
   /**
    * A job by job number ("JOB-Q-1255") or by database id ("448").
@@ -408,6 +435,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       loading,
       error,
+      listRevision,
       refreshJobs,
       rebalanceFloor,
       getJobById,
@@ -425,6 +453,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       loading,
       error,
+      listRevision,
       refreshJobs,
       rebalanceFloor,
       getJobById,

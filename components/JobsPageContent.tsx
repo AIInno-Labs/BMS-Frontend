@@ -9,7 +9,6 @@ import { LoadingState } from "@/components/ui/Loading";
 export function JobsPageContent() {
   const { jobs } = useJobs();
   const { isWorker } = usePersona();
-  const showAdvancedERP = false;
 
   return (
     <main

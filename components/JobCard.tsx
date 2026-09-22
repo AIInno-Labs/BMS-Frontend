@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { notFound, useSearchParams } from "next/navigation";
 import { FrpApiError } from "@/lib/frp/types";
 import { LoadingState } from "@/components/ui/Loading";
@@ -23,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { AiButton } from "@/components/ai/AiButton";
+import { BackToJobsLink } from "@/components/BackToJobsLink";
 import { InlineSmartHint } from "@/components/InlineSmartHint";
 import { AiFieldBadge } from "@/components/ai/AiFieldBadge";
 import { JobWorkflowDashboard } from "@/components/JobWorkflowDashboard";
@@ -289,10 +289,10 @@ export function JobCard({ jobId }: JobCardProps) {
             Signed in as {workerName}. Ask your manager to assign this program
             before you can open the job card.
           </p>
-          <Link href="/jobs" className="btn-primary mt-6 inline-flex">
+          <BackToJobsLink className="btn-primary mt-6 inline-flex">
             <ArrowLeft className="h-5 w-5" aria-hidden />
             Back to My Work
-          </Link>
+          </BackToJobsLink>
         </div>
       </main>
     );
@@ -781,10 +781,10 @@ export function JobCard({ jobId }: JobCardProps) {
       <div
         className="mx-auto w-full min-w-0 max-w-3xl px-4 py-5 print:max-w-none print:p-0 sm:px-6 sm:py-8"
       >
-        <Link href="/jobs" className="no-print btn-ghost mb-4">
+        <BackToJobsLink className="no-print btn-ghost mb-4">
           <ArrowLeft className="h-5 w-5" aria-hidden />
           Back to Jobs
-        </Link>
+        </BackToJobsLink>
 
         <article
           id="job-card-print"

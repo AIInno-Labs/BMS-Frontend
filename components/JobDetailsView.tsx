@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   ArrowLeft,
   Calendar,
@@ -26,6 +25,7 @@ import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job, JobPriority } from "@/lib/types";
 import { getWorkerDisplayName } from "@/lib/workers";
+import { BackToJobsLink } from "@/components/BackToJobsLink";
 import { JobJourneyPanels } from "@/components/JobJourneyPanels";
 
 const STAGE_LABEL: Record<JobStageGroup, string> = {
@@ -135,13 +135,10 @@ export function JobDetailsView({
 
   return (
     <div className="no-print mx-auto w-full min-w-0 max-w-6xl px-3 py-3 sm:px-6 sm:py-6">
-      <Link
-        href="/jobs"
-        className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-[#2563EB]"
-      >
+      <BackToJobsLink className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-[#2563EB]">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Back to Jobs
-      </Link>
+      </BackToJobsLink>
 
       {saveError && (
         <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

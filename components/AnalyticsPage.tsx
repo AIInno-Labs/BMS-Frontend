@@ -33,7 +33,7 @@ import {
   type AnalyticsSnapshot,
 } from "@/lib/analytics/types";
 import { formatCreatedDate } from "@/lib/jobData";
-import { getJobResinCounts, getQuoteEventCounts, getTopClients } from "@/lib/frp/api";
+import { getJobCounts, getJobResinCounts, getQuoteEventCounts, getTopClients } from "@/lib/frp/api";
 import { STATUS_THEME } from "@/lib/statusColors";
 import { journeyOutcomeLabel } from "@/lib/quotes/labels";
 
@@ -114,6 +114,8 @@ export function AnalyticsPage() {
     inFab: null,
     withAlerts: null,
   });
+  /** Org-wide overdue including IGNORE_OVERDUE — analytics wants the full figure. */
+  const [overdueAll, setOverdueAll] = useState<number | null>(null);
   const [quotientDelta, setQuotientDelta] = useState<number | null>(null);
   const [resinChartData, setResinChartData] = useState<
     { resin: string; count: number; fill: string }[]
@@ -133,11 +135,16 @@ export function AnalyticsPage() {
     setError(null);
     try {
       const empty = emptyAnalyticsSnapshot();
-      const [quoteCounts, topClients, resinCounts] = await Promise.all([
+      const [quoteCounts, topClients, resinCounts, jobCounts] = await Promise.all([
         getQuoteEventCounts().catch(() => null),
         getTopClients(5).catch(() => null),
         getJobResinCounts().catch(() => null),
+        getJobCounts({ ignoreOverdue: false }).catch(() => null),
       ]);
+
+      if (jobCounts?.overdue != null) {
+        setOverdueAll(jobCounts.overdue);
+      }
 
       setResinChartData(
         (resinCounts?.byResin ?? []).map((row, index) => ({
@@ -173,7 +180,14 @@ export function AnalyticsPage() {
     }
   }, []);
 
-  const jobStats = useMemo(() => computeJobAnalytics(jobs), [jobs]);
+  const jobStats = useMemo(() => {
+    const fromPage = computeJobAnalytics(jobs);
+    return {
+      ...fromPage,
+      // Prefer org-wide overdue (includes IGNORE_OVERDUE); fall back to page tally.
+      overdue: overdueAll ?? fromPage.overdue,
+    };
+  }, [jobs, overdueAll]);
 
   const recordJobPulse = useCallback((stats: ReturnType<typeof computeJobAnalytics>) => {
     const prev = prevJobsRef.current;
