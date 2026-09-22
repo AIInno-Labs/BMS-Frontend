@@ -37,6 +37,7 @@ import { useJobs } from "@/context/JobsContext";
 import { useAuth } from "@/context/AuthContext";
 import { ACCESS_KEYS } from "@/lib/frp/access";
 import { stageGroupCounts } from "@/lib/frp/job-counts";
+import { rememberJobsListUrl } from "@/lib/frp/jobs-list-return";
 import { STAGE_GROUP_INFO, type JobStageGroup } from "@/lib/jobStageGroups";
 import {
   BACKEND_JOB_STATUSES,
@@ -219,7 +220,7 @@ function JobListStageBadges({
 }
 
 export function JobsList({ jobs }: JobsListProps) {
-  const { counts, staff } = useJobs();
+  const { counts, staff, listRevision } = useJobs();
   const { isWorker, workerId } = usePersona();
   const { can } = useAuth();
   const canCreateJob = can(ACCESS_KEYS.JOBS_CREATE);
@@ -256,6 +257,12 @@ export function JobsList({ jobs }: JobsListProps) {
     setStatusFilter((searchParams.get("status") as JobStatus | null) ?? "All");
     const pageFromUrl = Number(searchParams.get("page"));
     setPage(Number.isFinite(pageFromUrl) && pageFromUrl >= 1 ? Math.trunc(pageFromUrl) : 1);
+  }, [searchParams]);
+
+  // So "Back to Jobs" from a detail page restores group/status/search/etc.
+  useEffect(() => {
+    const qs = searchParams.toString();
+    rememberJobsListUrl(qs ? `/jobs?${qs}` : "/jobs");
   }, [searchParams]);
 
   /** Merge-and-replace the current URL's query string — the same pattern
@@ -401,7 +408,7 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, workerId, effectiveSearchQuery]);
+  }, [isWorker, workerId, effectiveSearchQuery, listRevision]);
 
   const workerSortedJobs = useMemo(
     () => sortJobs(workerRows, sortBy),
@@ -507,6 +514,7 @@ export function JobsList({ jobs }: JobsListProps) {
     assignedToFilter,
     dueFrom,
     dueTo,
+    listRevision,
   ]);
 
   const [groupRows, setGroupRows] = useState<Job[]>([]);
@@ -579,7 +587,7 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter, assignedToFilter, dueFrom, dueTo]);
+  }, [isWorker, stageGroupFilter, assignedToFilter, dueFrom, dueTo, listRevision]);
 
   const groupFilteredJobs = useMemo(() => {
     if (!stageGroupFilter) return [];

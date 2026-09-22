@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -32,6 +31,7 @@ import { JobNotesChatDrawer } from "@/components/JobNotesChatDrawer";
 import { RaisedBySelect } from "@/components/RaisedBySelect";
 import { JobTimelineAnalytics } from "@/components/JobTimelineAnalytics";
 import { JobWorkflowExtrasSection } from "@/components/JobWorkflowExtrasSection";
+import { BackToJobsLink } from "@/components/BackToJobsLink";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import {
   EditModal,
@@ -1100,13 +1100,10 @@ export function JobWorkflowDashboard({
   return (
     <div className="no-print mx-auto w-full max-w-[88rem] px-4 py-5 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link
-          href="/jobs"
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#374151] shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-[#111827]"
-        >
+        <BackToJobsLink className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#374151] shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-[#111827]">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Back to Jobs
-        </Link>
+        </BackToJobsLink>
         <div className="flex flex-wrap items-center gap-1.5">
           {/* The missing-due-date warning lives next to the date itself, in
               JobDetailsView, rather than up here among the page actions. */}
