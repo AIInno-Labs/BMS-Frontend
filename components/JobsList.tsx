@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowRight,
-  CheckCircle2,
   Clock3,
   Plus,
   Workflow,
@@ -37,11 +37,7 @@ import { useJobs } from "@/context/JobsContext";
 import { useAuth } from "@/context/AuthContext";
 import { ACCESS_KEYS } from "@/lib/frp/access";
 import { stageGroupCounts } from "@/lib/frp/job-counts";
-import {
-  STAGE_GROUP_INFO,
-  type JobStageGroup,
-  parseStageGroupParam,
-} from "@/lib/jobStageGroups";
+import { STAGE_GROUP_INFO, type JobStageGroup } from "@/lib/jobStageGroups";
 import {
   BACKEND_JOB_STATUSES,
   isCancelledJob,
@@ -96,6 +92,33 @@ const STAGE_GROUP_BACKEND_STATUSES: Record<JobStageGroup, BackendJobStatus[]> = 
   }
   return groups;
 })();
+
+/** The three clickable stage tiles above the jobs table — "delivered" isn't
+ *  one of them; "overdue" cuts across not-started/manufacturing by due date
+ *  instead of status, so it's tracked separately from `JobStageGroup`. */
+type StageCardKey = "not-started" | "manufacturing" | "overdue";
+
+function parseStageCardParam(value: string | null | undefined): StageCardKey | null {
+  if (value === "not-started" || value === "manufacturing" || value === "overdue") {
+    return value;
+  }
+  return null;
+}
+
+const CARD_INFO: Record<
+  StageCardKey,
+  { label: string; headline: string; description: string; statuses: string[] }
+> = {
+  "not-started": STAGE_GROUP_INFO["not-started"],
+  manufacturing: STAGE_GROUP_INFO.manufacturing,
+  overdue: {
+    label: "Overdue",
+    headline: "Past due, still open",
+    description:
+      "Active jobs whose due date has already passed — not yet delivered or cancelled.",
+    statuses: [],
+  },
+};
 
 /** UI sort option → the `JobSort` enum `GET /jobs` accepts. No backend
  *  equivalent for job-id ordering, so it falls back to `RECENT`. */
@@ -211,8 +234,8 @@ export function JobsList({ jobs }: JobsListProps) {
   const [statusFilter, setStatusFilter] = useState<JobStatus | "All">(
     () => (searchParams.get("status") as JobStatus | null) ?? "All"
   );
-  const [stageGroupFilter, setStageGroupFilter] = useState<JobStageGroup | null>(
-    () => parseStageGroupParam(searchParams.get("group"))
+  const [stageGroupFilter, setStageGroupFilter] = useState<StageCardKey | null>(
+    () => parseStageCardParam(searchParams.get("group"))
   );
   const [sortBy, setSortBy] = useState<JobSortOption>("created_desc");
   const [page, setPage] = useState(() => {
@@ -227,7 +250,7 @@ export function JobsList({ jobs }: JobsListProps) {
     searchQuery.trim().length >= MIN_JOB_SEARCH_LENGTH ? searchQuery : "";
 
   useEffect(() => {
-    const fromUrl = parseStageGroupParam(searchParams.get("group"));
+    const fromUrl = parseStageCardParam(searchParams.get("group"));
     setStageGroupFilter(fromUrl);
     setSearchQuery(searchParams.get("q") ?? "");
     setStatusFilter((searchParams.get("status") as JobStatus | null) ?? "All");
@@ -250,7 +273,7 @@ export function JobsList({ jobs }: JobsListProps) {
     [router, searchParams]
   );
 
-  const handleStageCardClick = (group: JobStageGroup) => {
+  const handleStageCardClick = (group: StageCardKey) => {
     const next = stageGroupFilter === group ? null : group;
     setStageGroupFilter(next);
     setPage(1);
@@ -265,8 +288,7 @@ export function JobsList({ jobs }: JobsListProps) {
   const stageCards = useMemo(() => {
     // Org-wide, from GET /jobs/counts via JobsContext — these cards summarise
     // the whole tenant, not the page the table below happens to show.
-    const { delivered, manufacturing, notStarted, total } =
-      stageGroupCounts(counts);
+    const { manufacturing, notStarted, total } = stageGroupCounts(counts);
 
     return [
       {
@@ -290,14 +312,14 @@ export function JobsList({ jobs }: JobsListProps) {
         line: [6, 7, 6, 8, 9, 10],
       },
       {
-        key: "delivered" as const,
-        label: "Delivered",
-        value: delivered,
-        pct: Math.round((delivered / total) * 100),
-        icon: CheckCircle2,
-        accent: "#10B981",
-        tint: "from-emerald-50 to-white",
-        line: [4, 6, 8, 10, 12, 14],
+        key: "overdue" as const,
+        label: "Overdue",
+        value: counts.overdue,
+        pct: Math.round((counts.overdue / total) * 100),
+        icon: AlertTriangle,
+        accent: "#E11D48",
+        tint: "from-rose-50 to-white",
+        line: [4, 6, 5, 8, 10, 12],
       },
     ];
   }, [counts]);
@@ -492,7 +514,17 @@ export function JobsList({ jobs }: JobsListProps) {
     async function loadGroupJobs() {
       // MAX_PAGES is a safety net against a runaway loop, not a real cap.
       const MAX_PAGES = 500;
-      const statuses = STAGE_GROUP_BACKEND_STATUSES[stageGroupFilter as JobStageGroup];
+      // "Overdue" isn't a status group — it's any still-open job (not
+      // delivered, not cancelled) whose due date has passed — so it crawls
+      // both the not-started and manufacturing statuses and filters by date
+      // client side, mirroring `deriveFromJobs`'s overdue predicate.
+      const statuses =
+        stageGroupFilter === "overdue"
+          ? [
+              ...STAGE_GROUP_BACKEND_STATUSES["not-started"],
+              ...STAGE_GROUP_BACKEND_STATUSES.manufacturing,
+            ]
+          : STAGE_GROUP_BACKEND_STATUSES[stageGroupFilter as JobStageGroup];
       const collected: Job[] = [];
       for (const status of statuses) {
         for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
@@ -506,6 +538,16 @@ export function JobsList({ jobs }: JobsListProps) {
           collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
           if (res.last || (res.content ?? []).length === 0) break;
         }
+      }
+      if (stageGroupFilter === "overdue") {
+        const now = Date.now();
+        return collected.filter((job) => {
+          if (isCancelledJob(job.status) || job.ignoreOverdue || !job.dueDate) {
+            return false;
+          }
+          const due = new Date(job.dueDate).getTime();
+          return Number.isFinite(due) && due < now;
+        });
       }
       return collected;
     }
@@ -636,7 +678,7 @@ export function JobsList({ jobs }: JobsListProps) {
           aria-live="polite"
         >
           {(() => {
-            const info = STAGE_GROUP_INFO[stageGroupFilter];
+            const info = CARD_INFO[stageGroupFilter];
             const preview = groupSortedJobs.slice(0, 8);
             return (
               <>
@@ -649,12 +691,14 @@ export function JobsList({ jobs }: JobsListProps) {
                       {info.headline}
                     </h2>
                     <p className="mt-1 max-w-2xl text-sm text-slate-600">{info.description}</p>
-                    <p className="mt-2 text-xs text-slate-500">
-                      Includes:{" "}
-                      <span className="font-medium text-slate-700">
-                        {info.statuses.join(" · ")}
-                      </span>
-                    </p>
+                    {info.statuses.length > 0 && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Includes:{" "}
+                        <span className="font-medium text-slate-700">
+                          {info.statuses.join(" · ")}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -683,13 +727,30 @@ export function JobsList({ jobs }: JobsListProps) {
                           <li key={job.id}>
                             <Link
                               href={`/jobs/${job.id}`}
-                              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm transition-colors hover:bg-orange-50/50"
+                              className="block px-3 py-2 text-sm transition-colors hover:bg-orange-50/50"
                             >
-                              <span className="font-semibold text-slate-900">{job.id}</span>
-                              <span className="min-w-0 truncate text-slate-600">
-                                {job.clientName}
-                              </span>
-                              <JobListStageBadges job={job} variant="short" />
+                              <div className="flex items-start justify-between gap-2 sm:hidden">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-slate-900">
+                                    {job.id}
+                                  </p>
+                                  <p className="mt-0.5 truncate text-slate-600">{job.clientName}</p>
+                                </div>
+                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                                  <JobListStageBadges job={job} variant="short" />
+                                </div>
+                              </div>
+                              <div className="hidden sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-2">
+                                <span className="justify-self-start truncate font-semibold text-slate-900">
+                                  {job.id}
+                                </span>
+                                <span className="min-w-0 max-w-md truncate text-center text-slate-600">
+                                  {job.clientName}
+                                </span>
+                                <div className="flex flex-nowrap items-center justify-self-end gap-1 whitespace-nowrap [&>span]:flex-nowrap">
+                                  <JobListStageBadges job={job} variant="short" />
+                                </div>
+                              </div>
                             </Link>
                           </li>
                         ))}
@@ -851,7 +912,7 @@ export function JobsList({ jobs }: JobsListProps) {
           {isWorker
             ? "No assigned jobs on the floor right now. Check back later."
             : stageGroupFilter
-              ? `No jobs in ${STAGE_GROUP_INFO[stageGroupFilter].label} match your search. Clear filters or try another stage.`
+              ? `No jobs in ${CARD_INFO[stageGroupFilter].label} match your search. Clear filters or try another stage.`
               : "No jobs match your filters. Try clearing search or selecting another stage."}
         </p>
       ) : (
