@@ -3,12 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Download,
+  Eye,
   FileImage,
   FileSpreadsheet,
   FileText,
+  Loader2,
   PenLine,
   Plus,
+  X,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { isPreviewableFile } from "@/components/DocumentPreviewModal";
+import { deleteJobDocument } from "@/lib/frp/api";
 import {
   JOB_FILE_SORT_OPTIONS,
   type JobFileRecord,
@@ -20,15 +26,39 @@ import {
   getFileThumbnailStyle,
 } from "@/lib/jobFileThumbnail";
 
+function isVersionsDocument(file: JobFileRecord): boolean {
+  return file.documentType === "PRODUCTION" || file.documentType === "DRAWING";
+}
+
+/** PO/drawing cards lose their delete option once reviewed — accepted/
+ *  rejected versions are part of the audit trail, same rule as the
+ *  Document Versions card. */
+function isDeletableFile(file: JobFileRecord): boolean {
+  if (!isVersionsDocument(file)) return true;
+  return file.reviewStatus !== "ACCEPTED" && file.reviewStatus !== "REJECTED";
+}
+
 interface JobFilesDocumentStripProps {
   jobId: string;
   files: JobFileRecord[];
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
-  onUpload: () => void;
-  onDownload: (fileName: string) => void;
+  onUpload?: () => void;
+  onDownload: (file: JobFileRecord) => void;
+  /** PO / drawing clicks — parent scrolls to Document Versions. */
+  onOpenFile?: (file: JobFileRecord) => void;
+  /** Clicking a PDF/image thumbnail — parent opens the in-app preview modal. */
+  onPreviewFile?: (file: JobFileRecord) => void;
+  /** Detail-panel "Download" for versioned PO/drawing docs — always fetches
+   *  the file itself, unlike `onOpenFile` which navigates to Document
+   *  Versions. Falls back to `onDownload` if not provided. */
+  onDownloadVersionFile?: (file: JobFileRecord) => void;
+  /** FAILED SharePoint uploads — tell the user to delete and re-upload. */
+  onFailedFile?: (file: JobFileRecord) => void;
   /** Full-width “Project documents” row vs compact Files widget */
   variant?: "full" | "compact";
+  /** Called after a document is soft-deleted, so the parent can refetch the file list. */
+  onDeleted?: () => void;
 }
 
 function PreviewIcon({ kind }: { kind: ReturnType<typeof getFilePreviewKind> }) {
@@ -48,45 +78,100 @@ function PreviewIcon({ kind }: { kind: ReturnType<typeof getFilePreviewKind> }) 
 function FileThumbnailTile({
   file,
   selected,
+  canPreview,
   onSelect,
+  onDelete,
 }: {
   file: JobFileRecord;
   selected: boolean;
+  /** Clicking opens the preview modal rather than downloading/navigating. */
+  canPreview: boolean;
   onSelect: () => void;
+  onDelete?: () => void;
 }) {
   const style = getFileThumbnailStyle(file);
   const ext = fileExtensionLabel(file.name);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`shrink-0 rounded-xl border bg-white p-2.5 text-left transition-all ${
-        selected
-          ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
-          : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
-      }`}
-      aria-pressed={selected}
-      aria-label={`${file.name}, ${file.category}. Click to open.`}
-    >
-      <div
-        className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
+    <div className="group relative shrink-0">
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`relative rounded-xl border bg-white p-2.5 text-left transition-all ${
+          selected
+            ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
+            : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
+        }`}
+        aria-pressed={selected}
+        aria-label={
+          canPreview
+            ? `Preview ${file.name}`
+            : isVersionsDocument(file)
+              ? `Open ${file.name} in Document Versions`
+              : `${file.name}, ${file.category}. Click to open.`
+        }
       >
+        {file.isManualEntry ? (
+          <span
+            title="Manually entered — no file attached"
+            className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
+          >
+            <span aria-hidden>M</span>
+            <span className="sr-only">Manually entered — no file attached</span>
+          </span>
+        ) : null}
+        {file.storageStatus === "PENDING" ? (
+          <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[10px] font-semibold text-orange-700">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            Uploading
+          </span>
+        ) : null}
+        {file.storageStatus === "FAILED" ? (
+          <span
+            title={file.remarks?.trim() || "SharePoint upload failed"}
+            className="absolute right-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
+          >
+            Failed
+          </span>
+        ) : null}
         <div
-          className="flex h-12 w-12 items-center justify-center rounded-md shadow-sm"
-          style={{ backgroundColor: style.accent }}
+          className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
         >
-          <PreviewIcon kind={style.kind} />
+          <div
+            className="flex h-12 w-12 items-center justify-center rounded-md shadow-sm"
+            style={{ backgroundColor: style.accent }}
+          >
+            <PreviewIcon kind={style.kind} />
+          </div>
+          <span className="mt-1.5 text-[9px] font-bold tracking-wider text-slate-600">
+            {ext}
+          </span>
         </div>
-        <span className="mt-1.5 text-[9px] font-bold tracking-wider text-slate-600">
-          {ext}
-        </span>
-      </div>
-      <p className="mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold text-slate-700">
-        {file.name}
-      </p>
-    </button>
+        <p className="mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold text-slate-700">
+          {file.name}
+        </p>
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="absolute right-1 top-1 z-20 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-700/90 text-white opacity-0 shadow-sm transition-opacity duration-150 hover:bg-red-600 group-hover:opacity-100 group-focus-within:opacity-100"
+          aria-label={`Delete ${file.name}`}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
+}
+
+function fileKey(file: JobFileRecord): string {
+  return file.documentId != null
+    ? `doc-${file.documentId}`
+    : `${file.name}-${file.uploadedAt ?? file.time}`;
 }
 
 export function JobFilesDocumentStrip({
@@ -96,27 +181,48 @@ export function JobFilesDocumentStrip({
   onFileSortChange,
   onUpload,
   onDownload,
+  onOpenFile,
+  onPreviewFile,
+  onDownloadVersionFile,
+  onFailedFile,
   variant = "full",
+  onDeleted,
 }: JobFilesDocumentStripProps) {
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<JobFileRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleteTarget.documentId == null) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteJobDocument(deleteTarget.documentId);
+      setDeleteTarget(null);
+      onDeleted?.();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete document");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const selectedFile = useMemo(() => {
     if (files.length === 0) return null;
-    return (
-      files.find((f) => f.name === selectedName) ?? files[0]
-    );
-  }, [files, selectedName]);
+    return files.find((f) => fileKey(f) === selectedKey) ?? files[0];
+  }, [files, selectedKey]);
 
   useEffect(() => {
     if (variant === "compact") return;
     if (files.length === 0) {
-      setSelectedName(null);
+      setSelectedKey(null);
       return;
     }
-    if (!selectedName || !files.some((f) => f.name === selectedName)) {
-      setSelectedName(files[0].name);
+    if (!selectedKey || !files.some((f) => fileKey(f) === selectedKey)) {
+      setSelectedKey(fileKey(files[0]));
     }
-  }, [files, selectedName, variant]);
+  }, [files, selectedKey, variant]);
 
   const sortControl = (
     <label className="inline-flex min-w-0 items-center">
@@ -140,18 +246,49 @@ export function JobFilesDocumentStrip({
     <div className="flex flex-wrap items-start gap-3 overflow-x-auto overscroll-contain pb-1">
       {files.map((file) => (
         <FileThumbnailTile
-          key={`${file.name}-${file.uploadedAt ?? file.time}`}
+          key={fileKey(file)}
           file={file}
-          selected={variant !== "compact" && selectedFile?.name === file.name}
+          selected={variant !== "compact" && selectedFile != null && fileKey(selectedFile) === fileKey(file)}
+          canPreview={onPreviewFile != null && isPreviewableFile(file)}
           onSelect={() => {
-            if (variant === "compact") {
-              onDownload(file.name);
+            if (file.storageStatus === "FAILED") {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onFailedFile?.(file);
               return;
             }
-            setSelectedName(file.name);
+            if (file.storageStatus === "PENDING") {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              return;
+            }
+            // PDFs and images preview in-app; the Document Versions route for
+            // PO/drawing docs stays reachable from the detail panel.
+            if (onPreviewFile && isPreviewableFile(file)) {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onPreviewFile(file);
+              return;
+            }
+            if (isVersionsDocument(file) && onOpenFile) {
+              if (variant !== "compact") setSelectedKey(fileKey(file));
+              onOpenFile(file);
+              return;
+            }
+            if (variant === "compact") {
+              onDownload(file);
+              return;
+            }
+            setSelectedKey(fileKey(file));
           }}
+          onDelete={
+            variant === "full" && file.documentId != null && isDeletableFile(file)
+              ? () => {
+                  setDeleteError(null);
+                  setDeleteTarget(file);
+                }
+              : undefined
+          }
         />
       ))}
+      {onUpload ? (
       <button
         type="button"
         onClick={onUpload}
@@ -161,6 +298,7 @@ export function JobFilesDocumentStrip({
         <Plus className="h-6 w-6" aria-hidden />
         <span className="mt-1 text-[10px] font-semibold">Upload</span>
       </button>
+      ) : null}
     </div>
   );
 
@@ -170,16 +308,73 @@ export function JobFilesDocumentStrip({
       <p className="mt-1 text-xs text-slate-500">
         {selectedFile.category} · {selectedFile.time}
       </p>
+      {selectedFile.storageStatus === "PENDING" ? (
+        <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-orange-700">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          Uploading to SharePoint…
+        </p>
+      ) : null}
+      {selectedFile.storageStatus === "FAILED" ? (
+        <p className="mt-2 text-xs font-semibold text-red-700">
+          SharePoint upload failed. Delete this file and upload again.
+        </p>
+      ) : null}
       <p className="mt-1 text-xs text-slate-500">Job {jobId}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
-          onClick={() => onDownload(selectedFile.name)}
-        >
-          <Download className="h-4 w-4 text-orange-600" aria-hidden />
-          Download
-        </button>
+        {selectedFile.storageStatus === "FAILED" && onFailedFile ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-50"
+            onClick={() => onFailedFile(selectedFile)}
+          >
+            Delete file
+          </button>
+        ) : null}
+        {selectedFile.storageStatus !== "PENDING" &&
+        selectedFile.storageStatus !== "FAILED" &&
+        onPreviewFile &&
+        isPreviewableFile(selectedFile) ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+            onClick={() => onPreviewFile(selectedFile)}
+          >
+            <Eye className="h-4 w-4 text-orange-600" aria-hidden />
+            Preview
+          </button>
+        ) : null}
+        {selectedFile.storageStatus === "PENDING" ||
+        selectedFile.storageStatus === "FAILED" ? null : isVersionsDocument(selectedFile) && onOpenFile ? (
+          <>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+              onClick={() => onOpenFile(selectedFile)}
+            >
+              View version →
+            </button>
+            {!selectedFile.isManualEntry ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+                onClick={() => (onDownloadVersionFile ?? onDownload)(selectedFile)}
+              >
+                <Download className="h-4 w-4 text-orange-600" aria-hidden />
+                Download
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 transition-colors hover:border-orange-200 hover:text-orange-700"
+            onClick={() => onDownload(selectedFile)}
+          >
+            <Download className="h-4 w-4 text-orange-600" aria-hidden />
+            Download
+          </button>
+        )}
+        {onUpload ? (
         <button
           type="button"
           className="text-sm font-semibold text-orange-700 hover:text-orange-800"
@@ -187,6 +382,7 @@ export function JobFilesDocumentStrip({
         >
           Upload another →
         </button>
+        ) : null}
       </div>
     </div>
   ) : (
@@ -195,6 +391,7 @@ export function JobFilesDocumentStrip({
       <p className="mt-1 text-xs text-slate-500">
         Add specifications, drawings, POs, or QA documents for this job.
       </p>
+      {onUpload ? (
       <button
         type="button"
         className="mt-3 text-sm font-semibold text-orange-700 hover:text-orange-800"
@@ -202,6 +399,7 @@ export function JobFilesDocumentStrip({
       >
         Upload file →
       </button>
+      ) : null}
     </div>
   );
 
@@ -222,6 +420,20 @@ export function JobFilesDocumentStrip({
         <div className="min-w-0 flex-1">{thumbnailRow}</div>
         <div className="w-full shrink-0 lg:max-w-sm">{detailPanel}</div>
       </div>
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title="Delete this document?"
+        description={`This removes "${deleteTarget?.name ?? "this document"}" from the job's documents. This can't be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        busy={deleteBusy}
+        error={deleteError}
+        onConfirm={confirmDelete}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTarget(null);
+        }}
+      />
     </article>
   );
 }

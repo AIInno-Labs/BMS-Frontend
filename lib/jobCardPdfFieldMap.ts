@@ -1,10 +1,11 @@
 import {
   STANDARD_CLIP_ROWS,
+  formatJobCardVersionLabel,
   type OfficialJobCardData,
 } from "@/lib/jobCardPrint";
 import type { Job, JobCardClipRow, JobCardPack } from "@/lib/types";
 
-/** Where a pdf.html field is persisted in Supabase / the app model. */
+/** Where a pdf.html field is persisted in the Spring Boot job model. */
 export type JobCardFieldStorage =
   | { kind: "db"; column: string }
   | { kind: "json"; path: string; column?: "pack_dimensions" }
@@ -108,6 +109,16 @@ export const JOB_CARD_PDF_FIELD_MAP: JobCardPdfFieldDef[] = [
     officialKey: "customer",
     jobPath: "clientName",
     storage: { kind: "db", column: "jobs.customer_name" },
+    editableInApp: true,
+    wired: true,
+  },
+  {
+    id: "customerAddress",
+    section: "header",
+    label: "Address",
+    officialKey: "customerAddress",
+    jobPath: "clientAddress",
+    storage: { kind: "db", column: "job_contact_details.address" },
     editableInApp: true,
     wired: true,
   },
@@ -502,6 +513,7 @@ export function officialDataToFieldValues(
     dueDate: blankDash(data.dueDate),
     raisedBy: blankDash(data.raisedBy),
     customer: blankDash(data.customer),
+    customerAddress: blankDash(data.customerAddress),
     contactName: blankDash(data.contactName),
     contactPhone: blankDash(data.contactPhone),
     contactEmail: blankDash(data.contactEmail),
@@ -521,6 +533,7 @@ export function officialDataToFieldValues(
     finish: blankDash(data.finish),
     notes: blankDash(data.notes),
     deliveryInstructions: blankDash(data.deliveryInstructions),
+    jobCardVersion: formatJobCardVersionLabel(data.jobCardVersion),
     qaName: data.qaCompleted ? blankDash(data.assignedWorker) : "",
     qaSign: "",
     qaDate: "",

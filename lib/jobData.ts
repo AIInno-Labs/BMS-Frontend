@@ -63,8 +63,12 @@ export function getReadyToManufactureChartData(jobList: Job[]) {
   ];
 }
 
-export function formatDate(isoDate: string): string {
-  return new Date(isoDate + "T12:00:00").toLocaleDateString("en-US", {
+export function formatDate(isoDate: string | null | undefined): string {
+  const trimmed = isoDate?.trim();
+  if (!trimmed) return "—";
+  const d = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
     weekday: "short",
     year: "numeric",
     month: "long",
@@ -73,15 +77,18 @@ export function formatDate(isoDate: string): string {
 }
 
 export function formatShortDate(isoDate: string | null | undefined): string {
-  if (!isoDate?.trim()) return "—";
-  return new Date(isoDate + "T12:00:00").toLocaleDateString("en-AU", {
+  const trimmed = isoDate?.trim();
+  if (!trimmed) return "—";
+  const d = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-AU", {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 }
 
-/** Supabase `created_at` — job record created in system (not customer received date). */
+/** Job record created timestamp (Spring Boot `createdDate`). */
 export function formatCreatedDate(createdAt: string | undefined): string {
   if (!createdAt) return "—";
   const d = new Date(createdAt);
@@ -114,7 +121,10 @@ export function completionPercentForJob(job: Job): number {
 }
 
 /** Whiteboard schedule rows derived from live jobs (no mock job list). */
-export function buildScheduleFromJobs(jobs: Job[], limit = 24): ScheduleEntry[] {
+export function buildScheduleFromJobs(
+  jobs: Job[],
+  limit = 24
+): ScheduleEntry[] {
   return [...jobs]
     .filter((j) => j.status !== "Cancelled" && j.status !== "Complete")
     .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))

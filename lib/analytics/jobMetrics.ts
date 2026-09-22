@@ -74,11 +74,6 @@ export function computeJobAnalytics(jobs: Job[]) {
     (byStatus["Awaiting Manager Approval"] ?? 0) + (byStatus["Pending"] ?? 0);
   const complete = byStatus["Complete"] ?? 0;
 
-  const resinMix: Record<string, number> = {};
-  for (const j of jobs) {
-    resinMix[j.resinType] = (resinMix[j.resinType] ?? 0) + 1;
-  }
-
   const clientCounts: Record<string, number> = {};
   for (const j of jobs) {
     clientCounts[j.clientName] = (clientCounts[j.clientName] ?? 0) + 1;
@@ -106,7 +101,6 @@ export function computeJobAnalytics(jobs: Job[]) {
     awaiting,
     complete,
     byStatus,
-    resinMix,
     topClients,
     avgHours,
     readyPct: jobs.length ? Math.round((ready / jobs.length) * 100) : 0,

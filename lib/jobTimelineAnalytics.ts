@@ -43,6 +43,20 @@ export const TIMELINE_STAGES: Array<{
   { id: "completed", title: "Completed", shortLabel: "Done" },
 ];
 
+/**
+ * `job.currentStageKey` → the real milestone name (e.g. "design" → "Drawing").
+ * Backend-authoritative (`JobStageServiceImpl.recomputeJobStatus`): the
+ * furthest milestone that's complete or active, so it stays accurate even
+ * while the coarse `stageStatus`/group bucket hasn't advanced yet. `null` for
+ * jobs the backend hasn't populated it on — callers should fall back to the
+ * coarse status group in that case.
+ */
+export function timelineStageInfo(
+  stageKey?: string | null
+): { title: string; shortLabel: string } | null {
+  return TIMELINE_STAGES.find((s) => s.id === stageKey) ?? null;
+}
+
 export interface TimelineSubStageView {
   id: string;
   title: string;
@@ -51,6 +65,11 @@ export interface TimelineSubStageView {
   completionPct: number;
   /** Active sub-stage only, e.g. `4 D` */
   durationLabel?: string;
+  notes?: string;
+  assignedTeam?: string;
+  startDate?: string;
+  endDate?: string;
+  statusLabel?: string;
 }
 
 export interface TimelineStageView {
@@ -149,6 +168,8 @@ export interface StageDetailInsight {
   status: string;
   dependency: string;
   notes: string;
+  /** The milestone's own note, before any child fallback. */
+  ownNotes?: string;
 }
 
 export interface SmartSummary {
@@ -287,12 +308,7 @@ export function buildJobTimelineAnalytics(
             : index === 4
               ? "Production sign-off"
               : `Prior stage: ${TIMELINE_STAGES[index - 1]?.title ?? "—"}`,
-      notes:
-        state === "active"
-          ? job.manualInstructions?.slice(0, 80) || "No blockers logged on shop floor."
-          : state === "complete"
-            ? "Gate cleared — logged in program history."
-            : "Awaiting upstream completion.",
+      notes: "",
     };
 
     return {

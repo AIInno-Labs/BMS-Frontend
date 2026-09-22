@@ -588,7 +588,7 @@ td,th{
     <td class="value due-date" data-jc="dueDate"></td>
     <td class="label">Raised by</td>
     <td class="value" data-jc="raisedBy"></td>
-    <td rowspan="7" class="h-right">
+    <td rowspan="8" class="h-right">
       <div class="h-logo-wrap">
         <img src="./public/frp-logo-lockup-trimmed.png" alt="FRP Engineering">
       </div>
@@ -614,29 +614,35 @@ td,th{
 
   <!-- Rows 2–7: JOB CARD spine + customer / transport pairs -->
   <tr class="h-data r1">
-    <td rowspan="6" class="h-spine"><span class="job-label">JOB CARD</span></td>
+    <td rowspan="7" class="h-spine"><span class="job-label">JOB CARD</span></td>
     <td class="label">Customer</td>
     <td class="value" colspan="3" data-jc="customer"></td>
     <td class="label">Transport</td>
     <td class="value" colspan="3" data-jc="transport"></td>
   </tr>
+  <tr class="h-data r-address">
+    <td class="label">Address</td>
+    <td class="value" colspan="3" data-jc="customerAddress"></td>
+    <td class="label">Transport Company</td>
+    <td class="value" colspan="3" data-jc="transportCompany"></td>
+  </tr>
   <tr class="h-data r2">
     <td class="label">Contact Name</td>
     <td class="value" colspan="3" data-jc="contactName"></td>
-    <td class="label">Transport Company</td>
-    <td class="value" colspan="3" data-jc="transportCompany"></td>
+    <td class="label">Account #</td>
+    <td class="value" colspan="3" data-jc="freightAccount"></td>
   </tr>
   <tr class="h-data r3">
     <td class="label">Contact Number</td>
     <td class="value" colspan="3" data-jc="contactPhone"></td>
-    <td class="label">Account #</td>
-    <td class="value" colspan="3" data-jc="freightAccount"></td>
+    <td class="label">Consignment Note #</td>
+    <td class="value" colspan="3" data-jc="consignmentNote"></td>
   </tr>
   <tr class="h-data r4">
     <td class="label">Contact Email</td>
     <td class="value" colspan="3" data-jc="contactEmail"></td>
-    <td class="label">Consignment Note #</td>
-    <td class="value" colspan="3" data-jc="consignmentNote"></td>
+    <td class="label"></td>
+    <td class="value" colspan="3"></td>
   </tr>
   <tr class="h-data r5">
     <td class="label">Purchase Order No.</td>
@@ -888,7 +894,7 @@ Pack Dimensions & Delivery Instructions
 
 </div>
 
-<div class="jc-watermark">JOB ID <span data-jc="jobNumberWatermark"></span></div>
+<div class="jc-watermark">JOB <span data-jc="jobNumberWatermark"></span> · <span data-jc="jobCardVersion"></span></div>
 
 </div>
 
