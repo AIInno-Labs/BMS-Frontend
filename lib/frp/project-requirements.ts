@@ -2,13 +2,13 @@
 export type ProjectRequirementKind =
   | "DOCUMENTS_REQUIRED"
   | "SAMPLE_REQUIRED"
-  | "COI_REQUIRED"
+  | "IGNORE_OVERDUE"
   | "CASH_PAYMENT_REQUIRED";
 
 export const PROJECT_REQUIREMENT_KINDS: ProjectRequirementKind[] = [
   "DOCUMENTS_REQUIRED",
   "SAMPLE_REQUIRED",
-  "COI_REQUIRED",
+  "IGNORE_OVERDUE",
   "CASH_PAYMENT_REQUIRED",
 ];
 
@@ -16,6 +16,6 @@ export const PROJECT_REQUIREMENT_KINDS: ProjectRequirementKind[] = [
 export const PROJECT_REQUIREMENT_LABELS: Record<ProjectRequirementKind, string> = {
   DOCUMENTS_REQUIRED: "Documents required",
   SAMPLE_REQUIRED: "Sample required",
-  COI_REQUIRED: "COI required",
+  IGNORE_OVERDUE: "Ignore Overdue",
   CASH_PAYMENT_REQUIRED: "Cash payment required",
 };

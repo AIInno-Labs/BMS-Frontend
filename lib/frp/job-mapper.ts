@@ -63,8 +63,7 @@ export interface FrpJobSummaryDTO {
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   createdDate?: string;
-  /** Excludes the job from the "Overdue" tile/list. Set via `PUT
-   *  /jobs/{id}/ignore-overdue`, not writable here. */
+  /** Mirrors IGNORE_OVERDUE project requirement when decided required. */
   ignoreOverdue?: boolean;
 }
 
@@ -133,11 +132,10 @@ export interface FrpJobDTO {
   /** `READ_ONLY` here, detail view only (`GET /jobs/{id}`) — mutated via
    *  `/jobs/{id}/job-inventory`. */
   inventory?: FrpJobInventoryDTO[];
-    /** `READ_ONLY` — all requirement kinds (Documents / Sample / COI / Cash payment). */
-    requirements?: FrpJobProjectRequirementDTO[];
-    /** Excludes the job from the "Overdue" tile/list. Set via `PUT
-     *  /jobs/{id}/ignore-overdue`, not writable here. */
-    ignoreOverdue?: boolean;
+  /** `READ_ONLY` — all requirement kinds (Documents / Sample / Ignore Overdue / Cash payment). */
+  requirements?: FrpJobProjectRequirementDTO[];
+  /** Mirrors IGNORE_OVERDUE when that requirement is decided required. */
+  ignoreOverdue?: boolean;
 }
 
 /** `JobProjectRequirementDTO` — one project requirement row. */
@@ -776,7 +774,7 @@ function requirementsToUi(
         ? card?.documentsRequired
         : kind === "SAMPLE_REQUIRED"
           ? card?.sampleRequired
-          : card?.coiRequired;
+          : undefined;
     const legacyRequired =
       typeof legacyValue === "boolean" ? legacyValue : null;
 

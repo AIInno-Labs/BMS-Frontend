@@ -157,7 +157,7 @@ export interface Job {
   /** Material lines for the job (backend `job_inventory`). Inline on
    *  `GET /jobs/{id}`; mutated via `/jobs/{id}/job-inventory`. */
   inventory?: JobInventoryLine[];
-  /** Documents / sample / COI flags — backend `job_project_requirements`. */
+  /** Documents / sample / ignore-overdue / cash-payment flags — backend `job_project_requirements`. */
   requirements?: JobProjectRequirement[];
 }
 

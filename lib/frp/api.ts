@@ -631,6 +631,11 @@ export interface ListJobsParams {
   dueFrom?: string;
   /** Latest due date, inclusive. ISO `yyyy-MM-dd`. */
   dueTo?: string;
+  /**
+   * When `true` (API default), exclude jobs with IGNORE_OVERDUE required.
+   * Pass `false` to include those jobs as well.
+   */
+  ignoreOverdue?: boolean;
 }
 
 /**
@@ -656,6 +661,9 @@ export async function listJobs(
     q.set("assignedTo", String(params.assignedTo));
   if (params?.dueFrom) q.set("dueFrom", params.dueFrom);
   if (params?.dueTo) q.set("dueTo", params.dueTo);
+  if (params?.ignoreOverdue != null) {
+    q.set("ignoreOverdue", String(params.ignoreOverdue));
+  }
   return frpFetch<PageResponse<FrpJobSummaryDTO>>(`/jobs?${q}`);
 }
 
@@ -1024,18 +1032,14 @@ export async function setJobRequirement(
 }
 
 /**
- * `PUT /jobs/{id}/ignore-overdue` — excludes (or re-includes) the job from
- * the "Overdue" stage tile/list regardless of its due date.
+ * `PUT /jobs/{id}/ignore-overdue` — decides the IGNORE_OVERDUE project
+ * requirement (excludes the job from overdue counts/lists).
  */
 export async function setJobIgnoreOverdue(
   dbId: string | number,
   ignore: boolean
 ): Promise<void> {
-  const params = new URLSearchParams({ ignore: String(ignore) });
-  await frpFetch(
-    `/jobs/${encodeURIComponent(String(dbId))}/ignore-overdue?${params}`,
-    { method: "PUT" }
-  );
+  await setJobRequirement(dbId, "IGNORE_OVERDUE", ignore);
 }
 
 /**

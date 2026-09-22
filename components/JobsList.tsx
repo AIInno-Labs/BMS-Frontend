@@ -534,6 +534,9 @@ export function JobsList({ jobs }: JobsListProps) {
             assignedTo: assignedToFilter,
             dueFrom,
             dueTo,
+            // Overdue tile: honor IGNORE_OVERDUE (API default is true).
+            // Other stage groups: include those jobs too.
+            ignoreOverdue: stageGroupFilter === "overdue",
           });
           collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
           if (res.last || (res.content ?? []).length === 0) break;
