@@ -371,7 +371,13 @@ export function JobsList({ jobs }: JobsListProps) {
       const collected: Job[] = [];
       for (const status of WORKER_STATUSES) {
         for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
-          const res = await listJobs(backendPage, 200, { assignedTo, status, search, sort: "RECENT" });
+          const res = await listJobs(backendPage, 200, {
+            assignedTo,
+            status,
+            search,
+            sort: "RECENT",
+            ignoreOverdue: false,
+          });
           collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
           if (res.last || (res.content ?? []).length === 0) break;
         }
@@ -463,6 +469,8 @@ export function JobsList({ jobs }: JobsListProps) {
       assignedTo: assignedToFilter,
       dueFrom,
       dueTo,
+      // Main list: include IGNORE_OVERDUE jobs. Overdue tile passes true.
+      ignoreOverdue: false,
     })
       .then((res) => {
         if (cancelled) return;

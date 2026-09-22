@@ -178,7 +178,11 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       // `sort` binds to the JobSort enum — "createdDate,desc" was a 400.
-      const page = await listJobs(0, 200, { sort: "RECENT" });
+      // ignoreOverdue: false so IGNORE_OVERDUE jobs still appear in the list.
+      const page = await listJobs(0, 200, {
+        sort: "RECENT",
+        ignoreOverdue: false,
+      });
       const list = (page.content ?? []).map(frpJobSummaryToUi);
       setJobs(list);
 
@@ -186,7 +190,8 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       // past the page cap. Falling back to the page keeps tiles plausible if
       // the endpoint is missing, but they are then a floor, not a total.
       try {
-        setCounts(countsFromDto(await getJobCounts()));
+        // Jobs + dashboard overdue tiles: exclude IGNORE_OVERDUE (API default).
+        setCounts(countsFromDto(await getJobCounts({ ignoreOverdue: true })));
       } catch {
         setCounts(deriveFromJobs(list));
       }
