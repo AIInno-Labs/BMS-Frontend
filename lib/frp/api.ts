@@ -627,6 +627,12 @@ export interface ListJobsParams {
   /** Backend `JobPriority` enum name. */
   priority?: string;
   assignedTo?: number;
+  /**
+   * Jobs with no assignee at all. Backend support pending — `assignedTo`
+   * alone cannot express this, since a null value there means "don't
+   * filter", not "match null". Mutually exclusive with `assignedTo`.
+   */
+  unassignedOnly?: boolean;
   /** Earliest due date, inclusive. ISO `yyyy-MM-dd`. */
   dueFrom?: string;
   /** Latest due date, inclusive. ISO `yyyy-MM-dd`. */
@@ -659,6 +665,7 @@ export async function listJobs(
   if (params?.priority) q.set("priority", params.priority);
   if (params?.assignedTo != null)
     q.set("assignedTo", String(params.assignedTo));
+  if (params?.unassignedOnly) q.set("unassignedOnly", "true");
   if (params?.dueFrom) q.set("dueFrom", params.dueFrom);
   if (params?.dueTo) q.set("dueTo", params.dueTo);
   if (params?.ignoreOverdue != null) {
@@ -1101,6 +1108,13 @@ export async function holdJob(dbId: string | number): Promise<void> {
 /** `PUT /jobs/{id}/resume` — un-pauses a job held via {@link holdJob}. */
 export async function resumeJob(dbId: string | number): Promise<void> {
   await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/resume`, {
+    method: "PUT",
+  });
+}
+
+/** `PUT /jobs/{id}/restore` — un-cancels a job cancelled via {@link cancelJob}. */
+export async function restoreJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/restore`, {
     method: "PUT",
   });
 }

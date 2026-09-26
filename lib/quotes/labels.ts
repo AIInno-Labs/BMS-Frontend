@@ -15,7 +15,7 @@ export function journeyOutcomeLabel(outcome: JourneyOutcome): string {
 
 /** Backend `FactoryStatus` enum names → display labels. */
 const FACTORY_STATUS_LABELS: Record<string, string> = {
-  DRAFT: "Draft",
+  DRAFT: "Pending",
   DRAWING: "Drawing",
   APPROVAL: "Approval",
   PRODUCTION: "Production",

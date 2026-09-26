@@ -71,6 +71,17 @@ function isoDatePlusMonths(months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** ISO date shifted by a number of days (local noon). */
+function isoDatePlusDays(days: number): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** How far ahead "Upcoming Due"'s dashboard tile links into the Jobs list. */
+const UPCOMING_DUE_WINDOW_DAYS = 14;
+
 /**
  * Strictly past, matching `JobRepository.countOverdue`'s `dueDate < :today` —
  * the KPI card and this list have to agree on what overdue means, or the count
@@ -263,7 +274,7 @@ export function Dashboard() {
                     </h2>
                   </div>
                   <Link
-                    href="/jobs"
+                    href="/jobs?group=overdue"
                     className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
                   >
                     View All →
@@ -464,8 +475,14 @@ export function Dashboard() {
 
             {myUserId != null && (
               <section className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm" aria-label="Upcoming due">
-                <div className="border-b border-slate-100 pb-1.5">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-1.5">
                   <h2 className="text-sm font-semibold text-slate-900">Upcoming Due</h2>
+                  <Link
+                    href={`/jobs?dueFrom=${todayIso()}&dueTo=${isoDatePlusDays(UPCOMING_DUE_WINDOW_DAYS)}`}
+                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                  >
+                    View All →
+                  </Link>
                 </div>
                 <div className="mt-1.5 space-y-1.5">
                   {upcomingJobs.length === 0 ? (

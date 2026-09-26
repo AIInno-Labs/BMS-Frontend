@@ -245,7 +245,9 @@ export function QuotesPage() {
   const searchParams = useSearchParams();
   const searchQuery = (searchParams.get("q") ?? "").trim();
 
-  const [statusFilters, setStatusFilters] = useState<FrpQuoteStatus[]>([]);
+  const [statusFilters, setStatusFilters] = useState<FrpQuoteStatus[]>([
+    "ACCEPTED",
+  ]);
   const [page, setPage] = useState(1);
   // Bumped by the Refresh button to force the effect below to re-run.
   const [reloadToken, setReloadToken] = useState(0);
@@ -319,19 +321,6 @@ export function QuotesPage() {
   return (
     <main className="app-mesh-bg min-h-screen overflow-x-hidden">
       <div className="relative mx-auto w-full min-w-0 max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-6">
-          <p className="text-sm font-medium uppercase tracking-widest text-blue-600">
-            Quotient CRM
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-            Quotes
-          </h1>
-          <p className="mt-2 max-w-2xl text-base text-slate-600">
-            Full Quotient webhook data — same field names as Quotient. Factory
-            execution stays on Jobs (official PDF job card).
-          </p>
-        </header>
-
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

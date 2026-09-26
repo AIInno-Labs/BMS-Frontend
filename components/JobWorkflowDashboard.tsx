@@ -121,6 +121,8 @@ interface JobWorkflowDashboardProps {
   onDismissMessage?: () => void;
   /** Soft-cancel the job (DELETE /jobs/{id}). Prefer over status patch. */
   onCancelJob?: () => Promise<void>;
+  /** Un-cancels the job (PUT /jobs/{id}/restore). */
+  onRestoreJob?: () => Promise<void>;
   onSavePatch: (
     patch: Partial<Job>,
     options?: { audit?: JobUpdateAuditAction; auditDetail?: string | null }
@@ -462,6 +464,7 @@ export function JobWorkflowDashboard({
   onPrintLoc,
   onDismissMessage,
   onCancelJob,
+  onRestoreJob,
   onSavePatch,
   onStatusChange,
   onJobChanged,
@@ -494,6 +497,9 @@ export function JobWorkflowDashboard({
   const [previewFile, setPreviewFile] = useState<JobFileRecord | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
   const pendingSharePointSeenAt = useRef<Map<number, number>>(new Map());
   const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<
@@ -1143,20 +1149,28 @@ export function JobWorkflowDashboard({
             )}
             {isExporting ? "Exporting…" : "Export PDF"}
           </button>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
-            disabled={
-              isSaving ||
-              cancelBusy ||
-              isExporting ||
-              job.status === "Cancelled" ||
-              job.status === "Complete"
-            }
-            onClick={() => setShowCancelConfirm(true)}
-          >
-            Cancel job
-          </button>
+          {cancelled ? (
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-60"
+              disabled={isSaving || restoreBusy || isExporting}
+              onClick={() => {
+                setRestoreError(null);
+                setShowRestoreConfirm(true);
+              }}
+            >
+              Restore job
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+              disabled={isSaving || cancelBusy || isExporting || job.status === "Complete"}
+              onClick={() => setShowCancelConfirm(true)}
+            >
+              Cancel job
+            </button>
+          )}
         </div>
       </div>
 
@@ -1601,6 +1615,34 @@ export function JobWorkflowDashboard({
             setShowCancelConfirm(false);
           } finally {
             setCancelBusy(false);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={showRestoreConfirm}
+        title={`Restore job ${job.id}?`}
+        description="This returns the job to the workflow, picking up wherever it was before it was cancelled."
+        confirmLabel="Restore job"
+        cancelLabel="Keep cancelled"
+        tone="default"
+        busy={restoreBusy}
+        error={restoreError}
+        onClose={() => {
+          if (!restoreBusy) setShowRestoreConfirm(false);
+        }}
+        onConfirm={async () => {
+          setRestoreBusy(true);
+          setRestoreError(null);
+          try {
+            await onRestoreJob?.();
+            setShowRestoreConfirm(false);
+          } catch (e) {
+            setRestoreError(
+              e instanceof Error ? e.message : "Could not restore job"
+            );
+          } finally {
+            setRestoreBusy(false);
           }
         }}
       />

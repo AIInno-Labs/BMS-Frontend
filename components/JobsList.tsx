@@ -9,7 +9,6 @@ import {
   Clock3,
   Plus,
   Workflow,
-  X,
 } from "lucide-react";
 import { CreateNewJobDrawer } from "@/components/CreateNewJobDrawer";
 import { JobsPagination } from "@/components/JobsPagination";
@@ -227,6 +226,11 @@ export function JobsList({ jobs }: JobsListProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const assignedToFilter = parseAssignedToParam(searchParams.get("assignedTo"));
+  // Backend support pending — see ListJobsParams.unassignedOnly.
+  const assignedToQuery =
+    assignedToFilter === "unassigned"
+      ? { assignedTo: undefined, unassignedOnly: true }
+      : { assignedTo: assignedToFilter, unassignedOnly: undefined };
   const dueFrom = parseDueDateParam(searchParams.get("dueFrom"));
   const dueTo = parseDueDateParam(searchParams.get("dueTo"));
   const [searchQuery, setSearchQuery] = useState(
@@ -341,12 +345,6 @@ export function JobsList({ jobs }: JobsListProps) {
     }
     setPage(1);
   }, [effectiveSearchQuery, statusFilter, stageGroupFilter, sortBy]);
-
-  const clearStageGroupFilter = () => {
-    setStageGroupFilter(null);
-    setPage(1);
-    updateUrlParams({ group: null, page: null });
-  };
 
   // ------------------------------------------------------------------
   // Worker mode — GET /jobs?assignedTo=&status=&search= per status in
@@ -473,7 +471,7 @@ export function JobsList({ jobs }: JobsListProps) {
       sort: toBackendSort(sortBy),
       status: explicitStatus ?? impliedStatus,
       priority,
-      assignedTo: assignedToFilter,
+      ...assignedToQuery,
       dueFrom,
       dueTo,
       // Due-date filter: honor IGNORE_OVERDUE. Otherwise include those jobs.
@@ -547,7 +545,7 @@ export function JobsList({ jobs }: JobsListProps) {
           const res = await listJobs(backendPage, 200, {
             status,
             sort: "RECENT",
-            assignedTo: assignedToFilter,
+            ...assignedToQuery,
             dueFrom,
             dueTo,
             // Overdue tile or due-date filter: honor IGNORE_OVERDUE.
@@ -691,106 +689,6 @@ export function JobsList({ jobs }: JobsListProps) {
         </section>
       )}
 
-      {!isWorker && stageGroupFilter && (
-        <section
-          className="rounded-2xl border border-orange-200/80 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]"
-          aria-live="polite"
-        >
-          {(() => {
-            const info = CARD_INFO[stageGroupFilter];
-            const preview = groupSortedJobs.slice(0, 8);
-            return (
-              <>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-orange-600">
-                      {info.label}
-                    </p>
-                    <h2 className="mt-0.5 text-base font-semibold text-slate-900">
-                      {info.headline}
-                    </h2>
-                    <p className="mt-1 max-w-2xl text-sm text-slate-600">{info.description}</p>
-                    {info.statuses.length > 0 && (
-                      <p className="mt-2 text-xs text-slate-500">
-                        Includes:{" "}
-                        <span className="font-medium text-slate-700">
-                          {info.statuses.join(" · ")}
-                        </span>
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={clearStageGroupFilter}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                    Clear filter
-                  </button>
-                </div>
-                {groupLoading && groupRows.length === 0 ? (
-                  <div className="mt-3 flex justify-center">
-                    <LoadingState />
-                  </div>
-                ) : groupError ? (
-                  <p className="mt-3 text-sm text-red-600">{groupError}</p>
-                ) : (
-                  <>
-                    <p className="mt-3 text-sm font-semibold text-slate-900">
-                      {groupSortedJobs.length} job{groupSortedJobs.length === 1 ? "" : "s"} in this
-                      stage
-                    </p>
-                    {preview.length > 0 ? (
-                      <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                        {preview.map((job) => (
-                          <li key={job.id}>
-                            <Link
-                              href={`/jobs/${job.id}`}
-                              className="block px-3 py-2 text-sm transition-colors hover:bg-orange-50/50"
-                            >
-                              <div className="flex items-start justify-between gap-2 sm:hidden">
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold text-slate-900">
-                                    {job.id}
-                                  </p>
-                                  <p className="mt-0.5 truncate text-slate-600">{job.clientName}</p>
-                                </div>
-                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                                  <JobListStageBadges job={job} variant="short" />
-                                </div>
-                              </div>
-                              <div className="hidden sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-2">
-                                <span className="justify-self-start truncate font-semibold text-slate-900">
-                                  {job.id}
-                                </span>
-                                <span className="min-w-0 max-w-md truncate text-center text-slate-600">
-                                  {job.clientName}
-                                </span>
-                                <div className="flex flex-nowrap items-center justify-self-end gap-1 whitespace-nowrap [&>span]:flex-nowrap">
-                                  <JobListStageBadges job={job} variant="short" />
-                                </div>
-                              </div>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-600">No jobs in this stage right now.</p>
-                    )}
-                    {groupSortedJobs.length > preview.length && (
-                      <p className="mt-2 text-xs text-slate-500">
-                        Showing {preview.length} of {groupSortedJobs.length} — full list in the
-                        table below.
-                      </p>
-                    )}
-                  </>
-                )}
-              </>
-            );
-          })()}
-        </section>
-      )}
-
       {!isWorker && (
         <div className="flex flex-wrap items-center justify-end gap-2">
           <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
@@ -809,6 +707,7 @@ export function JobsList({ jobs }: JobsListProps) {
               aria-label="Filter assignee"
             >
               <option value="">All</option>
+              <option value="unassigned">Unassigned</option>
               {staff.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.display_name}
