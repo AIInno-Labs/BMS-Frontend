@@ -4,6 +4,10 @@ import type {
   JobCardPack,
   JobCardPrintDetails,
 } from "@/lib/types";
+import {
+  splitCatalogMaterialGrade,
+  splitCatalogSize,
+} from "@/lib/frp/inventory-catalog";
 import { getWorkerDisplayName } from "@/lib/workers";
 
 export type { JobCardClipRow, JobCardPack, JobCardPrintDetails };
@@ -29,6 +33,8 @@ export interface OfficialJobCardData {
   despatchDate: string;
   deliveryDocket: string;
   scopeLines: string[];
+  /** Commercial / add-on lines shown on the right of Scope (levy, LOC, warranty…). */
+  scopeRightLines: string[];
   scopeType: string;
   thickness: string;
   mesh: string;
@@ -185,7 +191,7 @@ export function buildOfficialJobCardData(
     .filter(Boolean);
   // Prefer materials (job_measurements); then card scope; then quote line items;
   // then project name / instructions.
-  const scopeLines = fromMaterials.length
+  const allScopeLines = fromMaterials.length
     ? fromMaterials
     : fromCardScope.length
       ? fromCardScope
@@ -198,12 +204,12 @@ export function buildOfficialJobCardData(
               : []),
           ].filter(Boolean);
 
-  // Only print clip rows that were actually filled on the job — never invent
-  // the STANDARD_CLIP_ROWS catalogue into export data.
-  const clipRows =
-    pd?.clipRows && pd.clipRows.some((r) => nonempty(r.qty) || nonempty(r.packedBy))
-      ? mergeClipRows(pd.clipRows)
-      : STANDARD_CLIP_ROWS.map((row) => ({ ...row, qty: "", packedBy: "" }));
+  const { left: scopeLines, right: scopeRightLines } =
+    splitScopeLinesForPrint(allScopeLines);
+
+  // Print inventory from the job Inventory panel — never invent the static
+  // STANDARD_CLIP_ROWS catalogue into the export.
+  const clipRows = inventoryRowsForPrint(job.inventory);
 
   const packs = pd?.packs ?? [EMPTY_PACK, EMPTY_PACK, EMPTY_PACK];
 
@@ -258,6 +264,7 @@ export function buildOfficialJobCardData(
     despatchDate: nonempty(pd?.despatchDate) ?? nonempty(sl?.shipDate) ?? "",
     deliveryDocket: nonempty(pd?.deliveryDocket) ?? "",
     scopeLines,
+    scopeRightLines,
     scopeType: nonempty(pd?.scopeType) ?? "",
     thickness: nonempty(pd?.thickness) ?? "",
     mesh: nonempty(pd?.mesh) ?? "",
@@ -289,10 +296,94 @@ export function buildOfficialJobCardData(
   };
 }
 
-function mergeClipRows(custom: JobCardClipRow[]): JobCardClipRow[] {
-  const map = new Map(custom.map((r) => [r.clip.toLowerCase(), r]));
-  return STANDARD_CLIP_ROWS.map((row) => {
-    const hit = map.get(row.clip.toLowerCase());
-    return hit ? { ...row, ...hit } : row;
+/** Commercial / add-on lines that belong on the right of Scope of Work. */
+const SCOPE_RIGHT_LINE_RE =
+  /levy|40\s*\+\s*20|technician|fixing|letter of con|workmanship|warranty|\bloc\b|supplied with goods/i;
+
+/**
+ * Split scope lines: product / work description on the left; levy, install,
+ * fixings, LOC, warranty (and similar) on the right.
+ */
+export function splitScopeLinesForPrint(lines: string[]): {
+  left: string[];
+  right: string[];
+} {
+  const left: string[] = [];
+  const right: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (SCOPE_RIGHT_LINE_RE.test(line)) right.push(line);
+    else left.push(line);
+  }
+  return { left, right };
+}
+
+/** Map job.inventory (editable on the job page) → printable column rows. */
+export function inventoryRowsForPrint(
+  inventory: Job["inventory"] | null | undefined
+): JobCardClipRow[] {
+  if (!inventory?.length) return [];
+  return inventory.map((item) => {
+    const { meshSpec, dimension } = splitCatalogSize(item.size ?? "");
+    const { resin, colour } = splitCatalogMaterialGrade(item.materialGrade ?? "");
+    const productGroup = item.category?.trim() || "";
+    const attribute1 = item.profileType?.trim() || "";
+    const attribute2 = meshSpec.trim();
+    const attribute3 = dimension.trim();
+    const resinVal = resin.trim();
+    const colourVal = colour.trim();
+    const parts = [
+      productGroup,
+      attribute1,
+      attribute2,
+      attribute3,
+      resinVal,
+      colourVal,
+    ].filter(Boolean);
+    return {
+      clip: parts.length ? parts.join(" · ") : "Inventory item",
+      productGroup,
+      attribute1,
+      attribute2,
+      attribute3,
+      resin: resinVal,
+      colour: colourVal,
+      qty: item.quantity != null ? String(item.quantity) : "",
+      packedBy: "",
+    };
   });
+}
+
+const EMPTY_INVENTORY_PRINT_ROW: JobCardClipRow = {
+  clip: "",
+  productGroup: "",
+  attribute1: "",
+  attribute2: "",
+  attribute3: "",
+  resin: "",
+  colour: "",
+  qty: "",
+  packedBy: "",
+};
+
+/** Blank handwriting rows on the printed job card (beyond saved lines). */
+export const INVENTORY_PRINT_BLANK_ROWS = 5;
+
+/**
+ * Saved inventory rows plus empty write-in lines so floor staff can add more
+ * by hand on the printed card. Always keeps blank space after whatever is saved.
+ */
+export function padInventoryRowsForPrint(
+  rows: JobCardClipRow[],
+  blankRows: number = INVENTORY_PRINT_BLANK_ROWS
+): { rows: JobCardClipRow[]; blankStartIndex: number } {
+  const filled = rows ?? [];
+  const extras = Array.from({ length: Math.max(0, blankRows) }, () => ({
+    ...EMPTY_INVENTORY_PRINT_ROW,
+  }));
+  return {
+    rows: [...filled, ...extras],
+    blankStartIndex: filled.length,
+  };
 }

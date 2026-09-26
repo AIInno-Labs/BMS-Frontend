@@ -478,7 +478,7 @@ export function Dashboard() {
                 <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-1.5">
                   <h2 className="text-sm font-semibold text-slate-900">Upcoming Due</h2>
                   <Link
-                    href={`/jobs?dueFrom=${todayIso()}&dueTo=${isoDatePlusDays(UPCOMING_DUE_WINDOW_DAYS)}`}
+                    href={`/jobs?assignedTo=${myUserId}&dueFrom=${todayIso()}&dueTo=${isoDatePlusDays(UPCOMING_DUE_WINDOW_DAYS)}`}
                     className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
                   >
                     View All →
@@ -556,7 +556,7 @@ export function Dashboard() {
                     )}
                   </div>
                   <Link
-                    href="/jobs"
+                    href={`/jobs?assignedTo=${myUserId}`}
                     className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
                   >
                     View All →

@@ -433,6 +433,16 @@ export interface FrpJobStageUpdateRequest {
   docRequired?: boolean;
   /** Attach stage documents to the notification email: -1 N/A, 0 off, 1 on. */
   emailDocumentAttachmentRequired?: number;
+  /**
+   * Existing job document ids to attach when email attachment is on.
+   * Newly uploaded files are selected via {@link #emailNewUploadIndexes}.
+   */
+  emailDocumentIds?: number[];
+  /**
+   * 0-based indexes into the multipart `files` array to attach on the email.
+   * Unmarked new uploads are stored on the stage but not emailed.
+   */
+  emailNewUploadIndexes?: number[];
   assignedTeam?: string;
 }
 
@@ -925,12 +935,13 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
   origin: dto.origin,
   currentStageKey: dto.currentStageKey ?? null,
   currentStageId: dto.currentStageId ?? null,
-  inventory: (dto.inventory ?? []).map(inventoryLineToUi),
+  inventory: (dto.inventory ?? []).map(jobInventoryLineToUi),
   requirements: requirementsToUi(dto, card),
   };
 }
 
-function inventoryLineToUi(line: FrpJobInventoryDTO): JobInventoryLine {
+/** Map a job-inventory API row → UI line (used after save to refresh the modal). */
+export function jobInventoryLineToUi(line: FrpJobInventoryDTO): JobInventoryLine {
   const master = line.master;
   return {
     id: line.id,

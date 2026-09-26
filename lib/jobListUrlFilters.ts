@@ -10,15 +10,14 @@ export function isoDatePlusDaysFrom(todayIso: string, days: number): string {
 }
 
 /**
- * `"unassigned"` is a sentinel, not a user id — it asks the backend for jobs
- * with no assignee, which `assignedTo` alone cannot express (a null value
- * there means "don't filter", not "match null").
+ * `"unassigned"` / `-1` asks for jobs with no assignee (`GET /jobs?assignedTo=-1`).
+ * Omit the param for no assignee filter; a positive id matches that user.
  */
 export function parseAssignedToParam(
   raw: string | null
 ): number | "unassigned" | undefined {
   if (raw == null || raw.trim() === "") return undefined;
-  if (raw.trim() === "unassigned") return "unassigned";
+  if (raw.trim() === "unassigned" || raw.trim() === "-1") return "unassigned";
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return undefined;
   return n;

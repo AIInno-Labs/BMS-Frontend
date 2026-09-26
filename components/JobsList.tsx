@@ -178,8 +178,12 @@ const STAGE_GROUP_LABEL_SHORT: Record<JobStageGroup, string> = {
 // active) names the real stage, e.g. "Drawing" — more precise than the
 // coarse status group, which only advances once the *next* stage has
 // started. Falls back to the group label for jobs the backend hasn't
-// populated it on.
+// populated it on. On this list, draft is shown as "Pending" (filter /
+// status language); the job timeline still uses "Draft".
 function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
+  if (job.currentStageKey === "draft") {
+    return "Pending";
+  }
   const real = timelineStageInfo(job.currentStageKey);
   if (real) return variant === "full" ? real.title : real.shortLabel;
   const group = resolveStatusGroup(job.status);
@@ -221,16 +225,16 @@ function JobListStageBadges({
 export function JobsList({ jobs }: JobsListProps) {
   const { counts, staff, listRevision } = useJobs();
   const { isWorker, workerId } = usePersona();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const canCreateJob = can(ACCESS_KEYS.JOBS_CREATE);
   const router = useRouter();
   const searchParams = useSearchParams();
   const assignedToFilter = parseAssignedToParam(searchParams.get("assignedTo"));
-  // Backend support pending — see ListJobsParams.unassignedOnly.
+  // assignedTo=-1 → jobs with no assignee (backend sentinel).
   const assignedToQuery =
     assignedToFilter === "unassigned"
-      ? { assignedTo: undefined, unassignedOnly: true }
-      : { assignedTo: assignedToFilter, unassignedOnly: undefined };
+      ? { assignedTo: -1 }
+      : { assignedTo: assignedToFilter };
   const dueFrom = parseDueDateParam(searchParams.get("dueFrom"));
   const dueTo = parseDueDateParam(searchParams.get("dueTo"));
   const [searchQuery, setSearchQuery] = useState(
@@ -248,6 +252,30 @@ export function JobsList({ jobs }: JobsListProps) {
     return Number.isFinite(fromUrl) && fromUrl >= 1 ? Math.trunc(fromUrl) : 1;
   });
   const [createJobOpen, setCreateJobOpen] = useState(false);
+
+  /** Staff options plus the URL-selected assignee when they're not in the roster
+   *  yet (so the ASSIGNEE control actually shows the filter instead of "All"). */
+  const assigneeOptions = useMemo(() => {
+    const rows = [...staff];
+    if (
+      typeof assignedToFilter === "number" &&
+      !rows.some((u) => u.id === String(assignedToFilter))
+    ) {
+      const self =
+        user?.id === assignedToFilter
+          ? user.displayName?.trim() || user.email || "You"
+          : `User ${assignedToFilter}`;
+      rows.unshift({
+        id: String(assignedToFilter),
+        display_name: self,
+        initials: "",
+        certifications: [],
+        shift_hours_capacity: 8,
+        is_present: true,
+      });
+    }
+    return rows;
+  }, [staff, assignedToFilter, user]);
 
   // Below 3 characters a job search is too broad to be useful and just adds
   // load — treat it the same as no search until the user has typed enough.
@@ -691,7 +719,13 @@ export function JobsList({ jobs }: JobsListProps) {
 
       {!isWorker && (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+          <label
+            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+              assignedToFilter != null
+                ? "border-orange-300 ring-1 ring-orange-200"
+                : "border-[#E5E7EB]"
+            }`}
+          >
             <span className="shrink-0">ASSIGNEE</span>
             <select
               value={assignedToFilter != null ? String(assignedToFilter) : ""}
@@ -708,14 +742,20 @@ export function JobsList({ jobs }: JobsListProps) {
             >
               <option value="">All</option>
               <option value="unassigned">Unassigned</option>
-              {staff.map((u) => (
+              {assigneeOptions.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.display_name}
                 </option>
               ))}
             </select>
           </label>
-          <div className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+          <div
+            className={`inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+              dueFrom || dueTo
+                ? "border-orange-300 ring-1 ring-orange-200"
+                : "border-[#E5E7EB]"
+            }`}
+          >
             <span className="shrink-0">DUE</span>
             <input
               type="date"
@@ -754,30 +794,69 @@ export function JobsList({ jobs }: JobsListProps) {
               </button>
             )}
           </div>
-          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
-            <span className="shrink-0">ALL STAGES</span>
+          <label
+            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+              stageGroupFilter || statusFilter !== "All"
+                ? "border-orange-300 ring-1 ring-orange-200"
+                : "border-[#E5E7EB]"
+            }`}
+          >
+            <span className="shrink-0">STAGE</span>
             <select
-              value={statusFilter}
+              value={
+                stageGroupFilter
+                  ? `group:${stageGroupFilter}`
+                  : statusFilter === "All"
+                    ? "All"
+                    : `status:${statusFilter}`
+              }
               onChange={(e) => {
-                const next = e.target.value as JobStatus | "All";
-                setStatusFilter(next);
-                setStageGroupFilter(null);
+                const next = e.target.value;
                 setPage(1);
-                updateUrlParams({
-                  status: next === "All" ? null : next,
-                  group: null,
-                  page: null,
-                });
+                if (next === "All") {
+                  setStatusFilter("All");
+                  setStageGroupFilter(null);
+                  updateUrlParams({
+                    status: null,
+                    group: null,
+                    page: null,
+                  });
+                  return;
+                }
+                if (next.startsWith("group:")) {
+                  const group = parseStageCardParam(next.slice("group:".length));
+                  setStatusFilter("All");
+                  setStageGroupFilter(group);
+                  updateUrlParams({
+                    group,
+                    status: null,
+                    page: null,
+                  });
+                  return;
+                }
+                if (next.startsWith("status:")) {
+                  const status = next.slice("status:".length) as JobStatus;
+                  setStatusFilter(status);
+                  setStageGroupFilter(null);
+                  updateUrlParams({
+                    status,
+                    group: null,
+                    page: null,
+                  });
+                }
               }}
-              className="ml-2 min-w-0 max-w-36 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
               aria-label="Filter stage"
             >
               <option value="All">All</option>
-              <option value="Pending">Pending</option>
-              <option value="Awaiting Manager Approval">Approval</option>
-              <option value="Ready to Manufacture">Ready</option>
-              <option value="In Fabrication">Manufacturing</option>
-              <option value="Complete">Delivered</option>
+              <option value="group:overdue">Overdue</option>
+              <option value="group:not-started">Not Started</option>
+              <option value="group:manufacturing">Manufacturing</option>
+              <option value="status:Pending">Pending</option>
+              <option value="status:Awaiting Manager Approval">Approval</option>
+              <option value="status:Ready to Manufacture">Ready</option>
+              <option value="status:In Fabrication">In Fabrication</option>
+              <option value="status:Complete">Delivered</option>
             </select>
           </label>
           {canCreateJob && (

@@ -34,7 +34,7 @@ export const TIMELINE_STAGES: Array<{
   title: string;
   shortLabel: string;
 }> = [
-  { id: "draft", title: "Pending", shortLabel: "Pending" },
+  { id: "draft", title: "Draft", shortLabel: "Draft" },
   { id: "design", title: "Drawing", shortLabel: "Drawing" },
   { id: "approval", title: "Approval", shortLabel: "Approval" },
   { id: "production", title: "Production", shortLabel: "Production" },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, ListChecks, Loader2, Mail, Paperclip, Pencil, StickyNote, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, ListChecks, Loader2, Mail, Paperclip, Pencil, StickyNote, X } from "lucide-react";
 import { WidgetCard } from "@/components/JobWidgetCard";
 import { EditModal, ModalField } from "@/components/JobEditModal";
 import { PoManualEntryFields, type PoDetailsFormValue } from "@/components/PoManualEntryFields";
@@ -27,9 +27,21 @@ import type { Job } from "@/lib/types";
 import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 
+const DOC_PAGE_SIZE = 5;
+
+type ModalDocListItem =
+  | { kind: "new"; file: File; index: number }
+  | { kind: "existing"; doc: FrpJobDocumentDTO };
+
 interface JobStatusCardProps {
   job: Job;
   className?: string;
+  /**
+   * Documents already loaded on the job page (same list as Document Versions /
+   * Project files). Used so later stages can pick Production uploads without
+   * another documents GET.
+   */
+  jobDocuments?: FrpJobDocumentDTO[];
   /** Called after a stage change persists — lets the parent refetch the job so
    *  the main page (status badge, timeline, %) reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
@@ -41,6 +53,33 @@ interface JobStatusCardProps {
 
 const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
   (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+
+/** Milestone + nested operation documents from the already-loaded stage tree. */
+function documentsOnMilestone(milestone: FrpJobStageDTO | undefined): FrpJobDocumentDTO[] {
+  if (!milestone) return [];
+  const out: FrpJobDocumentDTO[] = [...(milestone.documents ?? [])];
+  for (const child of milestone.children ?? []) {
+    out.push(...(child.documents ?? []));
+  }
+  return out;
+}
+
+function isProductionDocument(doc: FrpJobDocumentDTO): boolean {
+  return (
+    doc.documentType === "PRODUCTION" ||
+    doc.milestoneStageKey === "production"
+  );
+}
+
+function dedupeDocumentsById(docs: FrpJobDocumentDTO[]): FrpJobDocumentDTO[] {
+  const byId = new Map<number, FrpJobDocumentDTO>();
+  const withoutId: FrpJobDocumentDTO[] = [];
+  for (const doc of docs) {
+    if (typeof doc.id === "number") byId.set(doc.id, doc);
+    else withoutId.push(doc);
+  }
+  return [...byId.values(), ...withoutId];
+}
 
 const STATUS_LABEL: Record<NonNullable<FrpJobStageDTO["status"]>, string> = {
   PENDING: "Pending",
@@ -88,6 +127,7 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
  */
 export function JobStatusCard({
   job,
+  jobDocuments = [],
   className,
   onJobChanged,
   onDocumentsChanged,
@@ -118,6 +158,13 @@ export function JobStatusCard({
   const [draftRemarks, setDraftRemarks] = useState("");
   const [draftNotRequired, setDraftNotRequired] = useState(false);
   const [draftEmailAttach, setDraftEmailAttach] = useState(false);
+  /** Existing stage docs selected for the update email when attach is on. */
+  const [draftEmailDocIds, setDraftEmailDocIds] = useState<number[]>([]);
+  /** Indexes into draftFiles marked for the email (no id until after upload). */
+  const [draftEmailNewIndexes, setDraftEmailNewIndexes] = useState<number[]>([]);
+  const [docSearch, setDocSearch] = useState("");
+  const [docsExpanded, setDocsExpanded] = useState(false);
+  const [docPage, setDocPage] = useState(1);
   const [uploading, setUploading] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
   // True when the stage already has a document on record (`stage.documents`,
@@ -255,6 +302,15 @@ export function JobStatusCard({
         ? (stage.emailDocumentAttachmentRequired ?? 0) === 1
         : false
     );
+    setDraftEmailDocIds(
+      (stage.documents ?? [])
+        .map((d) => d.id)
+        .filter((id): id is number => typeof id === "number")
+    );
+    setDraftEmailNewIndexes([]);
+    setDocSearch("");
+    setDocsExpanded(false);
+    setDocPage(1);
     setModalHadDocument((stage.documents?.length ?? 0) > 0);
     // Order No / Buyer Name are fixed job-level facts — same prefill as
     // Document Versions' Add PO modal.
@@ -286,12 +342,115 @@ export function JobStatusCard({
   // though the toggle that sets it is hidden without PO_CREATE.
   const manualPoActive = isProductionStage && poMode === "manual" && canCreatePo;
 
-  function stageEmailBody(): Pick<FrpJobStageUpdateRequest, "emailDocumentAttachmentRequired"> {
+  const productionMilestone = useMemo(
+    () => milestones.find((m) => m.stageKey === "production"),
+    [milestones]
+  );
+
+  /** Prefer job-page document list; fall back to stage-tree docs if parent omitted it. */
+  const productionDocuments = useMemo(() => {
+    const fromJobPage = jobDocuments.filter(isProductionDocument);
+    if (jobDocuments.length > 0) {
+      return fromJobPage;
+    }
+    return documentsOnMilestone(productionMilestone);
+  }, [jobDocuments, productionMilestone]);
+
+  /**
+   * QC Sign-off needs Production POs/files for the update email — reuse the
+   * job page document list (no extra GET). Other stages keep their own docs only.
+   */
+  const modalDocuments = useMemo(() => {
+    if (!modalStage) return [];
+    const own = modalStage.documents ?? [];
+    if (modalStage.stageKey !== "signoff") return own;
+    return dedupeDocumentsById([...own, ...productionDocuments]);
+  }, [modalStage, productionDocuments]);
+
+  const filteredModalDocuments = useMemo(() => {
+    const q = docSearch.trim().toLowerCase();
+    if (!q) return modalDocuments;
+    return modalDocuments.filter((doc) => {
+      const name = poDocumentDisplayName(doc).toLowerCase();
+      const type = (doc.documentType ?? "").toLowerCase();
+      const milestone = (doc.milestoneStageName ?? doc.milestoneStageKey ?? "").toLowerCase();
+      return name.includes(q) || type.includes(q) || milestone.includes(q);
+    });
+  }, [modalDocuments, docSearch]);
+
+  /** Pending picks share the same searchable list as already-uploaded docs. */
+  const filteredDraftFiles = useMemo(() => {
+    const q = docSearch.trim().toLowerCase();
+    const entries = draftFiles.map((file, index) => ({ file, index }));
+    if (!q) return entries;
+    return entries.filter(({ file }) => file.name.toLowerCase().includes(q));
+  }, [draftFiles, docSearch]);
+
+  /** New files first, then existing — single list for pagination. */
+  const filteredDocListItems = useMemo<ModalDocListItem[]>(() => {
+    return [
+      ...filteredDraftFiles.map(({ file, index }) => ({
+        kind: "new" as const,
+        file,
+        index,
+      })),
+      ...filteredModalDocuments.map((doc) => ({
+        kind: "existing" as const,
+        doc,
+      })),
+    ];
+  }, [filteredDraftFiles, filteredModalDocuments]);
+
+  const docPageCount = Math.max(
+    1,
+    Math.ceil(filteredDocListItems.length / DOC_PAGE_SIZE)
+  );
+
+  const pagedDocListItems = useMemo(() => {
+    const page = Math.min(docPage, docPageCount);
+    const start = (page - 1) * DOC_PAGE_SIZE;
+    return filteredDocListItems.slice(start, start + DOC_PAGE_SIZE);
+  }, [filteredDocListItems, docPage, docPageCount]);
+
+  useEffect(() => {
+    setDocPage(1);
+  }, [docSearch, modalStage?.id]);
+
+  useEffect(() => {
+    if (docPage > docPageCount) setDocPage(docPageCount);
+  }, [docPage, docPageCount]);
+
+  const showModalDocList =
+    modalDocuments.length > 0 || draftFiles.length > 0;
+
+  const modalDocTotal = modalDocuments.length + draftFiles.length;
+  const selectedEmailCount =
+    draftEmailDocIds.length + draftEmailNewIndexes.length;
+
+  const modalOwnDocIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const doc of modalStage?.documents ?? []) {
+      if (typeof doc.id === "number") ids.add(doc.id);
+    }
+    return ids;
+  }, [modalStage]);
+
+  function stageEmailBody(): Pick<
+    FrpJobStageUpdateRequest,
+    "emailDocumentAttachmentRequired" | "emailDocumentIds" | "emailNewUploadIndexes"
+  > {
     // Admin off → -1 (not applicable). Admin on → operator 0/1.
     if (!modalStage?.emailAttachmentEnabled) {
       return { emailDocumentAttachmentRequired: -1 };
     }
-    return { emailDocumentAttachmentRequired: draftEmailAttach ? 1 : 0 };
+    if (!draftEmailAttach) {
+      return { emailDocumentAttachmentRequired: 0 };
+    }
+    return {
+      emailDocumentAttachmentRequired: 1,
+      emailDocumentIds: draftEmailDocIds,
+      emailNewUploadIndexes: draftEmailNewIndexes,
+    };
   }
 
   const saveStageModal = async () => {
@@ -383,6 +542,7 @@ export function JobStatusCard({
           ? { ...prev, documents: (prev.documents ?? []).filter((d) => d.id !== docId) }
           : prev
       );
+      setDraftEmailDocIds((prev) => prev.filter((id) => id !== docId));
       onDocumentsChanged?.();
       await load();
     } catch (e) {
@@ -619,70 +779,29 @@ export function JobStatusCard({
                 <input
                   type="checkbox"
                   checked={draftEmailAttach}
-                  onChange={(e) => setDraftEmailAttach(e.target.checked)}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setDraftEmailAttach(on);
+                    if (on) {
+                      setDraftEmailNewIndexes(draftFiles.map((_, i) => i));
+                      setDocsExpanded(true);
+                      setDocPage(1);
+                    } else {
+                      setDraftEmailNewIndexes([]);
+                    }
+                  }}
                   className="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
                 />
                 <Mail className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
                 <span className="min-w-0">
                   Email these attached files
                   <span className="mt-0.5 block text-xs text-slate-500">
-                    {draftFiles.length > 0 || (modalStage?.documents?.length ?? 0) > 0
-                      ? "Sent with the update email for this stage."
-                      : "Nothing attached yet — anything added here goes out with the update email."}
+                    Only checked documents in the list below are emailed.
                   </span>
                 </span>
               </label>
             ) : null}
           </div>
-
-          {(modalStage?.documents?.length ?? 0) > 0 && (
-            <div>
-              <span className="block text-sm font-medium text-slate-700">
-                Already uploaded
-              </span>
-              <div className="mt-1 space-y-1.5">
-                {modalStage!.documents!.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-sm text-slate-700"
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                      {onOpenDocument &&
-                      (doc.documentType === "PRODUCTION" ||
-                        doc.documentType === "DRAWING") ? (
-                        <button
-                          type="button"
-                          className="truncate text-left hover:text-orange-700"
-                          onClick={() => {
-                            setModalStage(null);
-                            onOpenDocument(doc);
-                          }}
-                        >
-                          {poDocumentDisplayName(doc)}
-                        </button>
-                      ) : (
-                        <span className="truncate">{poDocumentDisplayName(doc)}</span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteDocument(doc.id as number, doc.documentName)}
-                      disabled={deletingDocId === doc.id}
-                      className="shrink-0 rounded-md p-0.5 text-slate-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50"
-                      aria-label={`Delete ${doc.documentName}`}
-                    >
-                      {deletingDocId === doc.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <X className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {!draftNotRequired && isProductionStage && canCreatePo && (
             <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
@@ -722,58 +841,345 @@ export function JobStatusCard({
           )}
 
           {!draftNotRequired && !manualPoActive && (
-            <label className="block text-sm font-medium text-slate-700">
-              Upload document
+            <div className="space-y-1.5">
+              <span className="block text-sm font-medium text-slate-700">
+                Upload document
+              </span>
               <input
                 type="file"
                 multiple
                 onChange={(e) => {
                   const picked = Array.from(e.target.files ?? []);
                   if (!picked.length) return;
-                  setDraftFiles((prev) => [
-                    ...prev,
-                    ...picked.filter((f) => !prev.some((p) => p.name === f.name)),
-                  ]);
-                  // Allow re-picking the same file name after removal.
+                  setDraftFiles((prev) => {
+                    const added = picked.filter(
+                      (f) => !prev.some((p) => p.name === f.name)
+                    );
+                    const next = [...added, ...prev];
+                    if (draftEmailAttach) {
+                      setDraftEmailNewIndexes(next.map((_, i) => i));
+                    } else if (added.length > 0) {
+                      setDraftEmailNewIndexes((indexes) =>
+                        indexes.map((i) => i + added.length)
+                      );
+                    }
+                    return next;
+                  });
+                  setDocsExpanded(true);
+                  setDocPage(1);
                   e.target.value = "";
                 }}
-                className="mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
+                className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-orange-50 file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-orange-700"
               />
               {selectedKey === "production" ? (
-                <p className="mt-1.5 text-xs font-normal text-slate-500">
+                <p className="text-xs text-slate-500">
                   Uploaded POs appear under Document Versions for quote comparison.
                 </p>
               ) : selectedKey === "design" ? (
-                <p className="mt-1.5 text-xs font-normal text-slate-500">
+                <p className="text-xs text-slate-500">
                   Uploaded drawings appear under Document Versions.
                 </p>
               ) : null}
-              {draftFiles.length > 0 && (
-                <div className="mt-2 space-y-1.5">
-                  {draftFiles.map((file, index) => (
-                    <div
-                      key={`${file.name}-${index}`}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-2"
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5 text-sm font-normal text-orange-800">
-                        <FileText className="h-4 w-4 shrink-0" aria-hidden />
-                        <span className="truncate">{file.name}</span>
+            </div>
+          )}
+
+          {showModalDocList && (
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="flex items-center gap-2 px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setDocsExpanded((open) => !open)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left transition-colors hover:text-orange-700"
+                  aria-expanded={docsExpanded}
+                >
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                      docsExpanded ? "rotate-0" : "-rotate-90"
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-700">
+                      Documents
+                      <span className="ml-1.5 font-normal text-slate-400">
+                        ({modalDocTotal})
                       </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDraftFiles((prev) => prev.filter((_, i) => i !== index))
+                    </span>
+                    {!docsExpanded ? (
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        {draftFiles.length > 0
+                          ? `${draftFiles.length} new · click to view all`
+                          : draftEmailAttach && selectedEmailCount > 0
+                            ? `${selectedEmailCount} selected for email · click to view`
+                            : "Click to view and select documents"}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+                {modalStage?.emailAttachmentEnabled && draftEmailAttach ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allIds = modalDocuments
+                        .map((d) => d.id)
+                        .filter((id): id is number => typeof id === "number");
+                      const allSelected =
+                        (allIds.length > 0 || draftFiles.length > 0) &&
+                        allIds.every((id) => draftEmailDocIds.includes(id)) &&
+                        draftFiles.every((_, i) =>
+                          draftEmailNewIndexes.includes(i)
+                        );
+                      if (allSelected) {
+                        setDraftEmailDocIds([]);
+                        setDraftEmailNewIndexes([]);
+                      } else {
+                        setDraftEmailDocIds(allIds);
+                        setDraftEmailNewIndexes(draftFiles.map((_, i) => i));
+                        setDocsExpanded(true);
+                        setDocPage(1);
+                      }
+                    }}
+                    className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:border-orange-200 hover:text-orange-700"
+                  >
+                    {(modalDocuments.some(
+                      (d) => typeof d.id === "number"
+                    ) ||
+                      draftFiles.length > 0) &&
+                    modalDocuments
+                      .map((d) => d.id)
+                      .filter((id): id is number => typeof id === "number")
+                      .every((id) => draftEmailDocIds.includes(id)) &&
+                    draftFiles.every((_, i) =>
+                      draftEmailNewIndexes.includes(i)
+                    )
+                      ? "Clear all"
+                      : "Attach all"}
+                  </button>
+                ) : null}
+              </div>
+              {docsExpanded ? (
+                <div className="space-y-2 border-t border-slate-100 px-3 py-2.5">
+                  {modalStage?.stageKey === "signoff" &&
+                  productionDocuments.length > 0 ? (
+                    <p className="text-xs text-slate-500">
+                      Includes Production documents from this job.
+                    </p>
+                  ) : null}
+                  <input
+                    type="search"
+                    value={docSearch}
+                    onChange={(e) => setDocSearch(e.target.value)}
+                    placeholder="Search documents…"
+                    className="w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-orange-300/60 focus:ring-2 focus:ring-orange-200/40"
+                    aria-label="Search documents"
+                  />
+                  <div className="space-y-1.5">
+                    {filteredDocListItems.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-slate-200 px-2.5 py-2 text-xs text-slate-500">
+                        No documents match “{docSearch.trim()}”.
+                      </p>
+                    ) : (
+                      pagedDocListItems.map((item) => {
+                        if (item.kind === "new") {
+                          const { file, index } = item;
+                          const emailSelectable =
+                            modalStage?.emailAttachmentEnabled === true &&
+                            draftEmailAttach;
+                          const emailSelected =
+                            draftEmailNewIndexes.includes(index);
+                          return (
+                            <div
+                              key={`new-${file.name}-${index}`}
+                              className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-700"
+                            >
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                {emailSelectable ? (
+                                  <input
+                                    type="checkbox"
+                                    checked={emailSelected}
+                                    onChange={(e) => {
+                                      setDraftEmailNewIndexes((prev) =>
+                                        e.target.checked
+                                          ? prev.includes(index)
+                                            ? prev
+                                            : [...prev, index]
+                                          : prev.filter((i) => i !== index)
+                                      );
+                                    }}
+                                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                                    aria-label={`Email ${file.name}`}
+                                  />
+                                ) : (
+                                  <FileText
+                                    className="h-4 w-4 shrink-0 text-slate-400"
+                                    aria-hidden
+                                  />
+                                )}
+                                <span className="min-w-0 truncate">
+                                  <span className="truncate">{file.name}</span>
+                                  <span className="ml-1.5 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                                    New
+                                  </span>
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDraftFiles((prev) =>
+                                    prev.filter((_, i) => i !== index)
+                                  );
+                                  setDraftEmailNewIndexes((prev) =>
+                                    prev
+                                      .filter((i) => i !== index)
+                                      .map((i) => (i > index ? i - 1 : i))
+                                  );
+                                }}
+                                className="shrink-0 rounded-md p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                aria-label={`Remove ${file.name}`}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          );
                         }
-                        className="shrink-0 rounded-md p-0.5 text-orange-600 hover:bg-orange-100"
-                        aria-label={`Remove ${file.name}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
+
+                        const { doc } = item;
+                        const docId =
+                          typeof doc.id === "number" ? doc.id : null;
+                        const fromProduction =
+                          docId != null && !modalOwnDocIds.has(docId);
+                        const emailSelectable =
+                          modalStage?.emailAttachmentEnabled === true &&
+                          draftEmailAttach &&
+                          docId != null;
+                        const emailSelected =
+                          emailSelectable &&
+                          draftEmailDocIds.includes(docId);
+                        return (
+                          <div
+                            key={doc.id ?? poDocumentDisplayName(doc)}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-700"
+                          >
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              {emailSelectable ? (
+                                <input
+                                  type="checkbox"
+                                  checked={emailSelected}
+                                  onChange={(e) => {
+                                    setDraftEmailDocIds((prev) =>
+                                      e.target.checked
+                                        ? prev.includes(docId)
+                                          ? prev
+                                          : [...prev, docId]
+                                        : prev.filter((id) => id !== docId)
+                                    );
+                                  }}
+                                  className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                                  aria-label={`Email ${poDocumentDisplayName(doc)}`}
+                                />
+                              ) : (
+                                <FileText
+                                  className="h-4 w-4 shrink-0 text-slate-400"
+                                  aria-hidden
+                                />
+                              )}
+                              <span className="min-w-0 truncate">
+                                {onOpenDocument &&
+                                (doc.documentType === "PRODUCTION" ||
+                                  doc.documentType === "DRAWING") ? (
+                                  <button
+                                    type="button"
+                                    className="truncate text-left hover:text-orange-700"
+                                    onClick={() => {
+                                      setModalStage(null);
+                                      onOpenDocument(doc);
+                                    }}
+                                  >
+                                    {poDocumentDisplayName(doc)}
+                                  </button>
+                                ) : (
+                                  <span className="truncate">
+                                    {poDocumentDisplayName(doc)}
+                                  </span>
+                                )}
+                                {fromProduction ? (
+                                  <span className="ml-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                    Production
+                                  </span>
+                                ) : null}
+                              </span>
+                            </span>
+                            {!fromProduction ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleDeleteDocument(
+                                    doc.id as number,
+                                    doc.documentName
+                                  )
+                                }
+                                disabled={deletingDocId === doc.id}
+                                className="shrink-0 rounded-md p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                                aria-label={`Delete ${doc.documentName}`}
+                              >
+                                {deletingDocId === doc.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <X className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {filteredDocListItems.length > DOC_PAGE_SIZE ? (
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      <p className="text-xs text-slate-500">
+                        {(Math.min(docPage, docPageCount) - 1) * DOC_PAGE_SIZE +
+                          1}
+                        –
+                        {Math.min(
+                          Math.min(docPage, docPageCount) * DOC_PAGE_SIZE,
+                          filteredDocListItems.length
+                        )}{" "}
+                        of {filteredDocListItems.length}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={docPage <= 1}
+                          onClick={() =>
+                            setDocPage((p) => Math.max(1, p - 1))
+                          }
+                          className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous documents page"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+                          Prev
+                        </button>
+                        <span className="px-1 text-xs text-slate-500">
+                          {Math.min(docPage, docPageCount)}/{docPageCount}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={docPage >= docPageCount}
+                          onClick={() =>
+                            setDocPage((p) => Math.min(docPageCount, p + 1))
+                          }
+                          className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-orange-200 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next documents page"
+                        >
+                          Next
+                          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
                     </div>
-                  ))}
+                  ) : null}
                 </div>
-              )}
-            </label>
+              ) : null}
+            </div>
           )}
 
           <ModalField

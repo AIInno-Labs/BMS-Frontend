@@ -35,9 +35,20 @@ function uniqueInOrder(values: string[]): string[] {
 }
 
 /** How a catalog row's mesh spec + dimension are combined into the
- *  backend's single `size` field. */
+ *  backend's single `size` field.
+ *
+ *  Empty Attribute 2 with a set Attribute 3 must round-trip: we keep the
+ *  separator so `" · 70 x 30"` splits back to meshSpec="" / dimension="70 x 30".
+ *  Dropping the empty half (join-filter) used to store `"70 x 30"` and then
+ *  re-parse it as Attribute 2 — which never matches the catalog.
+ */
 export function combineCatalogSize(meshSpec: string, dimension: string): string {
-  return [meshSpec, dimension].filter(Boolean).join(" · ");
+  const mesh = meshSpec.trim();
+  const dim = dimension.trim();
+  if (!mesh && !dim) return "";
+  if (!mesh) return `${" · "}${dim}`;
+  if (!dim) return mesh;
+  return `${mesh} · ${dim}`;
 }
 
 /** Inverse of combineCatalogSize, for re-deriving the Desc. 2 / Desc. 3
@@ -48,7 +59,11 @@ export function splitCatalogSize(value: string): {
 } {
   const separator = " · ";
   const index = value.indexOf(separator);
-  if (index === -1) return { meshSpec: value, dimension: "" };
+  if (index === -1) {
+    // Legacy bad encode: empty mesh + dimension was stored as plain dimension.
+    // Callers that need catalog matching also try the empty-mesh variant.
+    return { meshSpec: value, dimension: "" };
+  }
   return {
     meshSpec: value.slice(0, index),
     dimension: value.slice(index + separator.length),
@@ -218,17 +233,72 @@ export function matchingCatalogItems(
 ): InventoryCatalogEntry[] {
   const category = (line.category ?? "").trim();
   const profileType = (line.profileType ?? "").trim();
-  const { meshSpec, dimension } = splitCatalogSize(line.size ?? "");
   const { resin, colour } = splitCatalogMaterialGrade(line.materialGrade ?? "");
-  return catalog.filter(
-    (item) =>
-      item.productGroup === category &&
-      item.profileType === profileType &&
-      item.meshSpec === meshSpec &&
-      item.dimension === dimension &&
-      item.resin === resin &&
-      item.colour === colour
+  const resinVal = resin.trim();
+  const colourVal = colour.trim();
+  const size = line.size ?? "";
+  const primary = splitCatalogSize(size);
+  // Also try empty-mesh + full-string-as-dimension (legacy combine bug).
+  const variants =
+    !primary.dimension.trim() && primary.meshSpec.trim()
+      ? [primary, { meshSpec: "", dimension: primary.meshSpec }]
+      : [primary];
+
+  return catalog.filter((item) => {
+    if (
+      item.productGroup.trim() !== category ||
+      item.profileType.trim() !== profileType ||
+      item.resin.trim() !== resinVal ||
+      item.colour.trim() !== colourVal
+    ) {
+      return false;
+    }
+    return variants.some(
+      (v) =>
+        item.meshSpec.trim() === v.meshSpec.trim() &&
+        item.dimension.trim() === v.dimension.trim()
+    );
+  });
+}
+
+/**
+ * Resolve meshSpec / dimension for UI selects. Prefers a normal split; if that
+ * does not align with the catalog but empty-mesh + whole-string-as-dimension
+ * does (legacy encode), use that so Attribute 3 shows "70 x 30" not Attribute 2.
+ */
+export function resolveCatalogSizeParts(
+  catalog: InventoryCatalogEntry[],
+  productGroup: string,
+  profileType: string,
+  size: string
+): { meshSpec: string; dimension: string } {
+  const group = productGroup.trim();
+  const profile = profileType.trim();
+  const primary = splitCatalogSize(size);
+  const inGroup = catalog.filter(
+    (r) =>
+      r.productGroup.trim() === group && r.profileType.trim() === profile
   );
+  if (inGroup.length === 0) return primary;
+
+  const primaryOk = inGroup.some(
+    (r) =>
+      r.meshSpec.trim() === primary.meshSpec.trim() &&
+      r.dimension.trim() === primary.dimension.trim()
+  );
+  if (primaryOk) return primary;
+
+  if (!primary.dimension.trim() && primary.meshSpec.trim()) {
+    const alt = { meshSpec: "", dimension: primary.meshSpec.trim() };
+    const altOk = inGroup.some(
+      (r) =>
+        r.meshSpec.trim() === "" &&
+        r.dimension.trim() === alt.dimension
+    );
+    if (altOk) return alt;
+  }
+
+  return primary;
 }
 
 export function resolveCatalogItem(
