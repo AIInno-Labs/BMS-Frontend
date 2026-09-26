@@ -50,7 +50,7 @@ import {
   resinTypes,
 } from "@/lib/mockData";
 import type { JobUpdateAuditAction } from "@/lib/frp/job-mapper";
-import { downloadJobCard, recordJobAudit, getQuote, cancelJob, listJobStages } from "@/lib/frp/api";
+import { downloadJobCard, recordJobAudit, getQuote, cancelJob, restoreJob, listJobStages } from "@/lib/frp/api";
 import {
   DRAFT_DUE_DATE_WARNING,
   isCancelledJob,
@@ -395,6 +395,33 @@ export function JobCard({ jobId }: JobCardProps) {
     }
   };
 
+  const handleRestoreJob = async () => {
+    if (!job.dbId) {
+      setSaveError("Job has no database id — reload the job list.");
+      return;
+    }
+    setSaveError(null);
+    setSaveSuccess(false);
+    setIsSaving(true);
+    try {
+      await restoreJob(job.dbId);
+      // Unlike cancel, the resulting status depends on wherever the stage
+      // tree recomputes to — not a fixed value — so there is no optimistic
+      // local update; reload is the only source of truth here.
+      const fresh = await loadJobDetail(jobId);
+      setJob(fresh);
+      setDraft(fresh);
+      setSaveSuccess(true);
+      setAuditRefreshKey((k) => k + 1);
+    } catch (e) {
+      // Shown inside the restore confirm dialog, not this page's background
+      // banner — the dialog stays open on failure and sits in front of it.
+      throw e;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (isJobLockedForCashPayment(job)) {
       setSaveError(CASH_PAYMENT_BLOCK_MESSAGE);
@@ -730,6 +757,7 @@ export function JobCard({ jobId }: JobCardProps) {
             setSaveWarning(null);
           }}
           onCancelJob={handleCancelJob}
+          onRestoreJob={handleRestoreJob}
           onSavePatch={handleSavePatch}
           onStatusChange={handleStatusChange}
           onJobChanged={handleJobChanged}

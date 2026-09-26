@@ -9,8 +9,16 @@ export function isoDatePlusDaysFrom(todayIso: string, days: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-export function parseAssignedToParam(raw: string | null): number | undefined {
+/**
+ * `"unassigned"` is a sentinel, not a user id — it asks the backend for jobs
+ * with no assignee, which `assignedTo` alone cannot express (a null value
+ * there means "don't filter", not "match null").
+ */
+export function parseAssignedToParam(
+  raw: string | null
+): number | "unassigned" | undefined {
   if (raw == null || raw.trim() === "") return undefined;
+  if (raw.trim() === "unassigned") return "unassigned";
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return undefined;
   return n;
