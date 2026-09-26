@@ -103,13 +103,14 @@ body.jc-print{
     }
 
     .scope-area{
-        height:88px;
+        min-height:88px;
+        height:auto;
     }
 
     .scope-text{
-        font-size:8px;
-        padding:3px 6px;
-        line-height:1.15;
+        font-size:11px;
+        padding:8px 10px;
+        line-height:1.35;
     }
 
     .notes-area{
@@ -218,6 +219,34 @@ td,th{
     font-size:7px;
     line-height:1.05;
     height:12px;
+}
+
+.inventory-table {
+    table-layout: fixed;
+    width: 100%;
+    border: none !important;
+}
+
+.inventory-table th,
+.inventory-table td {
+    word-break: break-word;
+    font-size: 9px;
+    padding: 3px 4px;
+    line-height: 1.3;
+    height: 22px;
+    border: none !important;
+}
+
+.inventory-table thead th {
+    background: #d9d9d9 !important;
+    font-weight: 700;
+    text-align: center;
+}
+
+.inventory-table tr.inventory-blank td {
+    height: 28px;
+    padding-top: 8px;
+    padding-bottom: 8px;
 }
 
 .jobcard td,
@@ -447,12 +476,15 @@ td,th{
 }
 
 .scope-area{
-    height:88px;
+    min-height:88px;
+    height:auto;
     border-collapse:collapse;
+    width:100%;
+    table-layout:fixed;
 }
 
 .scope-area > tbody > tr > td{
-    border:none;
+    border:1px solid #666;
     padding:0;
     vertical-align:top;
 }
@@ -525,10 +557,14 @@ td,th{
 }
 
 .scope-text{
-    font-size:10px;
-    line-height:1.25;
-    padding:6px 8px;
+    font-size:11px;
+    line-height:1.35;
+    padding:8px 10px;
     vertical-align:top;
+}
+
+.scope-text--right{
+    border-left:1px solid #666;
 }
 
 .spec-value{
@@ -679,75 +715,38 @@ SCOPE OF WORK
 
 <tr>
 
-<td width="70%" valign="top" class="scope-text" data-jc="scopeLines"></td>
+<td width="62%" valign="top" class="scope-text" data-jc="scopeLines"></td>
 
-<td width="30%" valign="top">
+<td width="38%" valign="top" class="scope-text scope-text--right" data-jc="scopeRightLines"></td>
 
-<table class="spec-table">
-
-<tr>
-<td class="spec-label">Type</td>
-<td class="spec-value" data-jc="scopeType"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Thickness</td>
-<td class="spec-value" data-jc="thickness"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Mesh</td>
-<td class="spec-value" data-jc="mesh"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Resin</td>
-<td class="spec-value" data-jc="resin"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Colour</td>
-<td class="spec-value" data-jc="colour"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Finish</td>
-<td class="spec-value" data-jc="finish"></td>
 </tr>
 
 </table>
 
-<table class="clips-table" style="margin-top:2px">
+</div>
+</div>
+
+<!-- INVENTORY -->
+<div class="section-block">
+<div class="section-title">
+INVENTORY
+</div>
+<div class="section-body">
+
+<table class="clips-table inventory-table" style="width:100%">
 
 <tr>
-<th>CLIPS</th>
-<th>QTY</th>
+<th>Product Group</th>
+<th>Attribute 1</th>
+<th>Attribute 2</th>
+<th>Attribute 3</th>
+<th>Resin / Material</th>
+<th>Primary Colour</th>
+<th>Qty</th>
 <th>Packed by</th>
 </tr>
 
-<tr><td>NO CLIPS REQUIRED</td><td data-jc="clip.0.qty"></td><td data-jc="clip.0.packedBy"></td></tr>
-<tr><td>Box 25mm M clips</td><td data-jc="clip.1.qty"></td><td data-jc="clip.1.packedBy"></td></tr>
-<tr><td>Box 38mm M clips</td><td data-jc="clip.2.qty"></td><td data-jc="clip.2.packedBy"></td></tr>
-<tr><td>Compression clips</td><td data-jc="clip.3.qty"></td><td data-jc="clip.3.packedBy"></td></tr>
-<tr><td>38mm Square top plate</td><td data-jc="clip.4.qty"></td><td data-jc="clip.4.packedBy"></td></tr>
-<tr><td>50mm Square top plate</td><td data-jc="clip.5.qty"></td><td data-jc="clip.5.packedBy"></td></tr>
-<tr><td>W30 Clips</td><td data-jc="clip.6.qty"></td><td data-jc="clip.6.packedBy"></td></tr>
-<tr><td>W45 Clips</td><td data-jc="clip.7.qty"></td><td data-jc="clip.7.packedBy"></td></tr>
-<tr><td>W54 Clips</td><td data-jc="clip.8.qty"></td><td data-jc="clip.8.packedBy"></td></tr>
-<tr><td>Loose 25mm M clip</td><td data-jc="clip.9.qty"></td><td data-jc="clip.9.packedBy"></td></tr>
-<tr><td>Loose 38mm M clip</td><td data-jc="clip.10.qty"></td><td data-jc="clip.10.packedBy"></td></tr>
-<tr><td>Loose 50mm M clip</td><td data-jc="clip.11.qty"></td><td data-jc="clip.11.packedBy"></td></tr>
-<tr><td>C clips 25mm</td><td data-jc="clip.12.qty"></td><td data-jc="clip.12.packedBy"></td></tr>
-<tr><td>C Clips 38mm</td><td data-jc="clip.13.qty"></td><td data-jc="clip.13.packedBy"></td></tr>
-<tr><td>OTHER:</td><td data-jc="clip.14.qty"></td><td data-jc="clip.14.packedBy"></td></tr>
-<tr><td>&nbsp;</td><td data-jc="clip.15.qty"></td><td data-jc="clip.15.packedBy"></td></tr>
-<tr><td>&nbsp;</td><td data-jc="clip.16.qty"></td><td data-jc="clip.16.packedBy"></td></tr>
-
-</table>
-
-</td>
-
-</tr>
+<!--JC_INVENTORY_ROWS-->
 
 </table>
 

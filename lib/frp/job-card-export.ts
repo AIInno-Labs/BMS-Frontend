@@ -1,4 +1,5 @@
 import type { OfficialJobCardData, JobCardClipRow, JobCardPack } from "@/lib/jobCardPrint";
+import { splitScopeLinesForPrint } from "@/lib/jobCardPrint";
 
 /** Spring `JobCardExportDTO` from `GET /jobs/{id}/job-card`. */
 export interface JobCardExportDTO {
@@ -21,13 +22,24 @@ export interface JobCardExportDTO {
   despatchDate?: string;
   deliveryDocket?: string;
   scopeLines?: string[];
+  scopeRightLines?: string[];
   scopeType?: string;
   thickness?: string;
   mesh?: string;
   resin?: string;
   colour?: string;
   finish?: string;
-  clipRows?: { clip?: string; qty?: string; packedBy?: string }[];
+  clipRows?: {
+    clip?: string;
+    qty?: string;
+    packedBy?: string;
+    productGroup?: string;
+    attribute1?: string;
+    attribute2?: string;
+    attribute3?: string;
+    resin?: string;
+    colour?: string;
+  }[];
   notes?: string;
   deliveryInstructions?: string;
   packs?: { length?: string; width?: string; height?: string; weightKg?: string }[];
@@ -69,7 +81,24 @@ export function jobCardExportToOfficial(
     clip: r.clip ?? "",
     qty: r.qty ?? "",
     packedBy: r.packedBy ?? "",
+    productGroup: r.productGroup ?? "",
+    attribute1: r.attribute1 ?? "",
+    attribute2: r.attribute2 ?? "",
+    attribute3: r.attribute3 ?? "",
+    resin: r.resin ?? "",
+    colour: r.colour ?? "",
   }));
+
+  const allScope = dto.scopeLines ?? [];
+  const split =
+    Array.isArray(dto.scopeRightLines) && dto.scopeRightLines.length > 0
+      ? {
+          left: allScope.filter(
+            (line) => !dto.scopeRightLines!.includes(line)
+          ),
+          right: dto.scopeRightLines,
+        }
+      : splitScopeLinesForPrint(allScope);
 
   return {
     jobNumber: dto.jobNumber ?? "",
@@ -90,7 +119,8 @@ export function jobCardExportToOfficial(
     consignmentNote: dto.consignmentNote ?? "",
     despatchDate: dto.despatchDate ?? "",
     deliveryDocket: dto.deliveryDocket ?? "",
-    scopeLines: dto.scopeLines ?? [],
+    scopeLines: split.left,
+    scopeRightLines: split.right,
     scopeType: dto.scopeType ?? "",
     thickness: dto.thickness ?? "",
     mesh: dto.mesh ?? "",

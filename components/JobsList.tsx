@@ -9,7 +9,6 @@ import {
   Clock3,
   Plus,
   Workflow,
-  X,
 } from "lucide-react";
 import { CreateNewJobDrawer } from "@/components/CreateNewJobDrawer";
 import { JobsPagination } from "@/components/JobsPagination";
@@ -179,8 +178,12 @@ const STAGE_GROUP_LABEL_SHORT: Record<JobStageGroup, string> = {
 // active) names the real stage, e.g. "Drawing" — more precise than the
 // coarse status group, which only advances once the *next* stage has
 // started. Falls back to the group label for jobs the backend hasn't
-// populated it on.
+// populated it on. On this list, draft is shown as "Pending" (filter /
+// status language); the job timeline still uses "Draft".
 function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
+  if (job.currentStageKey === "draft") {
+    return "Pending";
+  }
   const real = timelineStageInfo(job.currentStageKey);
   if (real) return variant === "full" ? real.title : real.shortLabel;
   const group = resolveStatusGroup(job.status);
@@ -222,11 +225,16 @@ function JobListStageBadges({
 export function JobsList({ jobs }: JobsListProps) {
   const { counts, staff, listRevision } = useJobs();
   const { isWorker, workerId } = usePersona();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const canCreateJob = can(ACCESS_KEYS.JOBS_CREATE);
   const router = useRouter();
   const searchParams = useSearchParams();
   const assignedToFilter = parseAssignedToParam(searchParams.get("assignedTo"));
+  // assignedTo=-1 → jobs with no assignee (backend sentinel).
+  const assignedToQuery =
+    assignedToFilter === "unassigned"
+      ? { assignedTo: -1 }
+      : { assignedTo: assignedToFilter };
   const dueFrom = parseDueDateParam(searchParams.get("dueFrom"));
   const dueTo = parseDueDateParam(searchParams.get("dueTo"));
   const [searchQuery, setSearchQuery] = useState(
@@ -244,6 +252,30 @@ export function JobsList({ jobs }: JobsListProps) {
     return Number.isFinite(fromUrl) && fromUrl >= 1 ? Math.trunc(fromUrl) : 1;
   });
   const [createJobOpen, setCreateJobOpen] = useState(false);
+
+  /** Staff options plus the URL-selected assignee when they're not in the roster
+   *  yet (so the ASSIGNEE control actually shows the filter instead of "All"). */
+  const assigneeOptions = useMemo(() => {
+    const rows = [...staff];
+    if (
+      typeof assignedToFilter === "number" &&
+      !rows.some((u) => u.id === String(assignedToFilter))
+    ) {
+      const self =
+        user?.id === assignedToFilter
+          ? user.displayName?.trim() || user.email || "You"
+          : `User ${assignedToFilter}`;
+      rows.unshift({
+        id: String(assignedToFilter),
+        display_name: self,
+        initials: "",
+        certifications: [],
+        shift_hours_capacity: 8,
+        is_present: true,
+      });
+    }
+    return rows;
+  }, [staff, assignedToFilter, user]);
 
   // Below 3 characters a job search is too broad to be useful and just adds
   // load — treat it the same as no search until the user has typed enough.
@@ -341,12 +373,6 @@ export function JobsList({ jobs }: JobsListProps) {
     }
     setPage(1);
   }, [effectiveSearchQuery, statusFilter, stageGroupFilter, sortBy]);
-
-  const clearStageGroupFilter = () => {
-    setStageGroupFilter(null);
-    setPage(1);
-    updateUrlParams({ group: null, page: null });
-  };
 
   // ------------------------------------------------------------------
   // Worker mode — GET /jobs?assignedTo=&status=&search= per status in
@@ -473,7 +499,7 @@ export function JobsList({ jobs }: JobsListProps) {
       sort: toBackendSort(sortBy),
       status: explicitStatus ?? impliedStatus,
       priority,
-      assignedTo: assignedToFilter,
+      ...assignedToQuery,
       dueFrom,
       dueTo,
       // Due-date filter: honor IGNORE_OVERDUE. Otherwise include those jobs.
@@ -547,7 +573,7 @@ export function JobsList({ jobs }: JobsListProps) {
           const res = await listJobs(backendPage, 200, {
             status,
             sort: "RECENT",
-            assignedTo: assignedToFilter,
+            ...assignedToQuery,
             dueFrom,
             dueTo,
             // Overdue tile or due-date filter: honor IGNORE_OVERDUE.
@@ -691,109 +717,15 @@ export function JobsList({ jobs }: JobsListProps) {
         </section>
       )}
 
-      {!isWorker && stageGroupFilter && (
-        <section
-          className="rounded-2xl border border-orange-200/80 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.06)]"
-          aria-live="polite"
-        >
-          {(() => {
-            const info = CARD_INFO[stageGroupFilter];
-            const preview = groupSortedJobs.slice(0, 8);
-            return (
-              <>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-orange-600">
-                      {info.label}
-                    </p>
-                    <h2 className="mt-0.5 text-base font-semibold text-slate-900">
-                      {info.headline}
-                    </h2>
-                    <p className="mt-1 max-w-2xl text-sm text-slate-600">{info.description}</p>
-                    {info.statuses.length > 0 && (
-                      <p className="mt-2 text-xs text-slate-500">
-                        Includes:{" "}
-                        <span className="font-medium text-slate-700">
-                          {info.statuses.join(" · ")}
-                        </span>
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={clearStageGroupFilter}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                    Clear filter
-                  </button>
-                </div>
-                {groupLoading && groupRows.length === 0 ? (
-                  <div className="mt-3 flex justify-center">
-                    <LoadingState />
-                  </div>
-                ) : groupError ? (
-                  <p className="mt-3 text-sm text-red-600">{groupError}</p>
-                ) : (
-                  <>
-                    <p className="mt-3 text-sm font-semibold text-slate-900">
-                      {groupSortedJobs.length} job{groupSortedJobs.length === 1 ? "" : "s"} in this
-                      stage
-                    </p>
-                    {preview.length > 0 ? (
-                      <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
-                        {preview.map((job) => (
-                          <li key={job.id}>
-                            <Link
-                              href={`/jobs/${job.id}`}
-                              className="block px-3 py-2 text-sm transition-colors hover:bg-orange-50/50"
-                            >
-                              <div className="flex items-start justify-between gap-2 sm:hidden">
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold text-slate-900">
-                                    {job.id}
-                                  </p>
-                                  <p className="mt-0.5 truncate text-slate-600">{job.clientName}</p>
-                                </div>
-                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                                  <JobListStageBadges job={job} variant="short" />
-                                </div>
-                              </div>
-                              <div className="hidden sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-2">
-                                <span className="justify-self-start truncate font-semibold text-slate-900">
-                                  {job.id}
-                                </span>
-                                <span className="min-w-0 max-w-md truncate text-center text-slate-600">
-                                  {job.clientName}
-                                </span>
-                                <div className="flex flex-nowrap items-center justify-self-end gap-1 whitespace-nowrap [&>span]:flex-nowrap">
-                                  <JobListStageBadges job={job} variant="short" />
-                                </div>
-                              </div>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-600">No jobs in this stage right now.</p>
-                    )}
-                    {groupSortedJobs.length > preview.length && (
-                      <p className="mt-2 text-xs text-slate-500">
-                        Showing {preview.length} of {groupSortedJobs.length} — full list in the
-                        table below.
-                      </p>
-                    )}
-                  </>
-                )}
-              </>
-            );
-          })()}
-        </section>
-      )}
-
       {!isWorker && (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+          <label
+            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+              assignedToFilter != null
+                ? "border-orange-300 ring-1 ring-orange-200"
+                : "border-[#E5E7EB]"
+            }`}
+          >
             <span className="shrink-0">ASSIGNEE</span>
             <select
               value={assignedToFilter != null ? String(assignedToFilter) : ""}
@@ -809,14 +741,21 @@ export function JobsList({ jobs }: JobsListProps) {
               aria-label="Filter assignee"
             >
               <option value="">All</option>
-              {staff.map((u) => (
+              <option value="unassigned">Unassigned</option>
+              {assigneeOptions.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.display_name}
                 </option>
               ))}
             </select>
           </label>
-          <div className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
+          <div
+            className={`inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+              dueFrom || dueTo
+                ? "border-orange-300 ring-1 ring-orange-200"
+                : "border-[#E5E7EB]"
+            }`}
+          >
             <span className="shrink-0">DUE</span>
             <input
               type="date"
@@ -855,30 +794,69 @@ export function JobsList({ jobs }: JobsListProps) {
               </button>
             )}
           </div>
-          <label className="inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40">
-            <span className="shrink-0">ALL STAGES</span>
+          <label
+            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+              stageGroupFilter || statusFilter !== "All"
+                ? "border-orange-300 ring-1 ring-orange-200"
+                : "border-[#E5E7EB]"
+            }`}
+          >
+            <span className="shrink-0">STAGE</span>
             <select
-              value={statusFilter}
+              value={
+                stageGroupFilter
+                  ? `group:${stageGroupFilter}`
+                  : statusFilter === "All"
+                    ? "All"
+                    : `status:${statusFilter}`
+              }
               onChange={(e) => {
-                const next = e.target.value as JobStatus | "All";
-                setStatusFilter(next);
-                setStageGroupFilter(null);
+                const next = e.target.value;
                 setPage(1);
-                updateUrlParams({
-                  status: next === "All" ? null : next,
-                  group: null,
-                  page: null,
-                });
+                if (next === "All") {
+                  setStatusFilter("All");
+                  setStageGroupFilter(null);
+                  updateUrlParams({
+                    status: null,
+                    group: null,
+                    page: null,
+                  });
+                  return;
+                }
+                if (next.startsWith("group:")) {
+                  const group = parseStageCardParam(next.slice("group:".length));
+                  setStatusFilter("All");
+                  setStageGroupFilter(group);
+                  updateUrlParams({
+                    group,
+                    status: null,
+                    page: null,
+                  });
+                  return;
+                }
+                if (next.startsWith("status:")) {
+                  const status = next.slice("status:".length) as JobStatus;
+                  setStatusFilter(status);
+                  setStageGroupFilter(null);
+                  updateUrlParams({
+                    status,
+                    group: null,
+                    page: null,
+                  });
+                }
               }}
-              className="ml-2 min-w-0 max-w-36 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
               aria-label="Filter stage"
             >
               <option value="All">All</option>
-              <option value="Pending">Pending</option>
-              <option value="Awaiting Manager Approval">Approval</option>
-              <option value="Ready to Manufacture">Ready</option>
-              <option value="In Fabrication">Manufacturing</option>
-              <option value="Complete">Delivered</option>
+              <option value="group:overdue">Overdue</option>
+              <option value="group:not-started">Not Started</option>
+              <option value="group:manufacturing">Manufacturing</option>
+              <option value="status:Pending">Pending</option>
+              <option value="status:Awaiting Manager Approval">Approval</option>
+              <option value="status:Ready to Manufacture">Ready</option>
+              <option value="status:In Fabrication">In Fabrication</option>
+              <option value="status:Complete">Delivered</option>
             </select>
           </label>
           {canCreateJob && (

@@ -50,7 +50,7 @@ const MILESTONE_ORDER = [
 ] as const;
 
 const MILESTONE_LABEL: Record<string, string> = {
-  DRAFT: "Draft",
+  DRAFT: "Pending",
   DESIGN: "Drawing",
   APPROVAL: "Approval",
   PRODUCTION: "Production",

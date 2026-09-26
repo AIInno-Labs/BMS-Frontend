@@ -1105,6 +1105,13 @@ export async function resumeJob(dbId: string | number): Promise<void> {
   });
 }
 
+/** `PUT /jobs/{id}/restore` — un-cancels a job cancelled via {@link cancelJob}. */
+export async function restoreJob(dbId: string | number): Promise<void> {
+  await frpFetch(`/jobs/${encodeURIComponent(String(dbId))}/restore`, {
+    method: "PUT",
+  });
+}
+
 export async function listJobAudit(
   dbId: string | number,
   page = 0,

@@ -71,10 +71,9 @@ export function ModalField({
  * whatever the org admin has defined in the Inventory catalog
  * (`/org/inventory`, loaded from `GET /master-inventory`), so a job
  * user can only pick from that list, never type something the admin hasn't
- * added. If a line's current value predates the catalog (or was set before
- * the admin added it), it's still shown - as a selected option outside the
- * list - so it isn't silently blanked, but the only way to change it is to
- * pick a real catalog option.
+ * added. If the current value is missing from today's options, it is still
+ * listed (without a special label) so the user can see it and replace it
+ * with a real catalog choice — save requires an exact catalog match.
  */
 export function ModalCatalogField({
   label,
@@ -95,7 +94,9 @@ export function ModalCatalogField({
 }) {
   const fieldClass =
     "mt-1 w-full rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-[#111827] outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
-  const hasStaleValue = value.trim().length > 0 && !options.includes(value);
+  const trimmed = value.trim();
+  const inCatalog =
+    trimmed.length === 0 || options.some((opt) => opt.trim() === trimmed);
   const emptyLabel = allowBlank ? "—" : `Select ${label}`;
 
   return (
@@ -110,8 +111,8 @@ export function ModalCatalogField({
         <option value="" disabled={!allowBlank && options.length > 0}>
           {emptyLabel}
         </option>
-        {hasStaleValue ? (
-          <option value={value}>{`${value} (not in catalog)`}</option>
+        {!inCatalog && trimmed ? (
+          <option value={value}>{value}</option>
         ) : null}
         {options.map((opt) => (
           <option key={opt} value={opt}>

@@ -25,9 +25,17 @@ export type ResinType =
 export type JobPriority = "Normal" | "High" | "RUSH";
 
 export interface JobCardClipRow {
+  /** Legacy single-label clip line (print form / old cards). */
   clip: string;
   qty: string;
   packedBy: string;
+  /** Job inventory columns — same layout as the job Inventory panel. */
+  productGroup?: string;
+  attribute1?: string;
+  attribute2?: string;
+  attribute3?: string;
+  resin?: string;
+  colour?: string;
 }
 
 export interface JobCardPack {

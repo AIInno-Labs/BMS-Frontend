@@ -538,6 +538,7 @@ export function officialDataToFieldValues(
     qaSign: "",
     qaDate: "",
     scopeLines: data.scopeLines.filter(Boolean).join("<br>"),
+    scopeRightLines: (data.scopeRightLines ?? []).filter(Boolean).join("<br>"),
   };
 
   data.clipRows.forEach((row: JobCardClipRow, index: number) => {

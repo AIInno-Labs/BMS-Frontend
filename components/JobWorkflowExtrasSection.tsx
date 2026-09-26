@@ -356,13 +356,13 @@ export function JobWorkflowExtrasSection({
         </WidgetCard>
 
         <WidgetCard
-          title="Materials & specifications"
+          title="Specifications"
           icon={ClipboardList}
           onEdit={editsBlocked ? undefined : () => setShowMaterialsModal(true)}
         >
-          <p className="text-xs font-medium text-slate-500">List of materials</p>
+          <p className="text-xs font-medium text-slate-500">List of specifications</p>
           <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm text-slate-600">
-            {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No materials list."}
+            {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No specifications list."}
           </p>
           <p className="mt-3 text-xs font-medium text-slate-500">Additional notes</p>
           <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-slate-600">
@@ -500,7 +500,7 @@ export function JobWorkflowExtrasSection({
 
       <EditModal
         open={showMaterialsModal}
-        title="Edit materials & specifications"
+        title="Edit specifications"
         onClose={() => !materialsBusy && setShowMaterialsModal(false)}
         wide
       >
@@ -511,7 +511,7 @@ export function JobWorkflowExtrasSection({
             </p>
           ) : null}
           <TextAreaField
-            label="List of materials for this job"
+            label="List of specifications for this job"
             value={materialsDraft.materialsList}
             onChange={(v) => setMaterialsDraft((p) => ({ ...p, materialsList: v }))}
             rows={6}
