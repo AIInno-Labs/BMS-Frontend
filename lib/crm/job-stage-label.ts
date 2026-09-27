@@ -12,7 +12,7 @@ const GROUP_LABEL: Record<string, string> = {
 /** Fixed left-to-right pipeline order for charts — draft through completed,
  *  the coarse fallback labels, then Cancelled last. */
 export const JOB_STAGE_LABEL_ORDER = [
-  "Draft",
+  "Pending",
   "Drawing",
   "Approval",
   "Production",

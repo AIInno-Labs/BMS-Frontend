@@ -13,6 +13,7 @@ import type {
   JobInventoryLine,
   JobProjectRequirement,
   JobSchedulingLogistics,
+  ProjectStageRequirements,
   ShipmentMethod,
 } from "@/lib/types";
 import type { JobOrigin } from "@/lib/frp/job-status";
@@ -292,6 +293,8 @@ export interface FrpJobCardPayload {
   installRequired?: boolean;
   qaCompleted?: boolean;
   manualInstructions?: string;
+  /** See `JobWorkflowExtras.projectStageRequirements`. */
+  projectStageRequirements?: ProjectStageRequirements;
 }
 
 /** One resin category from `GET /jobs/resin-counts`. */
@@ -888,6 +891,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
           ? paymentReceivedFromStatus(payment.status)
           : card?.paymentReceived ?? null,
       paymentDueDate: payment?.dueDate ?? card?.paymentDueDate,
+      projectStageRequirements: card?.projectStageRequirements,
     },
   };
 
@@ -1102,6 +1106,7 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     installRequired: job.installRequired,
     qaCompleted: job.qaCompleted,
     manualInstructions: job.manualInstructions || undefined,
+    projectStageRequirements: extras?.projectStageRequirements,
   };
 }
 

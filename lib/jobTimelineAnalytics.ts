@@ -34,7 +34,7 @@ export const TIMELINE_STAGES: Array<{
   title: string;
   shortLabel: string;
 }> = [
-  { id: "draft", title: "Draft", shortLabel: "Draft" },
+  { id: "draft", title: "Pending", shortLabel: "Pending" },
   { id: "design", title: "Drawing", shortLabel: "Drawing" },
   { id: "approval", title: "Approval", shortLabel: "Approval" },
   { id: "production", title: "Production", shortLabel: "Production" },
@@ -55,6 +55,67 @@ export function timelineStageInfo(
   stageKey?: string | null
 ): { title: string; shortLabel: string } | null {
   return TIMELINE_STAGES.find((s) => s.id === stageKey) ?? null;
+}
+
+/**
+ * The stages a job's "Project Stages" setup can turn on/off. "draft" and
+ * "completed" are excluded — every job starts pending and ends completed,
+ * that much is never optional.
+ */
+export const CONFIGURABLE_TIMELINE_STAGE_IDS: TimelineStageId[] = [
+  "design",
+  "approval",
+  "production",
+  "qc",
+  "dispatch",
+];
+
+/**
+ * Whether project requirements have been confirmed via "Save and Resume" —
+ * not just whether a checkbox or two has been ticked. Until confirmed, the
+ * job stays in "Pending" and the timeline shows (but locks) every stage
+ * rather than reacting to a still-in-progress decision.
+ */
+export function isStageSetupDone(job: Job): boolean {
+  return job.printDetails?.workflowExtras?.projectStageRequirements?.confirmed === true;
+}
+
+/**
+ * "Plan A" per the client's spec: a handful of Project Requirement checkboxes
+ * decide which timeline stages apply, rather than the stages being their own
+ * separate setting (that's "Plan B" — cleaner, not built yet). Deliberately
+ * simple and a little blunt, exactly as specified:
+ *
+ * - Supply only / Order from Supplier (either variant) hides Drawing,
+ *   Approval, Production and QC outright — this takes priority over
+ *   everything else below.
+ * - Project means "the normal full flow" — Drawing and QC both show.
+ * - Otherwise, Drawing only shows if "Drawings" is checked, QC only shows if
+ *   "LOC" is checked (both off by default).
+ * - Approval and Production have no individual toggle — they show unless the
+ *   Supply-only/Order-from-Supplier bundle above hides them.
+ * - Dispatch is never hidden by any of this.
+ *
+ * Falls back to "everything" until "Save and Resume" is clicked, so
+ * experimenting with checkboxes doesn't reshuffle the timeline mid-decision.
+ */
+export function selectedTimelineStageIds(job: Job): TimelineStageId[] {
+  const req = job.printDetails?.workflowExtras?.projectStageRequirements;
+  if (!req?.confirmed) return CONFIGURABLE_TIMELINE_STAGE_IDS;
+
+  const supplyPathOnly =
+    req.supplyOnly ||
+    req.orderFromSupplierSupplyOnly ||
+    req.orderFromSupplierFabrication;
+  if (supplyPathOnly) return ["dispatch"];
+
+  const ids: TimelineStageId[] = [];
+  if (req.project || req.drawings) ids.push("design");
+  ids.push("approval");
+  ids.push("production");
+  if (req.project || req.loc) ids.push("qc");
+  ids.push("dispatch");
+  return ids;
 }
 
 export interface TimelineSubStageView {
