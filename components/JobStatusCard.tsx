@@ -48,6 +48,30 @@ interface JobStatusCardProps {
 const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
   (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
 
+/** Milestone docs plus every child operation (e.g. QC → visual / dimensional / signoff). */
+function documentsOnMilestone(
+  milestone: FrpJobStageDTO | undefined
+): FrpJobDocumentDTO[] {
+  if (!milestone) return [];
+  const out: FrpJobDocumentDTO[] = [...(milestone.documents ?? [])];
+  for (const child of milestone.children ?? []) {
+    out.push(...(child.documents ?? []));
+  }
+  return out;
+}
+
+function dedupeDocumentsById(docs: FrpJobDocumentDTO[]): FrpJobDocumentDTO[] {
+  const byId = new Map<number, FrpJobDocumentDTO>();
+  const withoutId: FrpJobDocumentDTO[] = [];
+  for (const doc of docs) {
+    if (typeof doc.id === "number") byId.set(doc.id, doc);
+    else withoutId.push(doc);
+  }
+  return [...byId.values(), ...withoutId];
+}
+
+const QC_OPERATION_KEYS = new Set(["visual", "dimensional", "signoff"]);
+
 const STATUS_LABEL: Record<NonNullable<FrpJobStageDTO["status"]>, string> = {
   PENDING: "Pending",
   IN_PROGRESS: "In progress",
@@ -308,11 +332,24 @@ export function JobStatusCard({
   // though the toggle that sets it is hidden without PO_CREATE.
   const manualPoActive = isProductionStage && poMode === "manual" && canCreatePo;
 
-  /** Documents attached to this stage only (QC Sign-off must not pull Production). */
-  const modalDocuments = useMemo(
-    () => modalStage?.documents ?? [],
-    [modalStage]
+  const qcMilestone = useMemo(
+    () => milestones.find((m) => m.stageKey === "qc"),
+    [milestones]
   );
+
+  /**
+   * QC ops (visual / dimensional / signoff) list every document under the QC
+   * milestone — not Production, and not only the one sub-stage being completed.
+   */
+  const modalDocuments = useMemo(() => {
+    if (!modalStage) return [];
+    const key = modalStage.stageKey ?? "";
+    const underQc = selectedKey === "qc" || QC_OPERATION_KEYS.has(key);
+    if (underQc) {
+      return dedupeDocumentsById(documentsOnMilestone(qcMilestone));
+    }
+    return modalStage.documents ?? [];
+  }, [modalStage, selectedKey, qcMilestone]);
 
   const filteredModalDocuments = useMemo(() => {
     const q = docSearch.trim().toLowerCase();
