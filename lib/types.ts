@@ -73,6 +73,40 @@ export interface JobWorkflowExtras {
   /** `true` = Yes, `false` = No, `null` = not set */
   paymentReceived?: boolean | null;
   paymentDueDate?: string;
+  /**
+   * The "which path does this job take" checkboxes — folded into Project
+   * Requirements. Drives which timeline stages show once `confirmed`
+   * (see `selectedTimelineStageIds` in `lib/jobTimelineAnalytics.ts`).
+   * `undefined`/`confirmed` falsy means the job stays in "Pending" with the
+   * timeline showing (but locking) every stage.
+   */
+  projectStageRequirements?: ProjectStageRequirements;
+}
+
+/**
+ * "Plan A" per the client's own spec — a deliberately simple, slightly messy
+ * mapping of business options straight onto timeline stages (see the
+ * comments on `selectedTimelineStageIds`). Only `supplyOnly` /
+ * `orderFromSupplierSupplyOnly` / `orderFromSupplierFabrication` / `project` /
+ * `drawings` / `loc` affect the timeline; the rest are informational only.
+ */
+export interface ProjectStageRequirements {
+  supplyOnly?: boolean;
+  orderFromSupplierSupplyOnly?: boolean;
+  orderFromSupplierFabrication?: boolean;
+  project?: boolean;
+  drawings?: boolean;
+  loc?: boolean;
+  orderPartsExternal?: boolean;
+  warranty?: boolean;
+  siteVisitMeasure?: boolean;
+  /**
+   * Set only by the "Save and Resume" button — distinct from having merely
+   * ticked a box or two. The timeline stays locked to "everything, faded"
+   * until this is explicitly confirmed, not the moment any single checkbox
+   * is touched.
+   */
+  confirmed?: boolean;
 }
 
 export interface JobCardPrintDetails {

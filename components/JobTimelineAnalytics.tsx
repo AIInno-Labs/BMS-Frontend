@@ -21,6 +21,8 @@ import { useJobs } from "@/context/JobsContext";
 import {
   buildJobTimelineAnalytics,
   timelineStageInfo,
+  isStageSetupDone,
+  selectedTimelineStageIds,
   type JobTimelineAnalyticsData,
   type StageDetailInsight,
   type TimelineStageId,
@@ -522,6 +524,12 @@ export function JobTimelineAnalytics({
     user?.id != null &&
     job.assignedWorkerId != null &&
     job.assignedWorkerId === String(user.id);
+  // Project stage setup: while undecided, every stage shows (faded, locked)
+  // rather than guessing which ones apply. Once saved, only the chosen
+  // stages (plus the always-on Pending/Completed) render at all.
+  const stageSetupDone = isStageSetupDone(job);
+  const selectedStageIds = selectedTimelineStageIds(job);
+  const rawStageLabel = jobStageLabel(job);
 
   const assignJobToMe = async () => {
     if (editsBlocked || assignBusy || user?.id == null || job.dbId == null) return;
@@ -700,6 +708,21 @@ export function JobTimelineAnalytics({
 
   const lineFillPct = (data.activeIndex / 6) * 100;
 
+  // Once setup is saved, only the chosen stages render — fewer nodes means
+  // the track itself should shrink too, or two or three nodes end up
+  // stretched to the far edges of a row sized for all seven.
+  const visibleStages = data.stages.filter(
+    (stage) =>
+      !stageSetupDone ||
+      stage.id === "draft" ||
+      stage.id === "completed" ||
+      selectedStageIds.includes(stage.id)
+  );
+  const timelineTrackWidth = Math.min(
+    896,
+    Math.max(320, visibleStages.length * 140)
+  );
+
   const focusedStage = useMemo(() => {
     if (selected?.type === "stage") {
       return data.stages.find((s) => s.id === selected.stageId);
@@ -804,7 +827,7 @@ export function JobTimelineAnalytics({
                 {holdBusy ? "Working…" : onHold ? "On hold — Resume" : "Put on hold"}
               </button>
             ) : null}
-            <span className={jobStageClass(job.status)}>{jobStageLabel(job)}</span>
+            <span className={jobStageClass(job.status)}>{rawStageLabel}</span>
             <button
               type="button"
               onClick={() => toggle({ type: "health" })}
@@ -833,7 +856,10 @@ export function JobTimelineAnalytics({
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <div className="relative mx-auto min-w-[700px] max-w-4xl px-4">
+        <div
+          className="relative mx-auto px-4"
+          style={{ width: `${timelineTrackWidth}px`, minWidth: 320 }}
+        >
           <div className="absolute left-6 right-6 top-[1.35rem] h-px bg-[#E5E7EB]" />
           <motion.div
             className="absolute left-6 top-[1.35rem] h-px bg-orange-400"
@@ -843,23 +869,40 @@ export function JobTimelineAnalytics({
           />
 
           <div className="relative flex justify-between">
-            {data.stages.map((stage, index) => {
+            {visibleStages.map((stage, index) => {
               const Icon = STAGE_ICONS[stage.id];
               const isActive = stage.state === "active";
               const isComplete = stage.state === "complete";
               const isUpcoming = stage.state === "upcoming";
               const stageSelected = isStageSelected(stage.id);
+              // Until project stage setup is saved, only Pending can be
+              // expanded — the rest are shown faded so it's clear they're
+              // waiting on that decision, not just unclickable by accident.
+              const stageLocked = !stageSetupDone && stage.id !== "draft";
 
               return (
                 <button
                   key={stage.id}
                   type="button"
-                  onClick={() => toggle({ type: "stage", stageId: stage.id })}
-                  className={`flex w-[13.5%] min-w-[76px] cursor-pointer flex-col items-center rounded-lg py-1 transition-colors hover:bg-orange-50/40 ${
+                  onClick={() =>
+                    !stageLocked && toggle({ type: "stage", stageId: stage.id })
+                  }
+                  disabled={stageLocked}
+                  style={{ width: `${100 / visibleStages.length}%` }}
+                  className={`flex min-w-[76px] flex-col items-center rounded-lg py-1 transition-colors ${
+                    stageLocked
+                      ? "cursor-not-allowed opacity-40"
+                      : "cursor-pointer hover:bg-orange-50/40"
+                  } ${
                     stageSelected ? "bg-orange-50/70 ring-1 ring-orange-200" : ""
                   }`}
                   aria-pressed={stageSelected}
-                  aria-label={`${stage.title}, ${stage.completionPct}% — view details`}
+                  aria-disabled={stageLocked}
+                  aria-label={
+                    stageLocked
+                      ? `${stage.title} — locked until project stages are selected`
+                      : `${stage.title}, ${stage.completionPct}% — view details`
+                  }
                 >
                   <div className="relative flex h-[52px] w-[52px] items-center justify-center pointer-events-none">
                     {isActive && (
@@ -907,7 +950,12 @@ export function JobTimelineAnalytics({
                       isActive ? "text-orange-700" : isComplete ? "text-slate-700" : "text-slate-400"
                     }`}
                   >
-                    {stage.title}
+                    {/* Only this node's label changes once setup is saved —
+                        the header badge and Jobs list badge stay "Pending"
+                        until the job actually reaches the next real stage. */}
+                    {stage.id === "draft" && stageSetupDone
+                      ? "Ready"
+                      : stage.title}
                   </p>
                   <p className="mt-0.5 text-center text-[10px] text-slate-500">
                     {stage.dateLabel}
