@@ -92,62 +92,81 @@ function FileThumbnailTile({
   const style = getFileThumbnailStyle(file);
   const ext = fileExtensionLabel(file.name);
 
+  const isFailed = file.storageStatus === "FAILED";
+  const isPending = file.storageStatus === "PENDING";
+
   return (
     <div className="group relative shrink-0">
       <button
         type="button"
         onClick={onSelect}
-        className={`relative rounded-xl border bg-white p-2.5 text-left transition-all ${
-          selected
-            ? "border-orange-300 ring-2 ring-orange-200/70 shadow-md"
-            : "border-[#E5E7EB] hover:border-orange-200 hover:shadow-sm"
+        className={`relative rounded-xl border p-2.5 text-left transition-all ${
+          isFailed
+            ? selected
+              ? "border-red-400 bg-red-50 ring-2 ring-red-200/80 shadow-md"
+              : "border-red-300 bg-red-50 hover:border-red-400 hover:bg-red-100/80 hover:shadow-sm"
+            : selected
+              ? "border-orange-300 bg-white ring-2 ring-orange-200/70 shadow-md"
+              : "border-[#E5E7EB] bg-white hover:border-orange-200 hover:shadow-sm"
         }`}
         aria-pressed={selected}
         aria-label={
-          canPreview
-            ? `Preview ${file.name}`
-            : isVersionsDocument(file)
-              ? `Open ${file.name} in Document Versions`
-              : `${file.name}, ${file.category}. Click to open.`
+          isFailed
+            ? `${file.name}, upload failed. Click for delete and re-upload options.`
+            : canPreview
+              ? `Preview ${file.name}`
+              : isVersionsDocument(file)
+                ? `Open ${file.name} in Document Versions`
+                : `${file.name}, ${file.category}. Click to open.`
         }
       >
         {file.isManualEntry ? (
           <span
             title="Manually entered — no file attached"
-            className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
+            className="absolute left-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold leading-none text-white shadow-sm"
           >
             <span aria-hidden>M</span>
             <span className="sr-only">Manually entered — no file attached</span>
           </span>
         ) : null}
-        {file.storageStatus === "PENDING" ? (
+        {isPending ? (
           <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[10px] font-semibold text-orange-700">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
             Uploading
           </span>
         ) : null}
-        {file.storageStatus === "FAILED" ? (
+        {isFailed ? (
           <span
             title={file.remarks?.trim() || "SharePoint upload failed"}
-            className="absolute right-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
+            className="absolute left-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
           >
             Failed
           </span>
         ) : null}
         <div
-          className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br ${style.bg} shadow-inner`}
+          className={`flex h-[88px] w-[88px] flex-col items-center justify-center rounded-lg bg-gradient-to-br shadow-inner ${
+            isFailed ? "from-red-100 to-red-50" : style.bg
+          }`}
         >
           <div
             className="flex h-12 w-12 items-center justify-center rounded-md shadow-sm"
-            style={{ backgroundColor: style.accent }}
+            style={{ backgroundColor: isFailed ? "#DC2626" : style.accent }}
           >
             <PreviewIcon kind={style.kind} />
           </div>
-          <span className="mt-1.5 text-[9px] font-bold tracking-wider text-slate-600">
+          <span
+            className={`mt-1.5 text-[9px] font-bold tracking-wider ${
+              isFailed ? "text-red-700" : "text-slate-600"
+            }`}
+          >
             {ext}
           </span>
         </div>
-        <p className="mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold text-slate-700">
+        <p
+          className={`mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold ${
+            isFailed ? "text-red-800" : "text-slate-700"
+          }`}
+        >
           {file.name}
         </p>
       </button>
@@ -303,9 +322,29 @@ export function JobFilesDocumentStrip({
   );
 
   const detailPanel = selectedFile ? (
-    <div className="min-w-[200px] flex-1 rounded-xl border border-[#E5E7EB] bg-[#FAFBFC] p-4">
-      <p className="text-sm font-semibold text-slate-800">{selectedFile.name}</p>
-      <p className="mt-1 text-xs text-slate-500">
+    <div
+      className={`min-w-[200px] flex-1 rounded-xl border p-4 ${
+        selectedFile.storageStatus === "FAILED"
+          ? "border-red-200 bg-red-50"
+          : "border-[#E5E7EB] bg-[#FAFBFC]"
+      }`}
+    >
+      <p
+        className={`text-sm font-semibold ${
+          selectedFile.storageStatus === "FAILED"
+            ? "text-red-900"
+            : "text-slate-800"
+        }`}
+      >
+        {selectedFile.name}
+      </p>
+      <p
+        className={`mt-1 text-xs ${
+          selectedFile.storageStatus === "FAILED"
+            ? "text-red-700"
+            : "text-slate-500"
+        }`}
+      >
         {selectedFile.category} · {selectedFile.time}
       </p>
       {selectedFile.storageStatus === "PENDING" ? (
@@ -315,7 +354,7 @@ export function JobFilesDocumentStrip({
         </p>
       ) : null}
       {selectedFile.storageStatus === "FAILED" ? (
-        <p className="mt-2 text-xs font-semibold text-red-700">
+        <p className="mt-2 rounded-lg border border-red-200 bg-white/70 px-2.5 py-1.5 text-xs font-semibold text-red-800">
           SharePoint upload failed. Delete this file and upload again.
         </p>
       ) : null}
