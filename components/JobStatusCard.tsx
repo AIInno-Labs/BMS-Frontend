@@ -36,12 +36,6 @@ type ModalDocListItem =
 interface JobStatusCardProps {
   job: Job;
   className?: string;
-  /**
-   * Documents already loaded on the job page (same list as Document Versions /
-   * Project files). Used so later stages can pick Production uploads without
-   * another documents GET.
-   */
-  jobDocuments?: FrpJobDocumentDTO[];
   /** Called after a stage change persists — lets the parent refetch the job so
    *  the main page (status badge, timeline, %) reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
@@ -53,33 +47,6 @@ interface JobStatusCardProps {
 
 const bySortOrder = (a: FrpJobStageDTO, b: FrpJobStageDTO) =>
   (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-
-/** Milestone + nested operation documents from the already-loaded stage tree. */
-function documentsOnMilestone(milestone: FrpJobStageDTO | undefined): FrpJobDocumentDTO[] {
-  if (!milestone) return [];
-  const out: FrpJobDocumentDTO[] = [...(milestone.documents ?? [])];
-  for (const child of milestone.children ?? []) {
-    out.push(...(child.documents ?? []));
-  }
-  return out;
-}
-
-function isProductionDocument(doc: FrpJobDocumentDTO): boolean {
-  return (
-    doc.documentType === "PRODUCTION" ||
-    doc.milestoneStageKey === "production"
-  );
-}
-
-function dedupeDocumentsById(docs: FrpJobDocumentDTO[]): FrpJobDocumentDTO[] {
-  const byId = new Map<number, FrpJobDocumentDTO>();
-  const withoutId: FrpJobDocumentDTO[] = [];
-  for (const doc of docs) {
-    if (typeof doc.id === "number") byId.set(doc.id, doc);
-    else withoutId.push(doc);
-  }
-  return [...byId.values(), ...withoutId];
-}
 
 const STATUS_LABEL: Record<NonNullable<FrpJobStageDTO["status"]>, string> = {
   PENDING: "Pending",
@@ -127,7 +94,6 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
  */
 export function JobStatusCard({
   job,
-  jobDocuments = [],
   className,
   onJobChanged,
   onDocumentsChanged,
@@ -342,30 +308,11 @@ export function JobStatusCard({
   // though the toggle that sets it is hidden without PO_CREATE.
   const manualPoActive = isProductionStage && poMode === "manual" && canCreatePo;
 
-  const productionMilestone = useMemo(
-    () => milestones.find((m) => m.stageKey === "production"),
-    [milestones]
+  /** Documents attached to this stage only (QC Sign-off must not pull Production). */
+  const modalDocuments = useMemo(
+    () => modalStage?.documents ?? [],
+    [modalStage]
   );
-
-  /** Prefer job-page document list; fall back to stage-tree docs if parent omitted it. */
-  const productionDocuments = useMemo(() => {
-    const fromJobPage = jobDocuments.filter(isProductionDocument);
-    if (jobDocuments.length > 0) {
-      return fromJobPage;
-    }
-    return documentsOnMilestone(productionMilestone);
-  }, [jobDocuments, productionMilestone]);
-
-  /**
-   * QC Sign-off needs Production POs/files for the update email — reuse the
-   * job page document list (no extra GET). Other stages keep their own docs only.
-   */
-  const modalDocuments = useMemo(() => {
-    if (!modalStage) return [];
-    const own = modalStage.documents ?? [];
-    if (modalStage.stageKey !== "signoff") return own;
-    return dedupeDocumentsById([...own, ...productionDocuments]);
-  }, [modalStage, productionDocuments]);
 
   const filteredModalDocuments = useMemo(() => {
     const q = docSearch.trim().toLowerCase();
@@ -959,12 +906,6 @@ export function JobStatusCard({
               </div>
               {docsExpanded ? (
                 <div className="space-y-2 border-t border-slate-100 px-3 py-2.5">
-                  {modalStage?.stageKey === "signoff" &&
-                  productionDocuments.length > 0 ? (
-                    <p className="text-xs text-slate-500">
-                      Includes Production documents from this job.
-                    </p>
-                  ) : null}
                   <input
                     type="search"
                     value={docSearch}
