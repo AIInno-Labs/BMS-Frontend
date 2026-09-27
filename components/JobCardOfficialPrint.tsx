@@ -1,11 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   buildOfficialJobCardData,
+  formatJobCardIdVersionFooter,
+  padInventoryRowsForPrint,
   PHOTO_CHECKLIST_ROWS,
   SCOPE_CHECKLIST_ITEMS,
 } from "@/lib/jobCardPrint";
 import type { OfficialJobCardData } from "@/lib/jobCardPrint";
+import { getJobAuditCount } from "@/lib/frp/job-audit";
 import type { Job } from "@/lib/types";
 
 const FRP_LOGO_LOCKUP_SRC = "/frp-logo-lockup-trimmed.png";
@@ -149,7 +153,7 @@ function OfficialPage1({ data }: { data: OfficialJobCardData }) {
           <tr>
             <td className="official-jc-scope-text" valign="top">
               {data.scopeLines.map((line, i) => (
-                <p key={i}>{line}</p>
+                <p key={`scope-l-${i}`}>{line}</p>
               ))}
               <p className="official-jc-scope-flags">
                 Mfg required: {data.manufacturingRequired ? "Yes" : "No"} ·
@@ -158,46 +162,58 @@ function OfficialPage1({ data }: { data: OfficialJobCardData }) {
                 {data.estimatedHours ? ` · Est. ${data.estimatedHours}` : ""}
               </p>
             </td>
-            <td className="official-jc-spec-col" valign="top">
-              <table className="official-jc-spec-table">
-                <tbody>
-                  {(
-                    [
-                      ["Type", data.scopeType],
-                      ["Thickness", data.thickness],
-                      ["Mesh", data.mesh],
-                      ["Resin", data.resin],
-                      ["Colour", data.colour],
-                      ["Finish", data.finish],
-                    ] as const
-                  ).map(([label, val]) => (
-                    <tr key={label}>
-                      <th>{label}</th>
-                      <td>{val || "\u00a0"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <table className="official-jc-clips-table">
-                <thead>
-                  <tr>
-                    <th>CLIPS</th>
-                    <th>QTY</th>
-                    <th>Packed by</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.clipRows.map((row, index) => (
-                    <tr key={`clip-row-${index}`}>
-                      <td>{row.clip}</td>
-                      <td>{row.qty}</td>
-                      <td>{row.packedBy}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <td className="official-jc-scope-right" valign="top">
+              {data.scopeRightLines.length === 0 ? (
+                <p className="official-jc-scope-right-empty">&nbsp;</p>
+              ) : (
+                data.scopeRightLines.map((line, i) => (
+                  <p key={`scope-r-${i}`}>{line}</p>
+                ))
+              )}
             </td>
           </tr>
+        </tbody>
+      </table>
+
+      <SectionBar>INVENTORY</SectionBar>
+      <table className="official-jc-clips-table official-jc-inventory-table">
+        <thead>
+          <tr>
+            <th>Product Group</th>
+            <th>Attribute 1</th>
+            <th>Attribute 2</th>
+            <th>Attribute 3</th>
+            <th>Resin / Material</th>
+            <th>Primary Colour</th>
+            <th>Qty</th>
+            <th>Packed by</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(() => {
+            const { rows, blankStartIndex } = padInventoryRowsForPrint(
+              data.clipRows
+            );
+            return rows.map((row, index) => (
+              <tr
+                key={`inv-row-${index}`}
+                className={
+                  index >= blankStartIndex
+                    ? "official-jc-inventory-blank"
+                    : undefined
+                }
+              >
+                <td>{row.productGroup || "\u00a0"}</td>
+                <td>{row.attribute1 || "\u00a0"}</td>
+                <td>{row.attribute2 || "\u00a0"}</td>
+                <td>{row.attribute3 || "\u00a0"}</td>
+                <td>{row.resin || "\u00a0"}</td>
+                <td>{row.colour || "\u00a0"}</td>
+                <td>{row.qty || "\u00a0"}</td>
+                <td>{row.packedBy || "\u00a0"}</td>
+              </tr>
+            ));
+          })()}
         </tbody>
       </table>
 
@@ -308,7 +324,9 @@ function OfficialPage1({ data }: { data: OfficialJobCardData }) {
       </div>
 
       <footer className="official-jc-footer official-jc-footer--pinned">
-        <span className="official-jc-footer-left">Job Card 00</span>
+        <span className="official-jc-footer-left">
+          {formatJobCardIdVersionFooter(data.jobNumber, data.jobCardVersion)}
+        </span>
         <span className="official-jc-footer-page">Page 1</span>
       </footer>
     </section>
@@ -501,7 +519,9 @@ function OfficialPage2({ data }: { data: OfficialJobCardData }) {
       </div>
 
       <footer className="official-jc-footer official-jc-footer--pinned">
-        <span className="official-jc-footer-left" aria-hidden />
+        <span className="official-jc-footer-left">
+          {formatJobCardIdVersionFooter(data.jobNumber, data.jobCardVersion)}
+        </span>
         <span className="official-jc-footer-center">Workshop Schedule_Inventory- NEW</span>
         <span className="official-jc-footer-page">Page 2</span>
       </footer>
@@ -576,7 +596,21 @@ export function JobCardOfficialPrint({
   job: Job;
   className?: string;
 }) {
-  const data = buildOfficialJobCardData(job);
+  const [auditCount, setAuditCount] = useState(0);
+
+  useEffect(() => {
+    const dbId = job.dbId;
+    if (!dbId) return;
+    let cancelled = false;
+    void getJobAuditCount(dbId).then((count) => {
+      if (!cancelled) setAuditCount(count);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.dbId]);
+
+  const data = buildOfficialJobCardData(job, undefined, auditCount);
 
   return (
     <div className={`official-jc-root ${className}`.trim()}>

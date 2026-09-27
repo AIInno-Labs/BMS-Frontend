@@ -3,8 +3,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
 import { updatePrivilege } from "@/lib/frp/api";
+import type { FieldAccessMode } from "@/lib/frp/privilege-types";
 import type { PrivilegeDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { EditPrivilegeSchema } from "@/lib/schemas/privilege";
+import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -28,10 +31,11 @@ export function EditPrivilegeDrawer({
   const [label, setLabel] = useState("");
   const [domain, setDomain] = useState("");
   const [fieldKey, setFieldKey] = useState("");
-  const [accessMode, setAccessMode] = useState<"READ" | "WRITE">("READ");
+  const [accessMode, setAccessMode] = useState<FieldAccessMode>("READ");
   const [sortOrder, setSortOrder] = useState("0");
   const [active, setActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const editable =
@@ -44,31 +48,46 @@ export function EditPrivilegeDrawer({
     setLabel(privilege.privilege ?? "");
     setDomain(privilege.domain ?? "");
     setFieldKey(privilege.fieldKey ?? "");
-    setAccessMode(
-      privilege.accessMode === "WRITE" ? "WRITE" : "READ"
-    );
+    setAccessMode(privilege.accessMode === "WRITE" ? "WRITE" : "READ");
     setSortOrder(String(privilege.sortOrder ?? 0));
     setActive(privilege.active !== false);
     setError(null);
+    setFieldErrors({});
   }, [privilege]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!privilege?.id || !editable) return;
     setError(null);
+    setFieldErrors({});
+
+    const isFieldType = privilege.privilegeType === "FIELD";
+    const parsed = EditPrivilegeSchema.safeParse({
+      isFieldType,
+      label,
+      domain,
+      fieldKey,
+      sortOrder,
+    });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const data = parsed.data;
       const body: PrivilegeDTO = {
         id: privilege.id,
-        privilege: label.trim(),
+        privilege: data.label,
         privilegeCode: privilege.privilegeCode,
         privilegeType: privilege.privilegeType,
-        domain: domain.trim() || undefined,
-        sortOrder: Number.parseInt(sortOrder, 10) || 0,
+        domain: data.domain || undefined,
+        sortOrder: data.sortOrder,
         active,
       };
-      if (privilege.privilegeType === "FIELD") {
-        body.fieldKey = fieldKey.trim();
+      if (isFieldType) {
+        body.fieldKey = data.fieldKey?.trim();
         body.accessMode = accessMode;
       }
       await updatePrivilege(privilege.id, body);
@@ -79,8 +98,8 @@ export function EditPrivilegeDrawer({
         err instanceof FrpApiError
           ? err.message
           : err instanceof Error
-            ? err.message
-            : "Failed to update privilege"
+          ? err.message
+          : "Failed to update privilege"
       );
     } finally {
       setSubmitting(false);
@@ -97,16 +116,16 @@ export function EditPrivilegeDrawer({
           ? privilege?.privilegeCode
           : "System ACTION privileges cannot be modified"
       }
-      panelClassName="md:w-[48%] md:max-w-[640px]"
+      panelClassName="md:w-[min(640px,92vw)]"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <button type="button" className="btn-secondary w-full sm:w-auto" onClick={onClose}>
             Cancel
           </button>
           <button
             type="submit"
             form="edit-privilege-form"
-            className="btn-primary disabled:opacity-60"
+            className="btn-primary w-full disabled:opacity-60 sm:w-auto"
             disabled={submitting || !editable}
           >
             {submitting ? "Saving…" : "Save changes"}
@@ -120,14 +139,26 @@ export function EditPrivilegeDrawer({
           via API.
         </p>
       ) : (
-        <form id="edit-privilege-form" onSubmit={onSubmit} className="space-y-4">
+        <form
+          id="edit-privilege-form"
+          onSubmit={onSubmit}
+          className="space-y-4"
+        >
           <div>
             <label className={labelClass}>Code</label>
-            <input className={inputClass} value={privilege?.privilegeCode ?? ""} disabled />
+            <input
+              className={inputClass}
+              value={privilege?.privilegeCode ?? ""}
+              disabled
+            />
           </div>
           <div>
             <label className={labelClass}>Type</label>
-            <input className={inputClass} value={privilege?.privilegeType ?? ""} disabled />
+            <input
+              className={inputClass}
+              value={privilege?.privilegeType ?? ""}
+              disabled
+            />
           </div>
           <div>
             <label className={labelClass} htmlFor="edit-priv-label">
@@ -140,6 +171,9 @@ export function EditPrivilegeDrawer({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
             />
+            {fieldErrors.label && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.label}</p>
+            )}
           </div>
           <div>
             <label className={labelClass} htmlFor="edit-priv-domain">
@@ -164,6 +198,9 @@ export function EditPrivilegeDrawer({
                   value={fieldKey}
                   onChange={(e) => setFieldKey(e.target.value)}
                 />
+                {fieldErrors.fieldKey && (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.fieldKey}</p>
+                )}
               </div>
               <div>
                 <label className={labelClass} htmlFor="edit-access">
@@ -174,7 +211,7 @@ export function EditPrivilegeDrawer({
                   className={inputClass}
                   value={accessMode}
                   onChange={(e) =>
-                    setAccessMode(e.target.value as "READ" | "WRITE")
+                    setAccessMode(e.target.value as FieldAccessMode)
                   }
                 >
                   <option value="READ">READ</option>
@@ -194,6 +231,9 @@ export function EditPrivilegeDrawer({
               value={sortOrder}
               onChange={(e) => setSortOrder(e.target.value)}
             />
+            {fieldErrors.sortOrder && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.sortOrder}</p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input

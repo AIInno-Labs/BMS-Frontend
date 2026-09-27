@@ -2,17 +2,12 @@ import type {
   Job,
   JobMaterialRow,
   JobWorkflowExtras,
-  RequiredInventoryItem,
+  ShipmentMethod,
 } from "@/lib/types";
+import { JOB_TYPE_LABELS } from "@/lib/frp/job-status";
 import { formatCreatedDate } from "@/lib/mockData";
 
-export const JOB_TYPE_OPTIONS = [
-  "Standard fabrication",
-  "Custom structure",
-  "Grating supply",
-  "Handrail / ladder",
-  "Repair / refit",
-] as const;
+export const JOB_TYPE_OPTIONS = JOB_TYPE_LABELS;
 
 export const PRODUCTION_STATUS_OPTIONS = [
   "Pending",
@@ -32,11 +27,38 @@ export const SHIPMENT_METHOD_OPTIONS = [
   "To be confirmed",
 ] as const;
 
-export const DEFAULT_REQUIRED_INVENTORY: RequiredInventoryItem[] = [
-  { label: "Profiles | Channel | 254x70 | IsoFR", qty: "48" },
-  { label: "Stanchions | Square Tube | 50x6 | VEFR", qty: "6" },
-  { label: "Profiles | Round Tube | 32 Fluted | VEFR", qty: "6" },
-];
+/**
+ * The labels above are what an operator reads; `job_scheduling_logistics`
+ * stores the enum. Kept as one map in both directions so the two vocabularies
+ * cannot drift apart in separate translations.
+ */
+const SHIPMENT_METHOD_TO_BACKEND: Record<string, ShipmentMethod> = {
+  "FRP Engineering delivery": "INHOUSE_DELIVERY",
+  "Customer collect": "CUSTOMER_COLLECT",
+  "Third-party courier": "THIRD_PARTY_COURIER",
+  "Freight forwarder": "FREIGHT_FORWARDER",
+  "To be confirmed": "OTHER",
+};
+
+const SHIPMENT_METHOD_TO_LABEL = Object.fromEntries(
+  Object.entries(SHIPMENT_METHOD_TO_BACKEND).map(([label, code]) => [code, label])
+) as Record<ShipmentMethod, string>;
+
+/** Label → enum. Null when unset or unrecognised, so nothing is guessed. */
+export function shipmentMethodToBackend(
+  label: string | null | undefined
+): ShipmentMethod | null {
+  if (!label) return null;
+  return SHIPMENT_METHOD_TO_BACKEND[label.trim()] ?? null;
+}
+
+/** Enum → label. Falls back to the raw value rather than showing nothing. */
+export function shipmentMethodToLabel(
+  code: ShipmentMethod | string | null | undefined
+): string {
+  if (!code) return "";
+  return SHIPMENT_METHOD_TO_LABEL[code as ShipmentMethod] ?? String(code);
+}
 
 export const DEFAULT_MATERIAL_ROWS: JobMaterialRow[] = [
   { material: "Top Cap", qty: "", availability: "In stock" },
@@ -73,10 +95,7 @@ export function ensureWorkflowExtras(
       : Array.from({ length: 9 }, () => "");
 
   return {
-    documentsRequired: raw?.documentsRequired ?? false,
-    sampleRequired: raw?.sampleRequired ?? false,
-    coiRequired: raw?.coiRequired ?? false,
-    jobType: raw?.jobType ?? JOB_TYPE_OPTIONS[0],
+    jobType: raw?.jobType ?? job.jobType ?? undefined,
     projectedStartDate: raw?.projectedStartDate ?? "",
     productionStatus: raw?.productionStatus ?? PRODUCTION_STATUS_OPTIONS[0],
     responsibleParty: raw?.responsibleParty ?? job.assignedWorkerName ?? "",
@@ -96,10 +115,6 @@ export function ensureWorkflowExtras(
     additionalNotes: raw?.additionalNotes ?? "",
     resinMatQty: raw?.resinMatQty ?? "48",
     fiberRollQty: raw?.fiberRollQty ?? "6",
-    requiredInventory:
-      raw?.requiredInventory && raw.requiredInventory.length > 0
-        ? raw.requiredInventory.map((item) => ({ ...item }))
-        : DEFAULT_REQUIRED_INVENTORY.map((item) => ({ ...item })),
     paymentReceived: raw?.paymentReceived ?? null,
     paymentDueDate: raw?.paymentDueDate ?? "",
     jobCardNotes: raw?.jobCardNotes ?? "",
