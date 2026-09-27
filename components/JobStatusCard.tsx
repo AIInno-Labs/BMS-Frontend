@@ -70,7 +70,7 @@ function dedupeDocumentsById(docs: FrpJobDocumentDTO[]): FrpJobDocumentDTO[] {
   return [...byId.values(), ...withoutId];
 }
 
-const QC_OPERATION_KEYS = new Set(["visual", "dimensional", "signoff"]);
+const QC_SIGNOFF_KEY = "signoff";
 
 const STATUS_LABEL: Record<NonNullable<FrpJobStageDTO["status"]>, string> = {
   PENDING: "Pending",
@@ -338,18 +338,17 @@ export function JobStatusCard({
   );
 
   /**
-   * QC ops (visual / dimensional / signoff) list every document under the QC
-   * milestone — not Production, and not only the one sub-stage being completed.
+   * QC Sign-off lists every document under the QC milestone (visual /
+   * dimensional / signoff). Other stages — including Visual and Dimensional —
+   * keep only their own docs.
    */
   const modalDocuments = useMemo(() => {
     if (!modalStage) return [];
-    const key = modalStage.stageKey ?? "";
-    const underQc = selectedKey === "qc" || QC_OPERATION_KEYS.has(key);
-    if (underQc) {
+    if (modalStage.stageKey === QC_SIGNOFF_KEY) {
       return dedupeDocumentsById(documentsOnMilestone(qcMilestone));
     }
     return modalStage.documents ?? [];
-  }, [modalStage, selectedKey, qcMilestone]);
+  }, [modalStage, qcMilestone]);
 
   const filteredModalDocuments = useMemo(() => {
     const q = docSearch.trim().toLowerCase();
