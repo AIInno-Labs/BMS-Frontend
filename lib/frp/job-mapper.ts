@@ -61,6 +61,12 @@ export interface FrpJobSummaryDTO {
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
+  /**
+   * When the job stopped being idle — the Ready button, or any earlier
+   * confirmation. Null means nobody has said what kind of work this is yet,
+   * which is what the job page prompts about.
+   */
+  requirementsConfirmedAt?: string | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   createdDate?: string;
@@ -137,6 +143,11 @@ export interface FrpJobDTO {
   requirements?: FrpJobProjectRequirementDTO[];
   /** Mirrors IGNORE_OVERDUE when that requirement is decided required. */
   ignoreOverdue?: boolean;
+  /**
+   * `READ_ONLY` — when the job stopped being idle, set by `PUT /jobs/{id}/ready`.
+   * Null means its project requirements have never been confirmed.
+   */
+  requirementsConfirmedAt?: string | null;
 }
 
 /** `JobProjectRequirementDTO` — one project requirement row. */
@@ -376,6 +387,12 @@ export interface FrpJobStageDTO {
   /** Whether this stage requires a document before it completes.
    *  Seeded from the stage template default, editable per job. */
   docRequired?: boolean;
+  /**
+   * This stage does not apply to this job. Always false in the timeline's tree,
+   * which omits disabled stages; only the Job Stage Setting modal, which asks
+   * for them with `includeDisabled`, ever sees it true.
+   */
+  disabled?: boolean;
   /** Email catalog allows attaching a document to stage-complete notifications. */
   emailAttachmentEnabled?: boolean;
   /** Operator choice: -1 N/A, 0 off, 1 attach files to email. */
@@ -710,6 +727,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     installRequired: false,
     qaCompleted: false,
     ignoreOverdue: dto.ignoreOverdue ?? false,
+    requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
     clientContactName: dto.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
@@ -935,6 +953,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
     ignoreOverdue: dto.ignoreOverdue ?? false,
+    requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
     clientContactName: dto.contactDetails?.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,

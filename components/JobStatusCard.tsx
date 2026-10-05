@@ -36,6 +36,13 @@ type ModalDocListItem =
 interface JobStatusCardProps {
   job: Job;
   className?: string;
+  /**
+   * Bumped by the parent when the job's stage tree changes shape — a stage
+   * switched off through Project Requirements or Job Settings. The checklist
+   * reloads on it, which `job.status` cannot cover: disabling QC on a job
+   * still in draft changes what belongs here without moving its status.
+   */
+  refreshKey?: number;
   /** Called after a stage change persists — lets the parent refetch the job so
    *  the main page (status badge, timeline, %) reflects the new status. */
   onJobChanged?: () => void | Promise<void>;
@@ -119,6 +126,7 @@ function statusPillClass(status: FrpJobStageDTO["status"]): string {
 export function JobStatusCard({
   job,
   className,
+  refreshKey,
   onJobChanged,
   onDocumentsChanged,
   onOpenDocument,
@@ -203,7 +211,9 @@ export function JobStatusCard({
     // tree server-side (see job-mapper.ts), but `load` itself only depends
     // on job.dbId, so without this the checklist here goes stale until a
     // full page reload remounts the component.
-  }, [load, job.status]);
+    // refreshKey covers the case job.status cannot: switching a stage off for
+    // this job changes the checklist without moving the job's status at all.
+  }, [load, job.status, refreshKey]);
 
   // "draft" is intentionally not shown in Status Control — it has no checklist
   // and nothing to action.

@@ -88,9 +88,10 @@ export const SELECTABLE_SUBSTAGES: Record<
 > = {
   draft: [],
   design: [
-    { id: "scope", title: "Scope" },
-    { id: "cad", title: "CAD" },
-    { id: "rev", title: "Rev" },
+    { id: "scope", title: "General Arrangement" },
+    { id: "cad", title: "Issued for comment" },
+    { id: "rev", title: "Issued for Approval" },
+    { id: "revision", title: "Revision loop" },
   ],
   approval: [
     // Ids must match the backend's real operation keys exactly (odd
@@ -101,12 +102,13 @@ export const SELECTABLE_SUBSTAGES: Record<
     { id: "engineer Approv.", title: "Engineer Approval" },
   ],
   production: [
-    { id: "mould", title: "Mould prep" },
-    { id: "layup", title: "Lay-up" },
-    { id: "cure", title: "Cure" },
+    { id: "mould", title: "Shop drawings" },
+    { id: "layup", title: "Fabrication" },
+    { id: "cure", title: "Prep for QC" },
   ],
   qc: [
-    { id: "visual", title: "Visual Insp." },
+    { id: "visual", title: "Visual Inspection" },
+    { id: "photos", title: "Photos added" },
     { id: "dimensional", title: "Dimensional Check" },
     { id: "signoff", title: "QA Sign-off" },
   ],
@@ -115,15 +117,27 @@ export const SELECTABLE_SUBSTAGES: Record<
 };
 
 /**
- * Whether the job's stage setup has been decided — i.e., whether either
- * mechanism (Project Requirements or the "Job Stage Setting" modal) has ever
- * been used. Until then, the job stays in "Pending" and the timeline shows
- * (but locks) every stage rather than reacting to a still-in-progress
- * decision. Once either has been used even once, it reacts live from then
- * on — see `selectedTimelineStageIds`.
+ * Whether the job has been set up — meaning the timeline can be trusted and
+ * unlocked. Until then it shows (but locks) every stage rather than reacting to
+ * a still-in-progress decision.
+ *
+ * Three things settle it, and any one is enough:
+ *
+ * - `requirementsConfirmedAt`, set by Mark Ready. This is the real gate: a job
+ *   can be taken out of idle without any requirement applying to it, and that
+ *   job's timeline must still work. Without this the stages stayed faded after
+ *   marking ready — completed ones included, which plainly do apply.
+ * - Project Requirements having been confirmed, or
+ * - the Job Stage Setting modal having been used,
+ *
+ * the latter two covering jobs set up before Mark Ready existed, whose
+ * timestamp is null but whose stages were chosen all the same.
  */
 export function isStageSetupDone(job: Job): boolean {
-  return job.printDetails?.workflowExtras?.stageSelectionSource != null;
+  return (
+    job.requirementsConfirmedAt != null ||
+    job.printDetails?.workflowExtras?.stageSelectionSource != null
+  );
 }
 
 /**
@@ -152,6 +166,45 @@ export function isStageSetupDone(job: Job): boolean {
  *
  * Falls back to "everything" until a source has ever been set.
  */
+/**
+ * The stage keys to send to `PUT /jobs/{id}/stages/selection` for a pick made
+ * in the Job Stage Setting modal.
+ *
+ * A milestone is included only when at least one of its substages is checked -
+ * the modal's own rule - and it travels together with exactly the substages
+ * that were checked, because naming substages is exact server-side: a
+ * milestone sent with two of its three operations switches the third off.
+ *
+ * `draft` and `completed` are always included. They are not configurable in
+ * the modal, and anything absent from this list is switched off, so leaving
+ * them out would quietly remove the stage every job starts at and the one it
+ * ends at.
+ */
+export function stageKeysForManualSelection(
+  selection: Record<string, string[]>
+): string[] {
+  const keys = new Set<string>(["draft", "completed"]);
+  for (const stageId of CONFIGURABLE_TIMELINE_STAGE_IDS) {
+    const subs = selection[stageId] ?? [];
+    if (subs.length === 0) continue;
+    keys.add(stageId);
+    // Dispatch's only "substage" is a stand-in for the milestone itself - the
+    // backend seeds it with no operations - so adding it is harmless and
+    // adding the milestone is what matters.
+    subs.forEach((sub) => keys.add(sub));
+  }
+  return [...keys];
+}
+
+/**
+ * The same, for a Project Requirements confirmation. The requirements choose
+ * whole milestones, so no substages are named and every operation beneath a
+ * chosen milestone stays on.
+ */
+export function stageKeysForRequirements(job: Job): string[] {
+  return ["draft", "completed", ...selectedTimelineStageIds(job)];
+}
+
 export function selectedTimelineStageIds(job: Job): TimelineStageId[] {
   const extras = job.printDetails?.workflowExtras;
   const source = extras?.stageSelectionSource;

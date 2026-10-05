@@ -46,9 +46,12 @@ import {
   SELECTABLE_SUBSTAGES,
   TIMELINE_STAGES,
   type TimelineStageId,
+  stageKeysForManualSelection,
 } from "@/lib/jobTimelineAnalytics";
 import {
+  applyJobStageSelection,
   deleteJobDocument,
+  markJobReady,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
@@ -553,6 +556,39 @@ function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
+/**
+ * The Job Stage Setting modal's tick state, read off the job's real stage tree.
+ *
+ * A stage is ticked when it is not disabled, so the modal opens on what the job
+ * actually has - whether that was set through this modal or through Project
+ * Requirements, which never writes the manual pick.
+ *
+ * Milestones with no operations of their own (Dispatch) are represented by a
+ * single entry named after the milestone, matching SELECTABLE_SUBSTAGES, so the
+ * modal can tick them like any other.
+ */
+function stageDraftFromTree(
+  tree: FrpJobStageDTO[]
+): Record<string, string[]> {
+  const draft: Record<string, string[]> = {};
+  for (const stageId of CONFIGURABLE_TIMELINE_STAGE_IDS) {
+    draft[stageId] = [];
+  }
+  for (const milestone of tree) {
+    const key = milestone.stageKey;
+    if (!key || !(key in draft)) continue;
+    if (milestone.disabled) continue; // whole milestone switched off
+
+    const children = milestone.children ?? [];
+    draft[key] = children.length
+      ? children
+          .filter((op) => !op.disabled && op.stageKey)
+          .map((op) => op.stageKey as string)
+      : [key];
+  }
+  return draft;
+}
+
 export function JobWorkflowDashboard({
   job,
   isSaving,
@@ -607,6 +643,12 @@ export function JobWorkflowDashboard({
   const [showStageModal, setShowStageModal] = useState(false);
   // Keyed by parent stage id — a stage shows on the timeline only if its
   // array here is non-empty. See selectedTimelineStageIds.
+  /**
+   * The job's whole stage tree, disabled stages included — what the Job Stage
+   * Setting modal ticks against. The timeline's own tree omits disabled
+   * stages, so it cannot answer "what could be switched back on".
+   */
+  const [stageTreeAll, setStageTreeAll] = useState<FrpJobStageDTO[]>([]);
   const [stageModalDraft, setStageModalDraft] = useState<
     Record<string, string[]>
   >({});
@@ -614,6 +656,45 @@ export function JobWorkflowDashboard({
     new Set()
   );
   const [showStageConfirm, setShowStageConfirm] = useState(false);
+  const [readyBusy, setReadyBusy] = useState(false);
+  const [readyError, setReadyError] = useState<string | null>(null);
+
+  /**
+   * A job nobody has set up yet: never confirmed, and still sitting at its
+   * first milestone.
+   *
+   * <p>The timestamp alone is not enough. Every job that existed before this
+   * feature has a null one, including jobs halfway through production - and
+   * offering to "mark ready" a job already in fabrication is nonsense. The
+   * stage is what says whether the job has actually started; the backend
+   * agrees, moving only jobs still at PENDING.
+   *
+   * <p>Not "no requirements ticked", either: a job none of the path options
+   * describe is perfectly ordinary and still has to be startable.
+   */
+  const jobIsIdle =
+    job.requirementsConfirmedAt == null &&
+    !cancelled &&
+    (job.currentStageKey == null || job.currentStageKey === "draft");
+
+  const handleMarkReady = async () => {
+    if (job.dbId == null) return;
+    setReadyBusy(true);
+    setReadyError(null);
+    try {
+      await markJobReady(job.dbId);
+      // Re-read rather than patching locally: the server decides the resulting
+      // status, and it declines to move a job that has already progressed past
+      // its first milestone.
+      await onJobChanged?.();
+    } catch (e) {
+      setReadyError(
+        e instanceof Error ? e.message : "Could not mark this job ready"
+      );
+    } finally {
+      setReadyBusy(false);
+    }
+  };
   const [stageSaveBusy, setStageSaveBusy] = useState(false);
   const [stageSaveError, setStageSaveError] = useState<string | null>(null);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
@@ -1237,32 +1318,54 @@ export function JobWorkflowDashboard({
             )}
             {isExporting ? "Exporting…" : "Export PDF"}
           </button>
+          {jobIsIdle ? (
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-[#EA580C] disabled:opacity-60"
+              title={
+                editsBlocked
+                  ? CASH_PAYMENT_BLOCK_MESSAGE
+                  : "Take this job out of idle so work can start"
+              }
+              disabled={isSaving || readyBusy || isExporting || editsBlocked}
+              onClick={() => void handleMarkReady()}
+            >
+              {readyBusy ? "Marking…" : "Mark Ready"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-            disabled={isSaving || cancelBusy || restoreBusy || isExporting}
+            // editsBlocked too: a job awaiting cash payment, cancelled or on
+            // hold may still have its Project Requirements changed, but not
+            // its stages picked by hand. The two routes reach the same
+            // endpoint, which the server has to allow for the requirements
+            // save, so this button is where that distinction is kept.
+            title={editsBlocked ? CASH_PAYMENT_BLOCK_MESSAGE : undefined}
+            disabled={
+              isSaving || cancelBusy || restoreBusy || isExporting || editsBlocked
+            }
             onClick={() => {
-              const existing = extras.manualSelectedSubStageIds;
-              if (existing) {
-                setStageModalDraft(
-                  Object.fromEntries(
-                    Object.entries(existing).map(([k, v]) => [k, [...v]])
-                  )
-                );
-              } else {
-                // No manual pick yet — start every stage unchecked rather
-                // than pre-selecting everything. Pre-checking looked like it
-                // "did nothing" when someone only meant to pick one stage:
-                // the other four stayed selected unless explicitly
-                // unchecked, so the timeline kept showing everything.
-                const seeded: Record<string, string[]> = {};
-                for (const stageId of CONFIGURABLE_TIMELINE_STAGE_IDS) {
-                  seeded[stageId] = [];
-                }
-                setStageModalDraft(seeded);
-              }
+              // Seeded from the server's tree, not from the saved manual pick.
+              // A selection made through Project Requirements never writes
+              // manualSelectedSubStageIds, so seeding from that would open the
+              // modal showing every stage still on while the job has four of
+              // them switched off. The tree is what the job actually has,
+              // whichever route switched them off.
               setExpandedStages(new Set());
+              setStageModalDraft(stageDraftFromTree(stageTreeAll));
               setShowStageModal(true);
+              if (job.dbId != null) {
+                void listJobStages(job.dbId, true)
+                  .then((tree) => {
+                    setStageTreeAll(tree);
+                    setStageModalDraft(stageDraftFromTree(tree));
+                  })
+                  .catch(() => {
+                    // Keep whatever is already on screen: a failed refresh
+                    // should not empty the modal under the user.
+                  });
+              }
             }}
           >
             Job Settings
@@ -1368,6 +1471,27 @@ export function JobWorkflowDashboard({
 
       <JobTimelineAnalytics job={job} onJobChanged={onJobChanged} />
 
+      {jobIsIdle ? (
+        <p
+          className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-900"
+          role="status"
+        >
+          Set the project requirements for this job, then choose{" "}
+          <span className="font-semibold">Mark Ready</span>. Until then the job
+          stays idle and shows every stage. If none of the requirements apply,
+          marking it ready on its own is fine.
+        </p>
+      ) : null}
+
+      {readyError ? (
+        <p
+          className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-900"
+          role="alert"
+        >
+          {readyError}
+        </p>
+      ) : null}
+
       {cashPaymentLocked && !cancelled ? (
         <p
           className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
@@ -1418,6 +1542,9 @@ export function JobWorkflowDashboard({
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
         onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
+        // Saving Project Requirements re-decides which stages apply, so the
+        // cards reading that tree have to re-read it.
+        onStagesChanged={() => setDocumentsRefreshKey((k) => k + 1)}
         onFailedFile={handleFailedSharePointFile}
       />
 
@@ -1485,6 +1612,12 @@ export function JobWorkflowDashboard({
 
           <JobStatusCard
             job={job}
+            // Shares the documents key: both cards read the stage tree, and
+            // switching a stage off changes what they should show without
+            // necessarily changing job.status, which is all they watched
+            // before. Without this they stayed on the old list until the page
+            // was reloaded.
+            refreshKey={documentsRefreshKey}
             onJobChanged={onJobChanged}
             onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
             onOpenDocument={(doc) =>
@@ -1849,6 +1982,17 @@ export function JobWorkflowDashboard({
           setStageSaveBusy(true);
           setStageSaveError(null);
           try {
+            // The server is told first. It owns what the stage tree is - it
+            // stops emailing switched-off stages, drops them out of the job's
+            // progress and stops waiting on them to finish - so if this fails
+            // the extras below must not be saved either, or the page would
+            // show a selection the job does not actually have.
+            if (job.dbId != null) {
+              await applyJobStageSelection(
+                job.dbId,
+                stageKeysForManualSelection(stageModalDraft)
+              );
+            }
             await onSavePatch({
               printDetails: {
                 ...pd,
@@ -1862,6 +2006,8 @@ export function JobWorkflowDashboard({
                 },
               },
             });
+            setDocumentsRefreshKey((k) => k + 1);
+            await onJobChanged?.();
             setShowStageConfirm(false);
           } catch (e) {
             setStageSaveError(

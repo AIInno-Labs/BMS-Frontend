@@ -885,34 +885,24 @@ export function JobTimelineAnalytics({
               const isComplete = stage.state === "complete";
               const isUpcoming = stage.state === "upcoming";
               const stageSelected = isStageSelected(stage.id);
-              // Until project stage setup is saved, only Pending can be
-              // expanded — the rest are shown faded so it's clear they're
-              // waiting on that decision, not just unclickable by accident.
-              const stageLocked = !stageSetupDone && stage.id !== "draft";
+              // Stages are never faded or locked. They used to be, until the
+              // job's setup was saved - but a job that has been running for
+              // weeks has stages it has already finished, and greying those
+              // out says they do not count when they plainly do. What setup
+              // decides is which stages are listed at all (visibleStages
+              // above), not whether the ones on screen can be read.
 
               return (
                 <button
                   key={stage.id}
                   type="button"
-                  onClick={() =>
-                    !stageLocked && toggle({ type: "stage", stageId: stage.id })
-                  }
-                  disabled={stageLocked}
+                  onClick={() => toggle({ type: "stage", stageId: stage.id })}
                   style={{ width: `${100 / visibleStages.length}%` }}
-                  className={`flex min-w-[76px] flex-col items-center rounded-lg py-1 transition-colors ${
-                    stageLocked
-                      ? "cursor-not-allowed opacity-40"
-                      : "cursor-pointer hover:bg-orange-50/40"
-                  } ${
+                  className={`flex min-w-[76px] cursor-pointer flex-col items-center rounded-lg py-1 transition-colors hover:bg-orange-50/40 ${
                     stageSelected ? "bg-orange-50/70 ring-1 ring-orange-200" : ""
                   }`}
                   aria-pressed={stageSelected}
-                  aria-disabled={stageLocked}
-                  aria-label={
-                    stageLocked
-                      ? `${stage.title} — locked until project stages are selected`
-                      : `${stage.title}, ${stage.completionPct}% — view details`
-                  }
+                  aria-label={`${stage.title}, ${stage.completionPct}% — view details`}
                 >
                   <div className="relative flex h-[52px] w-[52px] items-center justify-center pointer-events-none">
                     {isActive && (

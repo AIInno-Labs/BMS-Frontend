@@ -24,8 +24,12 @@ import {
   shipmentMethodToLabel,
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
-import { isStageSetupDone } from "@/lib/jobTimelineAnalytics";
 import {
+  isStageSetupDone,
+  stageKeysForRequirements,
+} from "@/lib/jobTimelineAnalytics";
+import {
+  applyJobStageSelection,
   setJobRequirement,
   saveJobMeasurements,
 } from "@/lib/frp/api";
@@ -33,6 +37,7 @@ import { isCancelledJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import {
   PROJECT_REQUIREMENT_LABELS,
+  STAGE_PATH_REQUIREMENTS,
   type ProjectRequirementKind,
 } from "@/lib/frp/project-requirements";
 import { userIdToBackend, type JobUpdateAuditAction } from "@/lib/frp/job-mapper";
@@ -66,6 +71,13 @@ interface JobWorkflowExtrasSectionProps {
   onDownloadVersionFile?: (file: JobFileRecord) => void;
   /** Called after a document is soft-deleted, so the parent can refetch the file list. */
   onDeletedFile?: () => void;
+  /**
+   * Called after Project Requirements are saved, because saving them reapplies
+   * which stages the job has. Lets the parent refresh the cards that read the
+   * stage tree - their own watch on job.status cannot see a change that leaves
+   * the status alone.
+   */
+  onStagesChanged?: () => void;
   /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
   onFailedFile?: (file: JobFileRecord) => void;
   /** Refetch job after a dedicated API write (requirements, payment, …). */
@@ -149,6 +161,7 @@ export function JobWorkflowExtrasSection({
   onPreviewFile,
   onDownloadVersionFile,
   onDeletedFile,
+  onStagesChanged,
   onFailedFile,
   onJobChanged,
 }: JobWorkflowExtrasSectionProps) {
@@ -213,6 +226,38 @@ export function JobWorkflowExtrasSection({
       for (const kind of changedKinds) {
         await setJobRequirement(job.dbId, kind, draftRequirements[kind]);
       }
+
+      // The path flags are requirements too, not just job-card keys, so they
+      // are written as rows and can be reported on. Only the changed ones, to
+      // keep this to the handful of writes a tick or two implies.
+      const savedFlags = extras.projectStageRequirements ?? {};
+      for (const { kind, flag } of STAGE_PATH_REQUIREMENTS) {
+        const next = draftFlags[flag as keyof ProjectStageRequirements] === true;
+        if (next === (savedFlags[flag as keyof ProjectStageRequirements] === true)) {
+          continue;
+        }
+        await setJobRequirement(job.dbId, kind, next);
+      }
+
+      // And the server is told which stages this path implies, so it stops
+      // emailing, counting and waiting on the ones that no longer apply.
+      // Before the extras are saved: if this fails, the page must not be left
+      // showing a selection the job does not have.
+      await applyJobStageSelection(
+        job.dbId,
+        stageKeysForRequirements({
+          ...job,
+          printDetails: {
+            ...pd,
+            workflowExtras: {
+              ...extras,
+              projectStageRequirements: { ...draftFlags, confirmed: true },
+              stageSelectionSource: "requirements",
+            },
+          },
+        })
+      );
+
       await onSavePatch({
         printDetails: {
           ...pd,
@@ -226,9 +271,11 @@ export function JobWorkflowExtrasSection({
           },
         },
       });
-      if (changedKinds.length > 0) {
-        await onJobChanged?.();
-      }
+      // Always, not only when a requirement row changed: the stage selection
+      // was just reapplied, so Status Control and Document Versions are
+      // showing a tree that may no longer be the job's.
+      onStagesChanged?.();
+      await onJobChanged?.();
     } catch (e) {
       setRequirementsSaveError(
         e instanceof Error ? e.message : "Could not save project requirements"

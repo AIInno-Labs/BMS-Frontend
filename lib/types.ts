@@ -209,6 +209,12 @@ export interface Job {
   origin?: "QUOTE" | "FACTORY";
   /** Stage-tree completion, served on the list projection only. */
   percentComplete?: number | null;
+  /**
+   * When the job stopped being idle. Null means its project requirements have
+   * never been confirmed, so the job page prompts for them and offers the
+   * Ready button.
+   */
+  requirementsConfirmedAt?: string | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   /** Id of that milestone — `JobDTO.currentStageId`. Sent as `jobStageId` on document upload. */
