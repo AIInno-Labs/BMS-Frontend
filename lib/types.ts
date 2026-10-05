@@ -78,9 +78,24 @@ export interface JobWorkflowExtras {
    * Requirements. Drives which timeline stages show once `confirmed`
    * (see `selectedTimelineStageIds` in `lib/jobTimelineAnalytics.ts`).
    * `undefined`/`confirmed` falsy means the job stays in "Pending" with the
-   * timeline showing (but locking) every stage.
+   * timeline showing (but locking) every stage. Only actually drives the
+   * timeline while `stageSelectionSource` is `"requirements"`.
    */
   projectStageRequirements?: ProjectStageRequirements;
+  /**
+   * A direct, manual substage pick from the "Job Stage Setting" modal on the
+   * job detail page. Keyed by parent stage id (e.g. `"design"`); a stage
+   * shows on the timeline only if its array here is non-empty. Only
+   * actually drives the timeline while `stageSelectionSource` is `"manual"`.
+   */
+  manualSelectedSubStageIds?: Record<string, string[]>;
+  /**
+   * Which of the two stage-selection mechanisms is currently authoritative
+   * — whichever was saved most recently. Without this, once the modal had
+   * ever been used it would win forever, even after someone went back and
+   * re-confirmed Project Requirements expecting *that* to take effect.
+   */
+  stageSelectionSource?: "requirements" | "manual";
 }
 
 /**
@@ -100,6 +115,8 @@ export interface ProjectStageRequirements {
   orderPartsExternal?: boolean;
   warranty?: boolean;
   siteVisitMeasure?: boolean;
+  /** Informational only — no effect on the timeline. */
+  installation?: boolean;
   /**
    * Set only by the "Save and Resume" button — distinct from having merely
    * ticked a box or two. The timeline stays locked to "everything, faded"

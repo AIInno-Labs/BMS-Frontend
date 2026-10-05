@@ -71,20 +71,74 @@ export const CONFIGURABLE_TIMELINE_STAGE_IDS: TimelineStageId[] = [
 ];
 
 /**
- * Whether project requirements have been confirmed via "Save and Resume" —
- * not just whether a checkbox or two has been ticked. Until confirmed, the
- * job stays in "Pending" and the timeline shows (but locks) every stage
- * rather than reacting to a still-in-progress decision.
+ * The "Job Stage Setting" modal's own substage catalog. Drawing/Approval/
+ * Production/QC mirror the real operations Status Control seeds per
+ * milestone (`JobStageServiceImpl.OPERATIONS_BY_MILESTONE` on the backend),
+ * so the names match what the team already sees there. Dispatch has no
+ * operations there yet, so it gets a single stand-in entry named after
+ * itself — just enough for the "at least one substage checked" rule to
+ * apply to it too, without inventing real sub-steps that don't exist yet.
+ *
+ * A stage only appears on the main timeline if at least one of its own
+ * substages here is selected — see `selectedTimelineStageIds`.
+ */
+export const SELECTABLE_SUBSTAGES: Record<
+  TimelineStageId,
+  Array<{ id: string; title: string }>
+> = {
+  draft: [],
+  design: [
+    { id: "scope", title: "Scope" },
+    { id: "cad", title: "CAD" },
+    { id: "rev", title: "Rev" },
+  ],
+  approval: [
+    // Ids must match the backend's real operation keys exactly (odd
+    // formatting and all) — this is what lets a manual pick here actually
+    // filter the real stage tree fetched from Status Control. See
+    // JobStageServiceImpl.OPERATIONS_BY_MILESTONE.
+    { id: "client Approv.", title: "Client Approval" },
+    { id: "engineer Approv.", title: "Engineer Approval" },
+  ],
+  production: [
+    { id: "mould", title: "Mould prep" },
+    { id: "layup", title: "Lay-up" },
+    { id: "cure", title: "Cure" },
+  ],
+  qc: [
+    { id: "visual", title: "Visual Insp." },
+    { id: "dimensional", title: "Dimensional Check" },
+    { id: "signoff", title: "QA Sign-off" },
+  ],
+  dispatch: [{ id: "dispatch", title: "Dispatch" }],
+  completed: [],
+};
+
+/**
+ * Whether the job's stage setup has been decided — i.e., whether either
+ * mechanism (Project Requirements or the "Job Stage Setting" modal) has ever
+ * been used. Until then, the job stays in "Pending" and the timeline shows
+ * (but locks) every stage rather than reacting to a still-in-progress
+ * decision. Once either has been used even once, it reacts live from then
+ * on — see `selectedTimelineStageIds`.
  */
 export function isStageSetupDone(job: Job): boolean {
-  return job.printDetails?.workflowExtras?.projectStageRequirements?.confirmed === true;
+  return job.printDetails?.workflowExtras?.stageSelectionSource != null;
 }
 
 /**
- * "Plan A" per the client's spec: a handful of Project Requirement checkboxes
- * decide which timeline stages apply, rather than the stages being their own
- * separate setting (that's "Plan B" — cleaner, not built yet). Deliberately
- * simple and a little blunt, exactly as specified:
+ * Which of the two stage-selection mechanisms is live right now.
+ * `stageSelectionSource` is set the moment either one is used — a Project
+ * Requirements checkbox saves it immediately (not gated behind "Save and
+ * Resume"; that button exists only to switch back to Project Requirements
+ * after the modal was used more recently, or to force-confirm without
+ * touching a box), and the "Job Stage Setting" modal sets it on save. Once
+ * set, this derives the visible stages live from whichever source it names,
+ * reacting to every checkbox change immediately rather than waiting for a
+ * separate confirm step.
+ *
+ * "Plan A" per the client's spec for the Project Requirements path —
+ * deliberately simple and a little blunt, exactly as specified:
  *
  * - Supply only / Order from Supplier (either variant) hides Drawing,
  *   Approval, Production and QC outright — this takes priority over
@@ -96,26 +150,41 @@ export function isStageSetupDone(job: Job): boolean {
  *   Supply-only/Order-from-Supplier bundle above hides them.
  * - Dispatch is never hidden by any of this.
  *
- * Falls back to "everything" until "Save and Resume" is clicked, so
- * experimenting with checkboxes doesn't reshuffle the timeline mid-decision.
+ * Falls back to "everything" until a source has ever been set.
  */
 export function selectedTimelineStageIds(job: Job): TimelineStageId[] {
-  const req = job.printDetails?.workflowExtras?.projectStageRequirements;
-  if (!req?.confirmed) return CONFIGURABLE_TIMELINE_STAGE_IDS;
+  const extras = job.printDetails?.workflowExtras;
+  const source = extras?.stageSelectionSource;
 
-  const supplyPathOnly =
-    req.supplyOnly ||
-    req.orderFromSupplierSupplyOnly ||
-    req.orderFromSupplierFabrication;
-  if (supplyPathOnly) return ["dispatch"];
+  if (source === "manual") {
+    const manualSub = extras?.manualSelectedSubStageIds;
+    if (manualSub) {
+      return CONFIGURABLE_TIMELINE_STAGE_IDS.filter(
+        (id) => (manualSub[id]?.length ?? 0) > 0
+      );
+    }
+  }
 
-  const ids: TimelineStageId[] = [];
-  if (req.project || req.drawings) ids.push("design");
-  ids.push("approval");
-  ids.push("production");
-  if (req.project || req.loc) ids.push("qc");
-  ids.push("dispatch");
-  return ids;
+  if (source === "requirements") {
+    const req = extras?.projectStageRequirements;
+    if (req) {
+      const supplyPathOnly =
+        req.supplyOnly ||
+        req.orderFromSupplierSupplyOnly ||
+        req.orderFromSupplierFabrication;
+      if (supplyPathOnly) return ["dispatch"];
+
+      const ids: TimelineStageId[] = [];
+      if (req.project || req.drawings) ids.push("design");
+      ids.push("approval");
+      ids.push("production");
+      if (req.project || req.loc) ids.push("qc");
+      ids.push("dispatch");
+      return ids;
+    }
+  }
+
+  return CONFIGURABLE_TIMELINE_STAGE_IDS;
 }
 
 export interface TimelineSubStageView {
@@ -152,7 +221,7 @@ const SUB_STAGES_BY_PARENT: Partial<
   design: [
     { id: "scope", title: "Scoping", shortLabel: "Scope" },
     { id: "cad", title: "CAD layout", shortLabel: "CAD" },
-    { id: "rev-a", title: "Rev A issue", shortLabel: "Rev A" },
+    { id: "rev", title: "Rev A issue", shortLabel: "Rev A" },
   ],
   production: [
     { id: "mould", title: "Mould prep", shortLabel: "Mould" },
@@ -173,8 +242,19 @@ function buildSubStages(
   drawingDoneCount: number,
   job: Job
 ): TimelineSubStageView[] | undefined {
-  const defs = SUB_STAGES_BY_PARENT[parentId];
+  let defs = SUB_STAGES_BY_PARENT[parentId];
   if (!defs?.length) return undefined;
+
+  // A manual "Job Stage Setting" pick also narrows what shows in this
+  // stage's own drill-down — picking only 1 of Drawing's 3 substages
+  // should mean only that 1 appears here too, not all 3 regardless.
+  const picked = job.printDetails?.workflowExtras?.manualSelectedSubStageIds?.[
+    parentId
+  ];
+  if (picked) {
+    const narrowed = defs.filter((def) => picked.includes(def.id));
+    if (narrowed.length > 0) defs = narrowed;
+  }
 
   let activeSubIndex = 0;
   if (parentState === "complete") {

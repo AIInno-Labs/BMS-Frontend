@@ -295,6 +295,10 @@ export interface FrpJobCardPayload {
   manualInstructions?: string;
   /** See `JobWorkflowExtras.projectStageRequirements`. */
   projectStageRequirements?: ProjectStageRequirements;
+  /** See `JobWorkflowExtras.manualSelectedSubStageIds`. */
+  manualSelectedSubStageIds?: Record<string, string[]>;
+  /** See `JobWorkflowExtras.stageSelectionSource`. */
+  stageSelectionSource?: "requirements" | "manual";
 }
 
 /** One resin category from `GET /jobs/resin-counts`. */
@@ -892,6 +896,8 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
           : card?.paymentReceived ?? null,
       paymentDueDate: payment?.dueDate ?? card?.paymentDueDate,
       projectStageRequirements: card?.projectStageRequirements,
+      manualSelectedSubStageIds: card?.manualSelectedSubStageIds,
+      stageSelectionSource: card?.stageSelectionSource,
     },
   };
 
@@ -1107,6 +1113,8 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     qaCompleted: job.qaCompleted,
     manualInstructions: job.manualInstructions || undefined,
     projectStageRequirements: extras?.projectStageRequirements,
+    manualSelectedSubStageIds: extras?.manualSelectedSubStageIds,
+    stageSelectionSource: extras?.stageSelectionSource,
   };
 }
 
