@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -48,6 +48,7 @@ import {
 } from "@/lib/poLineItems";
 import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
+import { selectedTimelineStageIds } from "@/lib/jobTimelineAnalytics";
 import type { Job } from "@/lib/types";
 
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -486,9 +487,25 @@ export function JobDocumentRevisionsCard({
   const canCreatePo = can(ACCESS_KEYS.PO_CREATE);
   const canUploadDocument = hasPrivilege(me, "DOCUMENT_CREATE");
   const showAddPoModeToggle = canCreatePo || canUploadDocument;
-  const [docType, setDocType] = useState<DocTab>("po");
+  // PO lives on production; drawings on design — hide the tab when that stage
+  // is switched off for this job.
+  const enabledStages = useMemo(() => selectedTimelineStageIds(job), [job]);
+  const showPoTab = enabledStages.includes("production");
+  const showDrawingTab = enabledStages.includes("design");
+  const [docType, setDocType] = useState<DocTab>(() =>
+    enabledStages.includes("production")
+      ? "po"
+      : enabledStages.includes("design")
+        ? "drawing"
+        : "po"
+  );
   const [poCompareOpen, setPoCompareOpen] = useState(false);
   const [drawingCompareOpen, setDrawingCompareOpen] = useState(false);
+
+  useEffect(() => {
+    if (docType === "po" && !showPoTab && showDrawingTab) setDocType("drawing");
+    else if (docType === "drawing" && !showDrawingTab && showPoTab) setDocType("po");
+  }, [docType, showPoTab, showDrawingTab]);
 
   const [poDocs, setPoDocs] = useState<FrpJobDocumentDTO[]>([]);
   const [drawingDocs, setDrawingDocs] = useState<FrpJobDocumentDTO[]>([]);
@@ -612,12 +629,24 @@ export function JobDocumentRevisionsCard({
       prevLatestDrawingIdRef.current = null;
       return;
     }
+    if (!showPoTab && !showDrawingTab) {
+      setPoDocs([]);
+      setDrawingDocs([]);
+      setSelectedPoId(null);
+      setSelectedDrawingId(null);
+      setComparison(null);
+      return;
+    }
     setListLoading(true);
     setError(null);
     try {
       const [production, drawings] = await Promise.all([
-        listJobDocuments(dbId, { type: "PRODUCTION", sort: "ALL" }),
-        listJobDocuments(dbId, { type: "DRAWING", sort: "ALL" }),
+        showPoTab
+          ? listJobDocuments(dbId, { type: "PRODUCTION", sort: "ALL" })
+          : Promise.resolve([] as FrpJobDocumentDTO[]),
+        showDrawingTab
+          ? listJobDocuments(dbId, { type: "DRAWING", sort: "ALL" })
+          : Promise.resolve([] as FrpJobDocumentDTO[]),
       ]);
       const poSorted = sortByVersionDesc(production);
       const drawingSorted = sortByVersionDesc(drawings);
@@ -628,6 +657,7 @@ export function JobDocumentRevisionsCard({
       const poHasNewLatest = newLatestPoId !== prevLatestPoIdRef.current;
       prevLatestPoIdRef.current = newLatestPoId;
       setSelectedPoId((prev) => {
+        if (!showPoTab) return null;
         if (poHasNewLatest) return newLatestPoId;
         if (prev != null && poSorted.some((d) => d.id === prev)) return prev;
         return newLatestPoId;
@@ -637,6 +667,7 @@ export function JobDocumentRevisionsCard({
       const drawingHasNewLatest = newLatestDrawingId !== prevLatestDrawingIdRef.current;
       prevLatestDrawingIdRef.current = newLatestDrawingId;
       setSelectedDrawingId((prev) => {
+        if (!showDrawingTab) return null;
         if (drawingHasNewLatest) return newLatestDrawingId;
         if (prev != null && drawingSorted.some((d) => d.id === prev)) return prev;
         return newLatestDrawingId;
@@ -648,7 +679,7 @@ export function JobDocumentRevisionsCard({
     } finally {
       setListLoading(false);
     }
-  }, [dbId]);
+  }, [dbId, showPoTab, showDrawingTab]);
 
   useEffect(() => {
     void loadDocuments();
@@ -663,6 +694,8 @@ export function JobDocumentRevisionsCard({
   const appliedFocusRef = useRef<{ documentId: number; tab: DocTab } | null>(null);
   useEffect(() => {
     if (!focusDocument) return;
+    if (focusDocument.tab === "po" && !showPoTab) return;
+    if (focusDocument.tab === "drawing" && !showDrawingTab) return;
     if (
       appliedFocusRef.current?.documentId === focusDocument.documentId &&
       appliedFocusRef.current?.tab === focusDocument.tab
@@ -681,7 +714,7 @@ export function JobDocumentRevisionsCard({
       setSelectedDrawingId(focusDocument.documentId);
       appliedFocusRef.current = focusDocument;
     }
-  }, [focusDocument, poDocs, drawingDocs]);
+  }, [focusDocument, poDocs, drawingDocs, showPoTab, showDrawingTab]);
 
   useEffect(() => {
     setShowAllPoItems(false);
@@ -1121,6 +1154,8 @@ export function JobDocumentRevisionsCard({
     };
   })();
 
+  if (!showPoTab && !showDrawingTab) return null;
+
   return (
     <>
       <WidgetCard
@@ -1130,31 +1165,37 @@ export function JobDocumentRevisionsCard({
         className={`scroll-mt-6${className ? ` ${className}` : ""}`}
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => setDocType("po")}
-              className={`rounded-md px-3 py-1.5 transition-colors ${
-                docType === "po"
-                  ? "bg-white text-orange-700 shadow-sm border border-orange-200"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Purchase Orders
-            </button>
-            <button
-              type="button"
-              onClick={() => setDocType("drawing")}
-              className={`rounded-md px-3 py-1.5 transition-colors ${
-                docType === "drawing"
-                  ? "bg-white text-orange-700 shadow-sm border border-orange-200"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Drawings
-            </button>
-          </div>
-          {docType === "po" ? (
+          {showPoTab && showDrawingTab ? (
+            <div className="inline-flex rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setDocType("po")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  docType === "po"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Purchase Orders
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocType("drawing")}
+                className={`rounded-md px-3 py-1.5 transition-colors ${
+                  docType === "drawing"
+                    ? "bg-white text-orange-700 shadow-sm border border-orange-200"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Drawings
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs font-semibold text-slate-600">
+              {showPoTab ? "Purchase Orders" : "Drawings"}
+            </p>
+          )}
+          {docType === "po" && showPoTab ? (
             <button
               type="button"
               onClick={openAddPoModal}

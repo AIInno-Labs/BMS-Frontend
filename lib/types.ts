@@ -73,6 +73,57 @@ export interface JobWorkflowExtras {
   /** `true` = Yes, `false` = No, `null` = not set */
   paymentReceived?: boolean | null;
   paymentDueDate?: string;
+  /**
+   * The "which path does this job take" checkboxes — folded into Project
+   * Requirements. Drives which timeline stages show once `confirmed`
+   * (see `selectedTimelineStageIds` in `lib/jobTimelineAnalytics.ts`).
+   * `undefined`/`confirmed` falsy means the job stays in "Pending" with the
+   * timeline showing (but locking) every stage. Only actually drives the
+   * timeline while `stageSelectionSource` is `"requirements"`.
+   */
+  projectStageRequirements?: ProjectStageRequirements;
+  /**
+   * A direct, manual substage pick from the "Job Stage Setting" modal on the
+   * job detail page. Keyed by parent stage id (e.g. `"design"`); a stage
+   * shows on the timeline only if its array here is non-empty. Only
+   * actually drives the timeline while `stageSelectionSource` is `"manual"`.
+   */
+  manualSelectedSubStageIds?: Record<string, string[]>;
+  /**
+   * Which of the two stage-selection mechanisms is currently authoritative
+   * — whichever was saved most recently. Without this, once the modal had
+   * ever been used it would win forever, even after someone went back and
+   * re-confirmed Project Requirements expecting *that* to take effect.
+   */
+  stageSelectionSource?: "requirements" | "manual";
+}
+
+/**
+ * "Plan A" per the client's own spec — a deliberately simple, slightly messy
+ * mapping of business options straight onto timeline stages (see the
+ * comments on `selectedTimelineStageIds`). Only `supplyOnly` /
+ * `orderFromSupplierSupplyOnly` / `orderFromSupplierFabrication` / `project` /
+ * `drawings` / `loc` affect the timeline; the rest are informational only.
+ */
+export interface ProjectStageRequirements {
+  supplyOnly?: boolean;
+  orderFromSupplierSupplyOnly?: boolean;
+  orderFromSupplierFabrication?: boolean;
+  project?: boolean;
+  drawings?: boolean;
+  loc?: boolean;
+  orderPartsExternal?: boolean;
+  warranty?: boolean;
+  siteVisitMeasure?: boolean;
+  /** Informational only — no effect on the timeline. */
+  installation?: boolean;
+  /**
+   * Set only by the "Save and Resume" button — distinct from having merely
+   * ticked a box or two. The timeline stays locked to "everything, faded"
+   * until this is explicitly confirmed, not the moment any single checkbox
+   * is touched.
+   */
+  confirmed?: boolean;
 }
 
 export interface JobCardPrintDetails {
@@ -158,6 +209,16 @@ export interface Job {
   origin?: "QUOTE" | "FACTORY";
   /** Stage-tree completion, served on the list projection only. */
   percentComplete?: number | null;
+  /**
+   * True after Mark Ready. False means setup is unconfirmed, so the job page
+   * prompts for requirements and offers the Ready button.
+   */
+  isReady?: boolean;
+  /**
+   * When project requirements were first saved. Null until then; one-time
+   * (drives the "Select project requirements" flag).
+   */
+  requirementsConfirmedAt?: string | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   /** Id of that milestone — `JobDTO.currentStageId`. Sent as `jobStageId` on document upload. */

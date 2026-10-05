@@ -42,7 +42,17 @@ import { JobStatusCard } from "@/components/JobStatusCard";
 import { JobDocumentRevisionsCard } from "@/components/JobDocumentRevisionsCard";
 import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import {
+  CONFIGURABLE_TIMELINE_STAGE_IDS,
+  SELECTABLE_SUBSTAGES,
+  TIMELINE_STAGES,
+  type TimelineStageId,
+  selectedTimelineStageIds,
+  stageKeysForManualSelection,
+} from "@/lib/jobTimelineAnalytics";
+import {
+  applyJobStageSelection,
   deleteJobDocument,
+  markJobReady,
   downloadJobDocument,
   listJobDocuments,
   listJobStages,
@@ -547,6 +557,35 @@ function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
+/**
+ * The Job Stage Setting modal's tick state, read off the job's real stage tree.
+ *
+ * A stage is ticked (enabled) when it is not disabled. Unticked = disabled.
+ * Opening the modal reflects what the job actually has — whether that came
+ * from this modal or from Project Requirements.
+ */
+function stageDraftFromTree(
+  tree: FrpJobStageDTO[]
+): Record<string, string[]> {
+  const draft: Record<string, string[]> = {};
+  for (const stageId of CONFIGURABLE_TIMELINE_STAGE_IDS) {
+    draft[stageId] = [];
+  }
+  for (const milestone of tree) {
+    const key = milestone.stageKey;
+    if (!key || !(key in draft)) continue;
+    if (milestone.disabled) continue; // whole milestone switched off
+
+    const children = milestone.children ?? [];
+    draft[key] = children.length
+      ? children
+          .filter((op) => !op.disabled && op.stageKey)
+          .map((op) => op.stageKey as string)
+      : [key];
+  }
+  return draft;
+}
+
 export function JobWorkflowDashboard({
   job,
   isSaving,
@@ -598,6 +637,60 @@ export function JobWorkflowDashboard({
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [showStageModal, setShowStageModal] = useState(false);
+  // Keyed by parent stage id — a stage shows on the timeline only if its
+  // array here is non-empty. See selectedTimelineStageIds.
+  /**
+   * The job's whole stage tree, disabled stages included — what the Job Stage
+   * Setting modal ticks against. The timeline's own tree omits disabled
+   * stages, so it cannot answer "what could be switched back on".
+   */
+  const [stageTreeAll, setStageTreeAll] = useState<FrpJobStageDTO[]>([]);
+  const [stageModalDraft, setStageModalDraft] = useState<
+    Record<string, string[]>
+  >({});
+  const [showStageConfirm, setShowStageConfirm] = useState(false);
+  const [readyBusy, setReadyBusy] = useState(false);
+  const [readyError, setReadyError] = useState<string | null>(null);
+
+  /**
+   * A job nobody has set up yet: never confirmed, and still sitting at its
+   * first milestone.
+   *
+   * <p>The timestamp alone is not enough. Every job that existed before this
+   * feature has a null one, including jobs halfway through production - and
+   * offering to "mark ready" a job already in fabrication is nonsense. The
+   * stage is what says whether the job has actually started; the backend
+   * agrees, moving only jobs still at PENDING.
+   *
+   * <p>Not "no requirements ticked", either: a job none of the path options
+   * describe is perfectly ordinary and still has to be startable.
+   */
+  const jobIsIdle =
+    !job.isReady &&
+    !cancelled &&
+    (job.currentStageKey == null || job.currentStageKey === "draft");
+
+  const handleMarkReady = async () => {
+    if (job.dbId == null) return;
+    setReadyBusy(true);
+    setReadyError(null);
+    try {
+      await markJobReady(job.dbId);
+      // Re-read rather than patching locally: the server decides the resulting
+      // status, and it declines to move a job that has already progressed past
+      // its first milestone.
+      await onJobChanged?.();
+    } catch (e) {
+      setReadyError(
+        e instanceof Error ? e.message : "Could not mark this job ready"
+      );
+    } finally {
+      setReadyBusy(false);
+    }
+  };
+  const [stageSaveBusy, setStageSaveBusy] = useState(false);
+  const [stageSaveError, setStageSaveError] = useState<string | null>(null);
   const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
   const pendingSharePointSeenAt = useRef<Map<number, number>>(new Map());
   const [sharePointTimedOutIds, setSharePointTimedOutIds] = useState<
@@ -841,8 +934,15 @@ export function JobWorkflowDashboard({
   }, [sortedFiles, sharePointTimedOutIds]);
 
   const displayFiles = useMemo(() => {
-    if (!fileUploading || !fileUploadDraft.file)
-      return filesWithSharePointTimeout;
+    const enabledStages = selectedTimelineStageIds(job);
+    const showProductionDocs = enabledStages.includes("production");
+    const showDrawingDocs = enabledStages.includes("design");
+    const visible = filesWithSharePointTimeout.filter((file) => {
+      if (file.documentType === "PRODUCTION") return showProductionDocs;
+      if (file.documentType === "DRAWING") return showDrawingDocs;
+      return true;
+    });
+    if (!fileUploading || !fileUploadDraft.file) return visible;
     const optimistic: JobFile = {
       name: fileUploadDraft.file.name,
       category: "Uploading",
@@ -852,9 +952,9 @@ export function JobWorkflowDashboard({
     };
     return [
       optimistic,
-      ...filesWithSharePointTimeout.filter((f) => f.name !== optimistic.name),
+      ...visible.filter((f) => f.name !== optimistic.name),
     ];
-  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout]);
+  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout, job]);
 
   useEffect(() => {
     const now = Date.now();
@@ -944,6 +1044,7 @@ export function JobWorkflowDashboard({
     documentType?: FrpJobDocumentDTO["documentType"];
   }) => {
     if (input.documentId == null) return;
+    const enabledStages = selectedTimelineStageIds(job);
     const tab =
       input.documentType === "DRAWING"
         ? "drawing"
@@ -951,6 +1052,8 @@ export function JobWorkflowDashboard({
         ? "po"
         : null;
     if (!tab) return;
+    if (tab === "po" && !enabledStages.includes("production")) return;
+    if (tab === "drawing" && !enabledStages.includes("design")) return;
     setVersionsFocus({ documentId: input.documentId, tab });
     window.requestAnimationFrame(() => {
       document.getElementById("job-document-versions")?.scrollIntoView({
@@ -1219,6 +1322,57 @@ export function JobWorkflowDashboard({
             )}
             {isExporting ? "Exporting…" : "Export PDF"}
           </button>
+          {jobIsIdle ? (
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-[#EA580C] disabled:opacity-60"
+              title={
+                editsBlocked
+                  ? CASH_PAYMENT_BLOCK_MESSAGE
+                  : "Take this job out of idle so work can start"
+              }
+              disabled={isSaving || readyBusy || isExporting || editsBlocked}
+              onClick={() => void handleMarkReady()}
+            >
+              {readyBusy ? "Marking…" : "Mark Ready"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+            // editsBlocked too: a job awaiting cash payment, cancelled or on
+            // hold may still have its Project Requirements changed, but not
+            // its stages picked by hand. The two routes reach the same
+            // endpoint, which the server has to allow for the requirements
+            // save, so this button is where that distinction is kept.
+            title={editsBlocked ? CASH_PAYMENT_BLOCK_MESSAGE : undefined}
+            disabled={
+              isSaving || cancelBusy || restoreBusy || isExporting || editsBlocked
+            }
+            onClick={() => {
+              // Seeded from the server's tree, not from the saved manual pick.
+              // A selection made through Project Requirements never writes
+              // manualSelectedSubStageIds, so seeding from that would open the
+              // modal showing every stage still on while the job has four of
+              // them switched off. The tree is what the job actually has,
+              // whichever route switched them off.
+              setStageModalDraft(stageDraftFromTree(stageTreeAll));
+              setShowStageModal(true);
+              if (job.dbId != null) {
+                void listJobStages(job.dbId, true)
+                  .then((tree) => {
+                    setStageTreeAll(tree);
+                    setStageModalDraft(stageDraftFromTree(tree));
+                  })
+                  .catch(() => {
+                    // Keep whatever is already on screen: a failed refresh
+                    // should not empty the modal under the user.
+                  });
+              }
+            }}
+          >
+            Job Settings
+          </button>
           {cancelled ? (
             <button
               type="button"
@@ -1320,6 +1474,27 @@ export function JobWorkflowDashboard({
 
       <JobTimelineAnalytics job={job} onJobChanged={onJobChanged} />
 
+      {jobIsIdle ? (
+        <p
+          className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-900"
+          role="status"
+        >
+          Set the project requirements for this job, then choose{" "}
+          <span className="font-semibold">Mark Ready</span>. Until then the job
+          stays idle and shows every stage. If none of the requirements apply,
+          marking it ready on its own is fine.
+        </p>
+      ) : null}
+
+      {readyError ? (
+        <p
+          className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-900"
+          role="alert"
+        >
+          {readyError}
+        </p>
+      ) : null}
+
       {cashPaymentLocked && !cancelled ? (
         <p
           className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900"
@@ -1370,6 +1545,9 @@ export function JobWorkflowDashboard({
         onOpenFile={handleOpenProjectFile}
         onDownloadVersionFile={handleDownloadVersionFile}
         onDeletedFile={() => setDocumentsRefreshKey((k) => k + 1)}
+        // Saving Project Requirements re-decides which stages apply, so the
+        // cards reading that tree have to re-read it.
+        onStagesChanged={() => setDocumentsRefreshKey((k) => k + 1)}
         onFailedFile={handleFailedSharePointFile}
       />
 
@@ -1437,6 +1615,12 @@ export function JobWorkflowDashboard({
 
           <JobStatusCard
             job={job}
+            // Shares the documents key: both cards read the stage tree, and
+            // switching a stage off changes what they should show without
+            // necessarily changing job.status, which is all they watched
+            // before. Without this they stayed on the old list until the page
+            // was reloaded.
+            refreshKey={documentsRefreshKey}
             onJobChanged={onJobChanged}
             onDocumentsChanged={() => setDocumentsRefreshKey((k) => k + 1)}
             onOpenDocument={(doc) =>
@@ -1713,6 +1897,154 @@ export function JobWorkflowDashboard({
             );
           } finally {
             setRestoreBusy(false);
+          }
+        }}
+      />
+
+      <EditModal
+        open={showStageModal}
+        title="Job Stage Setting"
+        onClose={() => setShowStageModal(false)}
+      >
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          <p className="text-sm text-slate-600">
+            Tick to enable a stage or substage. Untick to disable it.
+          </p>
+          <div className="space-y-2">
+            {CONFIGURABLE_TIMELINE_STAGE_IDS.filter(
+              (id) => SELECTABLE_SUBSTAGES[id].length > 0
+            ).map((id) => {
+              const info = TIMELINE_STAGES.find((s) => s.id === id);
+              const selectedIds = stageModalDraft[id] ?? [];
+              const substages = SELECTABLE_SUBSTAGES[id];
+              const allSelected =
+                substages.length > 0 &&
+                selectedIds.length === substages.length;
+              return (
+                <div
+                  key={id}
+                  className="overflow-hidden rounded-lg border border-[#E5E7EB]"
+                >
+                  <label className="flex cursor-pointer items-center gap-2 bg-white px-3 py-2 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate =
+                            selectedIds.length > 0 && !allSelected;
+                        }
+                      }}
+                      onChange={(e) =>
+                        setStageModalDraft((prev) => ({
+                          ...prev,
+                          [id]: e.target.checked
+                            ? substages.map((s) => s.id)
+                            : [],
+                        }))
+                      }
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
+                    />
+                    <span className="flex-1 text-sm font-medium text-slate-800">
+                      {info?.title ?? id}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {selectedIds.length}/{substages.length}
+                    </span>
+                  </label>
+                  <div className="space-y-1.5 border-t border-[#E5E7EB] bg-slate-50/60 px-3 py-2 pl-9">
+                    {substages.map((sub) => (
+                      <label
+                        key={sub.id}
+                        className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(sub.id)}
+                          onChange={(e) =>
+                            setStageModalDraft((prev) => {
+                              const current = prev[id] ?? [];
+                              return {
+                                ...prev,
+                                [id]: e.target.checked
+                                  ? [...current, sub.id]
+                                  : current.filter((s) => s !== sub.id),
+                              };
+                            })
+                          }
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600"
+                        />
+                        {sub.title}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="btn-primary w-full"
+            onClick={() => {
+              setShowStageModal(false);
+              setStageSaveError(null);
+              setShowStageConfirm(true);
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </EditModal>
+
+      <ConfirmDialog
+        open={showStageConfirm}
+        title="Update this job's stages?"
+        description="This changes which stages show on the timeline for this job."
+        confirmLabel="Confirm"
+        cancelLabel="Cancel"
+        tone="default"
+        busy={stageSaveBusy}
+        error={stageSaveError}
+        onClose={() => {
+          if (!stageSaveBusy) setShowStageConfirm(false);
+        }}
+        onConfirm={async () => {
+          setStageSaveBusy(true);
+          setStageSaveError(null);
+          try {
+            // The server is told first. It owns what the stage tree is - it
+            // stops emailing switched-off stages, drops them out of the job's
+            // progress and stops waiting on them to finish - so if this fails
+            // the extras below must not be saved either, or the page would
+            // show a selection the job does not actually have.
+            if (job.dbId != null) {
+              await applyJobStageSelection(
+                job.dbId,
+                stageKeysForManualSelection(stageModalDraft)
+              );
+            }
+            await onSavePatch({
+              printDetails: {
+                ...pd,
+                workflowExtras: {
+                  ...extras,
+                  manualSelectedSubStageIds: stageModalDraft,
+                  // This pick is now the authoritative source for the
+                  // timeline — even if Project Requirements was confirmed
+                  // before, this takes over until that's confirmed again.
+                  stageSelectionSource: "manual",
+                },
+              },
+            });
+            setDocumentsRefreshKey((k) => k + 1);
+            await onJobChanged?.();
+            setShowStageConfirm(false);
+          } catch (e) {
+            setStageSaveError(
+              e instanceof Error ? e.message : "Could not save project stages"
+            );
+          } finally {
+            setStageSaveBusy(false);
           }
         }}
       />

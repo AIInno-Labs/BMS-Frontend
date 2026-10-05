@@ -25,6 +25,10 @@ import {
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
 import {
+  stageKeysForRequirements,
+} from "@/lib/jobTimelineAnalytics";
+import {
+  applyJobStageSelection,
   setJobRequirement,
   saveJobMeasurements,
 } from "@/lib/frp/api";
@@ -32,6 +36,7 @@ import { isCancelledJob } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 import {
   PROJECT_REQUIREMENT_LABELS,
+  STAGE_PATH_REQUIREMENTS,
   type ProjectRequirementKind,
 } from "@/lib/frp/project-requirements";
 import { userIdToBackend, type JobUpdateAuditAction } from "@/lib/frp/job-mapper";
@@ -41,6 +46,7 @@ import type {
   JobProjectRequirement,
   JobSchedulingLogistics,
   JobWorkflowExtras,
+  ProjectStageRequirements,
 } from "@/lib/types";
 import { getAssignableWorkers } from "@/lib/workers";
 
@@ -64,6 +70,13 @@ interface JobWorkflowExtrasSectionProps {
   onDownloadVersionFile?: (file: JobFileRecord) => void;
   /** Called after a document is soft-deleted, so the parent can refetch the file list. */
   onDeletedFile?: () => void;
+  /**
+   * Called after Project Requirements are saved, because saving them reapplies
+   * which stages the job has. Lets the parent refresh the cards that read the
+   * stage tree - their own watch on job.status cannot see a change that leaves
+   * the status alone.
+   */
+  onStagesChanged?: () => void;
   /** SharePoint FAILED — parent shows delete-and-reupload guidance. */
   onFailedFile?: (file: JobFileRecord) => void;
   /** Refetch job after a dedicated API write (requirements, payment, …). */
@@ -90,6 +103,49 @@ function addDaysIso(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The 9 "which path does this job take" checkboxes, in the exact order the
+ * client specced them (see `selectedTimelineStageIds` for what each one
+ * actually does to the timeline).
+ */
+const STAGE_FLAG_ITEMS: {
+  key: keyof ProjectStageRequirements;
+  label: string;
+}[] = [
+  { key: "supplyOnly", label: "Supply only" },
+  {
+    key: "orderFromSupplierSupplyOnly",
+    label: "Order from Supplier – Supply Only",
+  },
+  {
+    key: "orderFromSupplierFabrication",
+    label: "Order from Supplier – Fabrication",
+  },
+  { key: "project", label: "Project" },
+  { key: "orderPartsExternal", label: "Order Parts (External)" },
+  { key: "warranty", label: "Warranty" },
+  { key: "siteVisitMeasure", label: "Site Visit / Measure" },
+  { key: "installation", label: "Installation" },
+];
+
+/** The 4 real (backend) requirements, reordered to slot in after the 9 above. */
+const REQUIREMENT_DISPLAY_ORDER: ProjectRequirementKind[] = [
+  "CASH_PAYMENT_REQUIRED",
+  "SAMPLE_REQUIRED",
+  "DOCUMENTS_REQUIRED",
+  "IGNORE_OVERDUE",
+];
+
+function buildRequirementsDraft(
+  requirements: JobProjectRequirement[]
+): Record<ProjectRequirementKind, boolean> {
+  const draft = {} as Record<ProjectRequirementKind, boolean>;
+  for (const kind of REQUIREMENT_DISPLAY_ORDER) {
+    draft[kind] = requirements.find((r) => r.kind === kind)?.isRequired === true;
+  }
+  return draft;
+}
+
 export function JobWorkflowExtrasSection({
   job,
   pd,
@@ -104,6 +160,7 @@ export function JobWorkflowExtrasSection({
   onPreviewFile,
   onDownloadVersionFile,
   onDeletedFile,
+  onStagesChanged,
   onFailedFile,
   onJobChanged,
 }: JobWorkflowExtrasSectionProps) {
@@ -122,13 +179,112 @@ export function JobWorkflowExtrasSection({
     workers.find((w) => userIdToBackend(w.id) === sl.responsiblePersonId)
       ?.display_name ?? "";
 
-  const [requirementsBusy, setRequirementsBusy] = useState(false);
-  const [requirementsError, setRequirementsError] = useState<string | null>(null);
-  const [materialsBusy, setMaterialsBusy] = useState(false);
-  const [materialsError, setMaterialsError] = useState<string | null>(null);
+  // Draft state for the whole Project Requirements card — nothing saves
+  // until the button at the bottom is clicked, which is also what decides
+  // whether that button is active or dulled out (see `requirementsDirty`).
+  const [draftFlags, setDraftFlags] = useState<ProjectStageRequirements>(
+    extras.projectStageRequirements ?? {}
+  );
+  const [draftRequirements, setDraftRequirements] = useState<
+    Record<ProjectRequirementKind, boolean>
+  >(() => buildRequirementsDraft(requirements));
+  const [requirementsSaveBusy, setRequirementsSaveBusy] = useState(false);
+  const [requirementsSaveError, setRequirementsSaveError] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    setDraftFlags(extras.projectStageRequirements ?? {});
+    setDraftRequirements(buildRequirementsDraft(requirements));
+    // extras/requirements are both derived from job — job alone is the real
+    // trigger for "the saved state changed under us, resync the draft".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job]);
+
+  const savedFlags = extras.projectStageRequirements ?? {};
+  const flagsDirty = STAGE_FLAG_ITEMS.some(
+    ({ key }) => Boolean(draftFlags[key]) !== Boolean(savedFlags[key])
+  );
+  const requirementsDirty = REQUIREMENT_DISPLAY_ORDER.some(
+    (kind) =>
+      draftRequirements[kind] !==
+      (requirements.find((r) => r.kind === kind)?.isRequired === true)
+  );
+  const projectRequirementsDirty = flagsDirty || requirementsDirty;
+
+  const saveProjectRequirements = async () => {
+    if (!job.dbId) return;
+    setRequirementsSaveBusy(true);
+    setRequirementsSaveError(null);
+    try {
+      const changedKinds = REQUIREMENT_DISPLAY_ORDER.filter(
+        (kind) =>
+          draftRequirements[kind] !==
+          (requirements.find((r) => r.kind === kind)?.isRequired === true)
+      );
+      for (const kind of changedKinds) {
+        await setJobRequirement(job.dbId, kind, draftRequirements[kind]);
+      }
+
+      // The path flags are requirements too, not just job-card keys, so they
+      // are written as rows and can be reported on. Only the changed ones, to
+      // keep this to the handful of writes a tick or two implies.
+      const savedFlags = extras.projectStageRequirements ?? {};
+      for (const { kind, flag } of STAGE_PATH_REQUIREMENTS) {
+        const next = draftFlags[flag as keyof ProjectStageRequirements] === true;
+        if (next === (savedFlags[flag as keyof ProjectStageRequirements] === true)) {
+          continue;
+        }
+        await setJobRequirement(job.dbId, kind, next);
+      }
+
+      // And the server is told which stages this path implies, so it stops
+      // emailing, counting and waiting on the ones that no longer apply.
+      // Before the extras are saved: if this fails, the page must not be left
+      // showing a selection the job does not have.
+      await applyJobStageSelection(
+        job.dbId,
+        stageKeysForRequirements({
+          ...job,
+          printDetails: {
+            ...pd,
+            workflowExtras: {
+              ...extras,
+              projectStageRequirements: { ...draftFlags, confirmed: true },
+              stageSelectionSource: "requirements",
+            },
+          },
+        })
+      );
+
+      await onSavePatch({
+        printDetails: {
+          ...pd,
+          workflowExtras: {
+            ...extras,
+            projectStageRequirements: { ...draftFlags, confirmed: true },
+            // Saving here is now the one action that makes Project
+            // Requirements authoritative for the timeline — even if "Job
+            // Stage Setting" was used more recently, this takes over.
+            stageSelectionSource: "requirements",
+          },
+        },
+      });
+      // Always, not only when a requirement row changed: the stage selection
+      // was just reapplied, so Status Control and Document Versions are
+      // showing a tree that may no longer be the job's.
+      onStagesChanged?.();
+      await onJobChanged?.();
+    } catch (e) {
+      setRequirementsSaveError(
+        e instanceof Error ? e.message : "Could not save project requirements"
+      );
+    } finally {
+      setRequirementsSaveBusy(false);
+    }
+  };
 
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
-  const [showMaterialsModal, setShowMaterialsModal] = useState(false);
   // Seeded from the logistics record, so the form opens on what it will save.
   const [logisticsDraft, setLogisticsDraft] = useState({
     responsibleParty: responsibleName,
@@ -142,13 +298,8 @@ export function JobWorkflowExtrasSection({
     billingAddress: sl.billingAddress ?? "",
     deliveryAddress: sl.deliveryAddress ?? "",
   });
-  const [materialsDraft, setMaterialsDraft] = useState({
-    materialsList: extras.materialsList ?? "",
-    additionalNotes: extras.additionalNotes ?? "",
-  });
 
   useEffect(() => {
-    const x = ensureWorkflowExtras(pd.workflowExtras, job);
     // Same source as the initial state: the logistics record, not the card
     // JSON. Reseeding from the JSON here would have quietly undone an edit the
     // moment the job refetched.
@@ -166,10 +317,6 @@ export function JobWorkflowExtrasSection({
       carrierAccount: next.carrierAccount ?? "",
       billingAddress: next.billingAddress ?? "",
       deliveryAddress: next.deliveryAddress ?? "",
-    });
-    setMaterialsDraft({
-      materialsList: x.materialsList ?? "",
-      additionalNotes: x.additionalNotes ?? "",
     });
   }, [job, pd]);
 
@@ -189,25 +336,6 @@ export function JobWorkflowExtrasSection({
         workflowExtras: merged,
       },
     });
-  };
-
-  const patchRequirement = async (
-    kind: ProjectRequirementKind,
-    required: boolean
-  ) => {
-    if (!job.dbId) return;
-    setRequirementsBusy(true);
-    setRequirementsError(null);
-    try {
-      await setJobRequirement(job.dbId, kind, required);
-      await onJobChanged?.();
-    } catch (e) {
-      setRequirementsError(
-        e instanceof Error ? e.message : "Could not update project requirement"
-      );
-    } finally {
-      setRequirementsBusy(false);
-    }
   };
 
   const saveLogistics = () => {
@@ -261,36 +389,21 @@ export function JobWorkflowExtrasSection({
     }).then(() => setShowLogisticsModal(false));
   };
 
-  const saveMaterials = () => {
-    if (!job.dbId) return;
-    setMaterialsBusy(true);
-    setMaterialsError(null);
-    void saveJobMeasurements(job.dbId, {
-      materials: { materialsList: materialsDraft.materialsList },
-      notes: materialsDraft.additionalNotes,
-    })
-      .then(async () => {
-        await onJobChanged?.();
-        setShowMaterialsModal(false);
-      })
-      .catch((e) => {
-        setMaterialsError(
-          e instanceof Error ? e.message : "Could not save materials"
-        );
-      })
-      .finally(() => setMaterialsBusy(false));
-  };
-
   return (
     <>
-      <section className="mt-4 grid gap-4 lg:grid-cols-3">
+      <div className="mt-4 space-y-4">
         <WidgetCard title="Project Requirements" icon={ListChecks}>
-          {requirementsError ? (
+          {job.requirementsConfirmedAt == null && (
+            <span className="mb-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+              Select project requirements
+            </span>
+          )}
+          {requirementsSaveError ? (
             <p className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              <span>{requirementsError}</span>
+              <span>{requirementsSaveError}</span>
               <button
                 type="button"
-                onClick={() => setRequirementsError(null)}
+                onClick={() => setRequirementsSaveError(null)}
                 aria-label="Dismiss"
                 className="shrink-0 rounded p-0.5 text-red-500 hover:bg-red-100 hover:text-red-700"
               >
@@ -298,26 +411,56 @@ export function JobWorkflowExtrasSection({
               </button>
             </p>
           ) : null}
-          <div className="space-y-2">
-            {requirements.map((row: JobProjectRequirement) => (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {STAGE_FLAG_ITEMS.map(({ key, label }) => (
               <label
-                key={row.kind}
+                key={key}
                 className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
               >
                 <input
                   type="checkbox"
-                  checked={row.isRequired === true}
+                  checked={draftFlags[key] === true}
                   onChange={(e) =>
-                    void patchRequirement(row.kind, e.target.checked)
+                    setDraftFlags((prev) => ({
+                      ...prev,
+                      [key]: e.target.checked,
+                    }))
                   }
                   disabled={
-                    isSaving || requirementsBusy || cancelled || !job.dbId
+                    isSaving || requirementsSaveBusy || cancelled || !job.dbId
                   }
-                  className="h-4 w-4 rounded border-slate-300 text-orange-600"
+                  className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
                 />
-                {row.label || PROJECT_REQUIREMENT_LABELS[row.kind]}
+                {label}
               </label>
             ))}
+            {REQUIREMENT_DISPLAY_ORDER.map((kind) => {
+              const row = requirements.find(
+                (r: JobProjectRequirement) => r.kind === kind
+              );
+              return (
+                <label
+                  key={kind}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={draftRequirements[kind] === true}
+                    onChange={(e) =>
+                      setDraftRequirements((prev) => ({
+                        ...prev,
+                        [kind]: e.target.checked,
+                      }))
+                    }
+                    disabled={
+                      isSaving || requirementsSaveBusy || cancelled || !job.dbId
+                    }
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
+                  />
+                  {row?.label || PROJECT_REQUIREMENT_LABELS[kind]}
+                </label>
+              );
+            })}
           </div>
           <p className="mt-3 text-xs text-slate-500">
             Job type:{" "}
@@ -331,44 +474,59 @@ export function JobWorkflowExtrasSection({
               </>
             ) : null}
           </p>
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              className={`inline-flex items-center justify-center rounded-lg px-3.5 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:cursor-not-allowed ${
+                projectRequirementsDirty
+                  ? "bg-[#F97316] text-white hover:bg-[#EA580C]"
+                  : "bg-slate-200 text-slate-400"
+              }`}
+              onClick={() => void saveProjectRequirements()}
+              disabled={
+                !projectRequirementsDirty ||
+                isSaving ||
+                requirementsSaveBusy ||
+                cancelled ||
+                !job.dbId
+              }
+            >
+              {requirementsSaveBusy ? "Saving…" : "Save"}
+            </button>
+          </div>
         </WidgetCard>
 
-        <WidgetCard
-          title="Scheduling & logistics"
-          icon={Truck}
-          onEdit={editsBlocked ? undefined : () => setShowLogisticsModal(true)}
-        >
-          {/* The job's own status, not a separate logistics field. Two
-              editable copies of "where is this job up to" drift apart, and the
-              stage machinery already derives this one. */}
-          <Row label="Production status" value={job.status || "—"} />
-          <Row label="Responsible" value={responsibleName || "—"} />
-          <Row label="Accountable" value={sl.accountable || "—"} />
-          <Row
-            label="Ship date"
-            value={sl.shipDate ? formatShortDate(sl.shipDate) : "Not set"}
-          />
-          <Row
-            label="Shipment"
-            value={shipmentMethodToLabel(sl.shipmentMethod) || "—"}
-          />
-          <Row label="Freight acct" value={sl.freightAccount || "—"} />
-        </WidgetCard>
+        <section className="grid gap-4 lg:grid-cols-2">
+          <WidgetCard
+            title="Scheduling & logistics"
+            icon={Truck}
+            onEdit={editsBlocked ? undefined : () => setShowLogisticsModal(true)}
+          >
+            {/* The job's own status, not a separate logistics field. Two
+                editable copies of "where is this job up to" drift apart, and the
+                stage machinery already derives this one. */}
+            <Row label="Production status" value={job.status || "—"} />
+            <Row label="Responsible" value={responsibleName || "—"} />
+            <Row label="Accountable" value={sl.accountable || "—"} />
+            <Row
+              label="Ship date"
+              value={sl.shipDate ? formatShortDate(sl.shipDate) : "Not set"}
+            />
+            <Row
+              label="Shipment"
+              value={shipmentMethodToLabel(sl.shipmentMethod) || "—"}
+            />
+            <Row label="Freight acct" value={sl.freightAccount || "—"} />
+          </WidgetCard>
 
-        <WidgetCard
-          title="Specifications"
-          icon={ClipboardList}
-          onEdit={editsBlocked ? undefined : () => setShowMaterialsModal(true)}
-        >
-          <p className="text-xs font-medium text-slate-500">List of specifications</p>
-          <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm text-slate-600">
-            {extras.materialsList?.trim() || scopeLinesToText(pd.scopeLines) || "No specifications list."}
-          </p>
-          <p className="mt-3 text-xs font-medium text-slate-500">Additional notes</p>
-          <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-slate-600">
-            {extras.additionalNotes?.trim() || "—"}
-          </p>
-        </WidgetCard>
+          <SpecificationsCard
+            job={job}
+            pd={pd}
+            isSaving={isSaving}
+            editsBlocked={editsBlocked}
+            onJobChanged={onJobChanged}
+          />
+        </section>
 
         <JobFilesDocumentStrip
           variant="full"
@@ -384,7 +542,7 @@ export function JobWorkflowExtrasSection({
           onDeleted={onDeletedFile}
           onFailedFile={onFailedFile}
         />
-      </section>
+      </div>
 
       <EditModal
         open={showLogisticsModal}
@@ -497,37 +655,113 @@ export function JobWorkflowExtrasSection({
           </button>
         </div>
       </EditModal>
+    </>
+  );
+}
+
+/**
+ * "Specifications" card — extracted to its own component (rather than living
+ * inline in the parent) so `JobWorkflowDashboard` can place it in the
+ * Customer/Job Details row instead of here, without threading its edit-modal
+ * state back up through `JobWorkflowExtrasSection`'s props.
+ */
+export function SpecificationsCard({
+  job,
+  pd,
+  isSaving,
+  editsBlocked,
+  onJobChanged,
+}: {
+  job: Job;
+  pd: JobCardPrintDetails;
+  isSaving: boolean;
+  editsBlocked: boolean;
+  onJobChanged?: () => void | Promise<void>;
+}) {
+  const extras = ensureWorkflowExtras(pd.workflowExtras, job);
+  const [showModal, setShowModal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    materialsList: extras.materialsList ?? "",
+    additionalNotes: extras.additionalNotes ?? "",
+  });
+
+  useEffect(() => {
+    const x = ensureWorkflowExtras(pd.workflowExtras, job);
+    setDraft({
+      materialsList: x.materialsList ?? "",
+      additionalNotes: x.additionalNotes ?? "",
+    });
+  }, [job, pd]);
+
+  const save = () => {
+    if (!job.dbId) return;
+    setBusy(true);
+    setError(null);
+    void saveJobMeasurements(job.dbId, {
+      materials: { materialsList: draft.materialsList },
+      notes: draft.additionalNotes,
+    })
+      .then(async () => {
+        await onJobChanged?.();
+        setShowModal(false);
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Could not save materials");
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <>
+      <WidgetCard
+        title="Specifications"
+        icon={ClipboardList}
+        onEdit={editsBlocked ? undefined : () => setShowModal(true)}
+      >
+        <p className="text-xs font-medium text-slate-500">List of specifications</p>
+        <p className="mt-1 line-clamp-4 whitespace-pre-wrap text-sm text-slate-600">
+          {extras.materialsList?.trim() ||
+            scopeLinesToText(pd.scopeLines) ||
+            "No specifications list."}
+        </p>
+        <p className="mt-3 text-xs font-medium text-slate-500">Additional notes</p>
+        <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-slate-600">
+          {extras.additionalNotes?.trim() || "—"}
+        </p>
+      </WidgetCard>
 
       <EditModal
-        open={showMaterialsModal}
+        open={showModal}
         title="Edit specifications"
-        onClose={() => !materialsBusy && setShowMaterialsModal(false)}
+        onClose={() => !busy && setShowModal(false)}
         wide
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          {materialsError ? (
+          {error ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {materialsError}
+              {error}
             </p>
           ) : null}
           <TextAreaField
             label="List of specifications for this job"
-            value={materialsDraft.materialsList}
-            onChange={(v) => setMaterialsDraft((p) => ({ ...p, materialsList: v }))}
+            value={draft.materialsList}
+            onChange={(v) => setDraft((p) => ({ ...p, materialsList: v }))}
             rows={6}
           />
           <TextAreaField
             label="Additional notes"
-            value={materialsDraft.additionalNotes}
-            onChange={(v) => setMaterialsDraft((p) => ({ ...p, additionalNotes: v }))}
+            value={draft.additionalNotes}
+            onChange={(v) => setDraft((p) => ({ ...p, additionalNotes: v }))}
             rows={4}
           />
           <button
             className="btn-primary w-full"
-            onClick={saveMaterials}
-            disabled={isSaving || materialsBusy || !job.dbId}
+            onClick={save}
+            disabled={isSaving || busy || !job.dbId}
           >
-            {materialsBusy || isSaving ? "Saving…" : "Save materials"}
+            {busy || isSaving ? "Saving…" : "Save materials"}
           </button>
         </div>
       </EditModal>

@@ -118,6 +118,11 @@ export function ensureWorkflowExtras(
     paymentReceived: raw?.paymentReceived ?? null,
     paymentDueDate: raw?.paymentDueDate ?? "",
     jobCardNotes: raw?.jobCardNotes ?? "",
+    // No default here — undefined is "not decided yet", distinct from a
+    // decided (even if all-default) selection. See JobWorkflowExtras.
+    projectStageRequirements: raw?.projectStageRequirements,
+    manualSelectedSubStageIds: raw?.manualSelectedSubStageIds,
+    stageSelectionSource: raw?.stageSelectionSource,
   };
 }
 

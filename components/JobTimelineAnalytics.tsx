@@ -21,6 +21,8 @@ import { useJobs } from "@/context/JobsContext";
 import {
   buildJobTimelineAnalytics,
   timelineStageInfo,
+  isStageSetupDone,
+  selectedTimelineStageIds,
   type JobTimelineAnalyticsData,
   type StageDetailInsight,
   type TimelineStageId,
@@ -97,6 +99,16 @@ const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
 // stage has started. Falls back to the group label for jobs the backend
 // hasn't populated it on.
 function jobStageLabel(job: Job): string {
+  // Ready jobs often still sit on the draft milestone — don't show that as
+  // Pending / Not Started when setup is already confirmed.
+  if (
+    job.isReady ||
+    job.status === "Ready to Manufacture"
+  ) {
+    if (!job.currentStageKey || job.currentStageKey === "draft") {
+      return "Ready to Manufacture";
+    }
+  }
   return (
     timelineStageInfo(job.currentStageKey)?.title ??
     STAGE_GROUP_LABEL[resolveStatusGroup(job.status)]
@@ -522,6 +534,12 @@ export function JobTimelineAnalytics({
     user?.id != null &&
     job.assignedWorkerId != null &&
     job.assignedWorkerId === String(user.id);
+  // Project stage setup: while undecided, every stage shows (faded, locked)
+  // rather than guessing which ones apply. Once saved, only the chosen
+  // stages (plus the always-on Pending/Completed) render at all.
+  const stageSetupDone = isStageSetupDone(job);
+  const selectedStageIds = selectedTimelineStageIds(job);
+  const rawStageLabel = jobStageLabel(job);
 
   const assignJobToMe = async () => {
     if (editsBlocked || assignBusy || user?.id == null || job.dbId == null) return;
@@ -625,12 +643,22 @@ export function JobTimelineAnalytics({
       stages[firstIncompleteIndex] = { ...stages[firstIncompleteIndex], state: "active" };
     }
 
+    const manualSub = job.printDetails?.workflowExtras?.manualSelectedSubStageIds;
     for (let i = 0; i < stages.length; i++) {
       const real = byKey.get(stages[i].id);
       if (!real) continue;
+      let fromReal = subStagesFromReal(real.children, stages[i].state);
+      // Same manual "Select Stages" narrowing as the simulated path below —
+      // otherwise the real backend tree (fetched from Status Control) always
+      // wins and shows every substage regardless of what was picked.
+      const picked = manualSub?.[stages[i].id];
+      if (fromReal && picked) {
+        const narrowed = fromReal.filter((s) => picked.includes(s.id));
+        if (narrowed.length > 0) fromReal = narrowed;
+      }
       stages[i] = {
         ...stages[i],
-        subStages: subStagesFromReal(real.children, stages[i].state) ?? stages[i].subStages,
+        subStages: fromReal ?? stages[i].subStages,
       };
     }
 
@@ -699,6 +727,21 @@ export function JobTimelineAnalytics({
   const progressDisplay = useAnimatedNumber(data.overallProgress, 700);
 
   const lineFillPct = (data.activeIndex / 6) * 100;
+
+  // Once setup is saved, only the chosen stages render — fewer nodes means
+  // the track itself should shrink too, or two or three nodes end up
+  // stretched to the far edges of a row sized for all seven.
+  const visibleStages = data.stages.filter(
+    (stage) =>
+      !stageSetupDone ||
+      stage.id === "draft" ||
+      stage.id === "completed" ||
+      selectedStageIds.includes(stage.id)
+  );
+  const timelineTrackWidth = Math.min(
+    896,
+    Math.max(320, visibleStages.length * 140)
+  );
 
   const focusedStage = useMemo(() => {
     if (selected?.type === "stage") {
@@ -804,7 +847,7 @@ export function JobTimelineAnalytics({
                 {holdBusy ? "Working…" : onHold ? "On hold — Resume" : "Put on hold"}
               </button>
             ) : null}
-            <span className={jobStageClass(job.status)}>{jobStageLabel(job)}</span>
+            <span className={jobStageClass(job.status)}>{rawStageLabel}</span>
             <button
               type="button"
               onClick={() => toggle({ type: "health" })}
@@ -833,7 +876,10 @@ export function JobTimelineAnalytics({
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <div className="relative mx-auto min-w-[700px] max-w-4xl px-4">
+        <div
+          className="relative mx-auto px-4"
+          style={{ width: `${timelineTrackWidth}px`, minWidth: 320 }}
+        >
           <div className="absolute left-6 right-6 top-[1.35rem] h-px bg-[#E5E7EB]" />
           <motion.div
             className="absolute left-6 top-[1.35rem] h-px bg-orange-400"
@@ -843,19 +889,26 @@ export function JobTimelineAnalytics({
           />
 
           <div className="relative flex justify-between">
-            {data.stages.map((stage, index) => {
+            {visibleStages.map((stage, index) => {
               const Icon = STAGE_ICONS[stage.id];
               const isActive = stage.state === "active";
               const isComplete = stage.state === "complete";
               const isUpcoming = stage.state === "upcoming";
               const stageSelected = isStageSelected(stage.id);
+              // Stages are never faded or locked. They used to be, until the
+              // job's setup was saved - but a job that has been running for
+              // weeks has stages it has already finished, and greying those
+              // out says they do not count when they plainly do. What setup
+              // decides is which stages are listed at all (visibleStages
+              // above), not whether the ones on screen can be read.
 
               return (
                 <button
                   key={stage.id}
                   type="button"
                   onClick={() => toggle({ type: "stage", stageId: stage.id })}
-                  className={`flex w-[13.5%] min-w-[76px] cursor-pointer flex-col items-center rounded-lg py-1 transition-colors hover:bg-orange-50/40 ${
+                  style={{ width: `${100 / visibleStages.length}%` }}
+                  className={`flex min-w-[76px] cursor-pointer flex-col items-center rounded-lg py-1 transition-colors hover:bg-orange-50/40 ${
                     stageSelected ? "bg-orange-50/70 ring-1 ring-orange-200" : ""
                   }`}
                   aria-pressed={stageSelected}
@@ -907,7 +960,12 @@ export function JobTimelineAnalytics({
                       isActive ? "text-orange-700" : isComplete ? "text-slate-700" : "text-slate-400"
                     }`}
                   >
-                    {stage.title}
+                    {/* Only this node's label changes once setup is saved —
+                        the header badge and Jobs list badge stay "Pending"
+                        until the job actually reaches the next real stage. */}
+                    {stage.id === "draft" && stageSetupDone
+                      ? "Ready"
+                      : stage.title}
                   </p>
                   <p className="mt-0.5 text-center text-[10px] text-slate-500">
                     {stage.dateLabel}

@@ -13,6 +13,7 @@ import type {
   JobInventoryLine,
   JobProjectRequirement,
   JobSchedulingLogistics,
+  ProjectStageRequirements,
   ShipmentMethod,
 } from "@/lib/types";
 import type { JobOrigin } from "@/lib/frp/job-status";
@@ -33,7 +34,7 @@ import {
   jobTypeToBackend,
   jobTypeToUi,
   statusToBackend,
-  statusToUi,
+  jobStatusToUi,
 } from "@/lib/frp/job-status";
 
 /* ------------------------------------------------------------ backend DTOs */
@@ -60,6 +61,15 @@ export interface FrpJobSummaryDTO {
   /** Free working notes; shown as a preview in the list. */
   notes?: string | null;
   percentComplete?: number | null;
+  /**
+   * True after Mark Ready confirms setup. False means idle — the job page
+   * prompts and offers the Ready button. Independent of requirement checkboxes.
+   */
+  isReady?: boolean;
+  /**
+   * When project requirements were first saved. Null until then; one-time.
+   */
+  requirementsConfirmedAt?: string | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   createdDate?: string;
@@ -136,6 +146,15 @@ export interface FrpJobDTO {
   requirements?: FrpJobProjectRequirementDTO[];
   /** Mirrors IGNORE_OVERDUE when that requirement is decided required. */
   ignoreOverdue?: boolean;
+  /**
+   * `READ_ONLY` — true after `PUT /jobs/{id}/ready`. False means project setup
+   * has never been confirmed. Independent of requirement checkboxes.
+   */
+  isReady?: boolean;
+  /**
+   * `READ_ONLY` — when requirements were first saved. Null until then; one-time.
+   */
+  requirementsConfirmedAt?: string | null;
 }
 
 /** `JobProjectRequirementDTO` — one project requirement row. */
@@ -292,6 +311,12 @@ export interface FrpJobCardPayload {
   installRequired?: boolean;
   qaCompleted?: boolean;
   manualInstructions?: string;
+  /** See `JobWorkflowExtras.projectStageRequirements`. */
+  projectStageRequirements?: ProjectStageRequirements;
+  /** See `JobWorkflowExtras.manualSelectedSubStageIds`. */
+  manualSelectedSubStageIds?: Record<string, string[]>;
+  /** See `JobWorkflowExtras.stageSelectionSource`. */
+  stageSelectionSource?: "requirements" | "manual";
 }
 
 /** One resin category from `GET /jobs/resin-counts`. */
@@ -369,6 +394,12 @@ export interface FrpJobStageDTO {
   /** Whether this stage requires a document before it completes.
    *  Seeded from the stage template default, editable per job. */
   docRequired?: boolean;
+  /**
+   * This stage does not apply to this job. Always false in the timeline's tree,
+   * which omits disabled stages; only the Job Stage Setting modal, which asks
+   * for them with `includeDisabled`, ever sees it true.
+   */
+  disabled?: boolean;
   /** Email catalog allows attaching a document to stage-complete notifications. */
   emailAttachmentEnabled?: boolean;
   /** Operator choice: -1 N/A, 0 off, 1 attach files to email. */
@@ -693,7 +724,10 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     quoteValidUntil: null,
     estimatedHours: null,
     resinType: resinToUi(dto.resinCode),
-    status: statusToUi(dto.stageStatus),
+    status: jobStatusToUi({
+      stageStatus: dto.stageStatus,
+      isReady: dto.isReady,
+    }),
     priority: priorityToUi(dto.priority),
     jobType: jobTypeToUi(dto.jobType),
     alert: null,
@@ -703,6 +737,8 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     installRequired: false,
     qaCompleted: false,
     ignoreOverdue: dto.ignoreOverdue ?? false,
+    isReady: dto.isReady === true,
+    requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
     clientContactName: dto.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
@@ -888,6 +924,9 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
           ? paymentReceivedFromStatus(payment.status)
           : card?.paymentReceived ?? null,
       paymentDueDate: payment?.dueDate ?? card?.paymentDueDate,
+      projectStageRequirements: card?.projectStageRequirements,
+      manualSelectedSubStageIds: card?.manualSelectedSubStageIds,
+      stageSelectionSource: card?.stageSelectionSource,
     },
   };
 
@@ -905,7 +944,10 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     estimatedHours: dto.estimatedHours ?? null,
     // Resin lives on the job row, not the card — the card mirrors it for print.
     resinType: resinToUi(dto.resinCode),
-    status: statusToUi(dto.stageStatus),
+    status: jobStatusToUi({
+      stageStatus: dto.stageStatus,
+      isReady: dto.isReady,
+    }),
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
@@ -925,6 +967,8 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
     ignoreOverdue: dto.ignoreOverdue ?? false,
+    isReady: dto.isReady === true,
+    requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
     clientContactName: dto.contactDetails?.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
@@ -1102,6 +1146,9 @@ export function uiJobToJobCardPayload(job: Job): FrpJobCardPayload {
     installRequired: job.installRequired,
     qaCompleted: job.qaCompleted,
     manualInstructions: job.manualInstructions || undefined,
+    projectStageRequirements: extras?.projectStageRequirements,
+    manualSelectedSubStageIds: extras?.manualSelectedSubStageIds,
+    stageSelectionSource: extras?.stageSelectionSource,
   };
 }
 

@@ -1123,14 +1123,59 @@ export async function listJobAudit(
 }
 
 
+/**
+ * `PUT /jobs/{id}/ready` — takes the job out of idle.
+ *
+ * Records that its project requirements are settled, which is what makes the
+ * status read Ready rather than Not Started while the job is still at its first
+ * milestone. Requires nothing to be ticked: plenty of jobs are ordinary ones
+ * none of the path options describe, and those must not be stranded idle.
+ *
+ * Idempotent — a job already out of idle is returned unchanged.
+ */
+export async function markJobReady(dbId: string | number): Promise<FrpJobDTO> {
+  return frpFetch<FrpJobDTO>(
+    `/jobs/${encodeURIComponent(String(dbId))}/ready`,
+    { method: "PUT" }
+  );
+}
+
 /* ---------------------------------------------------------------- stages */
 
-/** `GET /jobs/{id}/stages` — milestones with their operations nested. */
+/**
+ * `GET /jobs/{id}/stages` — milestones with their operations nested.
+ *
+ * Stages switched off for this job are omitted, so the timeline shows the work
+ * that actually applies. Pass `includeDisabled` for the Job Stage Setting
+ * modal, which has to list them in order to switch them back on.
+ */
 export async function listJobStages(
-  dbId: string | number
+  dbId: string | number,
+  includeDisabled = false
+): Promise<FrpJobStageDTO[]> {
+  const query = includeDisabled ? "?includeDisabled=true" : "";
+  return frpFetch<FrpJobStageDTO[]>(
+    `/jobs/${encodeURIComponent(String(dbId))}/stages${query}`
+  );
+}
+
+/**
+ * `PUT /jobs/{id}/stages/selection` — the stages that apply to this job;
+ * everything not named is switched off.
+ *
+ * Send milestone keys together with the operation keys chosen beneath them.
+ * Naming operations is exact — a milestone sent with only two of its three
+ * operations switches the third off. Sending a milestone with no operations of
+ * its own keeps all of them, so "the whole milestone applies" needs no
+ * enumeration.
+ */
+export async function applyJobStageSelection(
+  dbId: string | number,
+  stageKeys: string[]
 ): Promise<FrpJobStageDTO[]> {
   return frpFetch<FrpJobStageDTO[]>(
-    `/jobs/${encodeURIComponent(String(dbId))}/stages`
+    `/jobs/${encodeURIComponent(String(dbId))}/stages/selection`,
+    { method: "PUT", body: JSON.stringify({ stageKeys }) }
   );
 }
 

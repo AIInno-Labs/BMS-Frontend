@@ -91,6 +91,25 @@ export function statusToUi(value?: string | null): LegacyJobStatus {
   return "Pending";
 }
 
+/**
+ * Display status for a job DTO. Mark Ready / is_ready means Ready even when
+ * the row is still sitting on the draft milestone with a stale PENDING cache.
+ */
+export function jobStatusToUi(opts: {
+  stageStatus?: string | null;
+  isReady?: boolean | null;
+}): LegacyJobStatus {
+  if (
+    opts.isReady === true &&
+    (!opts.stageStatus ||
+      opts.stageStatus === "PENDING" ||
+      statusToUi(opts.stageStatus) === "Pending")
+  ) {
+    return "Ready to Manufacture";
+  }
+  return statusToUi(opts.stageStatus);
+}
+
 /** Terminal cancel — the job must not be edited. */
 export function isCancelledJob(status?: string | null): boolean {
   return statusToUi(status) === "Cancelled";

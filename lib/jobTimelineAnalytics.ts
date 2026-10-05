@@ -34,7 +34,7 @@ export const TIMELINE_STAGES: Array<{
   title: string;
   shortLabel: string;
 }> = [
-  { id: "draft", title: "Draft", shortLabel: "Draft" },
+  { id: "draft", title: "Pending", shortLabel: "Pending" },
   { id: "design", title: "Drawing", shortLabel: "Drawing" },
   { id: "approval", title: "Approval", shortLabel: "Approval" },
   { id: "production", title: "Production", shortLabel: "Production" },
@@ -55,6 +55,187 @@ export function timelineStageInfo(
   stageKey?: string | null
 ): { title: string; shortLabel: string } | null {
   return TIMELINE_STAGES.find((s) => s.id === stageKey) ?? null;
+}
+
+/**
+ * The stages a job's "Project Stages" setup can turn on/off. "draft" and
+ * "completed" are excluded — every job starts pending and ends completed,
+ * that much is never optional.
+ */
+export const CONFIGURABLE_TIMELINE_STAGE_IDS: TimelineStageId[] = [
+  "design",
+  "approval",
+  "production",
+  "qc",
+  "dispatch",
+];
+
+/**
+ * The "Job Stage Setting" modal's own substage catalog. Drawing/Approval/
+ * Production/QC mirror the real operations Status Control seeds per
+ * milestone (`JobStageServiceImpl.OPERATIONS_BY_MILESTONE` on the backend),
+ * so the names match what the team already sees there. Dispatch has no
+ * operations there yet, so it gets a single stand-in entry named after
+ * itself — just enough for the "at least one substage checked" rule to
+ * apply to it too, without inventing real sub-steps that don't exist yet.
+ *
+ * A stage only appears on the main timeline if at least one of its own
+ * substages here is selected — see `selectedTimelineStageIds`.
+ */
+export const SELECTABLE_SUBSTAGES: Record<
+  TimelineStageId,
+  Array<{ id: string; title: string }>
+> = {
+  draft: [],
+  design: [
+    { id: "scope", title: "General Arrangement" },
+    { id: "cad", title: "Issued for comment" },
+    { id: "rev", title: "Issued for Approval" },
+    { id: "revision", title: "Revision loop" },
+  ],
+  approval: [
+    // Ids must match the backend's real operation keys exactly (odd
+    // formatting and all) — this is what lets a manual pick here actually
+    // filter the real stage tree fetched from Status Control. See
+    // JobStageServiceImpl.OPERATIONS_BY_MILESTONE.
+    { id: "client Approv.", title: "Client Approval" },
+    { id: "engineer Approv.", title: "Engineer Approval" },
+  ],
+  production: [
+    { id: "mould", title: "Shop drawings" },
+    { id: "layup", title: "Fabrication" },
+    { id: "cure", title: "Prep for QC" },
+  ],
+  qc: [
+    { id: "visual", title: "Visual Inspection" },
+    { id: "photos", title: "Photos added" },
+    { id: "dimensional", title: "Dimensional Check" },
+    { id: "signoff", title: "QA Sign-off" },
+  ],
+  dispatch: [{ id: "dispatch", title: "Dispatch" }],
+  completed: [],
+};
+
+/**
+ * Whether the job has been set up — meaning the timeline can be trusted and
+ * unlocked. Until then it shows (but locks) every stage rather than reacting to
+ * a still-in-progress decision.
+ *
+ * Three things settle it, and any one is enough:
+ *
+ * - `isReady`, set by Mark Ready, or
+ * - `requirementsConfirmedAt`, set when project requirements are saved, or
+ * - the Job Stage Setting modal having been used,
+ *
+ * the latter two covering jobs set up before Mark Ready existed, whose
+ * flag is false but whose stages were chosen all the same.
+ */
+export function isStageSetupDone(job: Job): boolean {
+  return (
+    job.isReady === true ||
+    job.requirementsConfirmedAt != null ||
+    job.printDetails?.workflowExtras?.stageSelectionSource != null
+  );
+}
+
+/**
+ * Which of the two stage-selection mechanisms is live right now.
+ * `stageSelectionSource` is set the moment either one is used — a Project
+ * Requirements checkbox saves it immediately (not gated behind "Save and
+ * Resume"; that button exists only to switch back to Project Requirements
+ * after the modal was used more recently, or to force-confirm without
+ * touching a box), and the "Job Stage Setting" modal sets it on save. Once
+ * set, this derives the visible stages live from whichever source it names,
+ * reacting to every checkbox change immediately rather than waiting for a
+ * separate confirm step.
+ *
+ * "Plan A" per the client's spec for the Project Requirements path —
+ * deliberately simple and a little blunt, exactly as specified:
+ *
+ * - Supply only / Order from Supplier (either variant) hides Drawing,
+ *   Approval, Production and QC outright — this takes priority over
+ *   everything else below.
+ * - Project means "the normal full flow" — Drawing and QC both show.
+ * - Otherwise, Drawing only shows if "Drawings" is checked, QC only shows if
+ *   "LOC" is checked (both off by default).
+ * - Approval and Production have no individual toggle — they show unless the
+ *   Supply-only/Order-from-Supplier bundle above hides them.
+ * - Dispatch is never hidden by any of this.
+ *
+ * Falls back to "everything" until a source has ever been set.
+ */
+/**
+ * The stage keys to send to `PUT /jobs/{id}/stages/selection` for a pick made
+ * in the Job Stage Setting modal.
+ *
+ * A milestone is included only when at least one of its substages is checked -
+ * the modal's own rule - and it travels together with exactly the substages
+ * that were checked, because naming substages is exact server-side: a
+ * milestone sent with two of its three operations switches the third off.
+ *
+ * `draft` and `completed` are always included. They are not configurable in
+ * the modal, and anything absent from this list is switched off, so leaving
+ * them out would quietly remove the stage every job starts at and the one it
+ * ends at.
+ */
+export function stageKeysForManualSelection(
+  selection: Record<string, string[]>
+): string[] {
+  const keys = new Set<string>(["draft", "completed"]);
+  for (const stageId of CONFIGURABLE_TIMELINE_STAGE_IDS) {
+    const subs = selection[stageId] ?? [];
+    if (subs.length === 0) continue;
+    keys.add(stageId);
+    // Dispatch's only "substage" is a stand-in for the milestone itself - the
+    // backend seeds it with no operations - so adding it is harmless and
+    // adding the milestone is what matters.
+    subs.forEach((sub) => keys.add(sub));
+  }
+  return [...keys];
+}
+
+/**
+ * The same, for a Project Requirements confirmation. The requirements choose
+ * whole milestones, so no substages are named and every operation beneath a
+ * chosen milestone stays on.
+ */
+export function stageKeysForRequirements(job: Job): string[] {
+  return ["draft", "completed", ...selectedTimelineStageIds(job)];
+}
+
+export function selectedTimelineStageIds(job: Job): TimelineStageId[] {
+  const extras = job.printDetails?.workflowExtras;
+  const source = extras?.stageSelectionSource;
+
+  if (source === "manual") {
+    const manualSub = extras?.manualSelectedSubStageIds;
+    if (manualSub) {
+      return CONFIGURABLE_TIMELINE_STAGE_IDS.filter(
+        (id) => (manualSub[id]?.length ?? 0) > 0
+      );
+    }
+  }
+
+  if (source === "requirements") {
+    const req = extras?.projectStageRequirements;
+    if (req) {
+      const supplyPathOnly =
+        req.supplyOnly ||
+        req.orderFromSupplierSupplyOnly ||
+        req.orderFromSupplierFabrication;
+      if (supplyPathOnly) return ["dispatch"];
+
+      const ids: TimelineStageId[] = [];
+      if (req.project || req.drawings) ids.push("design");
+      ids.push("approval");
+      ids.push("production");
+      if (req.project || req.loc) ids.push("qc");
+      ids.push("dispatch");
+      return ids;
+    }
+  }
+
+  return CONFIGURABLE_TIMELINE_STAGE_IDS;
 }
 
 export interface TimelineSubStageView {
@@ -91,7 +272,7 @@ const SUB_STAGES_BY_PARENT: Partial<
   design: [
     { id: "scope", title: "Scoping", shortLabel: "Scope" },
     { id: "cad", title: "CAD layout", shortLabel: "CAD" },
-    { id: "rev-a", title: "Rev A issue", shortLabel: "Rev A" },
+    { id: "rev", title: "Rev A issue", shortLabel: "Rev A" },
   ],
   production: [
     { id: "mould", title: "Mould prep", shortLabel: "Mould" },
@@ -112,8 +293,19 @@ function buildSubStages(
   drawingDoneCount: number,
   job: Job
 ): TimelineSubStageView[] | undefined {
-  const defs = SUB_STAGES_BY_PARENT[parentId];
+  let defs = SUB_STAGES_BY_PARENT[parentId];
   if (!defs?.length) return undefined;
+
+  // A manual "Job Stage Setting" pick also narrows what shows in this
+  // stage's own drill-down — picking only 1 of Drawing's 3 substages
+  // should mean only that 1 appears here too, not all 3 regardless.
+  const picked = job.printDetails?.workflowExtras?.manualSelectedSubStageIds?.[
+    parentId
+  ];
+  if (picked) {
+    const narrowed = defs.filter((def) => picked.includes(def.id));
+    if (narrowed.length > 0) defs = narrowed;
+  }
 
   let activeSubIndex = 0;
   if (parentState === "complete") {
