@@ -111,11 +111,10 @@ const STAGE_FLAG_ITEMS: {
     label: "Order from Supplier – Fabrication",
   },
   { key: "project", label: "Project" },
-  { key: "drawings", label: "Drawings" },
-  { key: "loc", label: "Letter of Compliance (LOC)" },
   { key: "orderPartsExternal", label: "Order Parts (External)" },
   { key: "warranty", label: "Warranty" },
   { key: "siteVisitMeasure", label: "Site Visit / Measure" },
+  { key: "installation", label: "Installation" },
 ];
 
 /** The 4 real (backend) requirements, reordered to slot in after the 9 above. */
@@ -125,6 +124,16 @@ const REQUIREMENT_DISPLAY_ORDER: ProjectRequirementKind[] = [
   "DOCUMENTS_REQUIRED",
   "IGNORE_OVERDUE",
 ];
+
+function buildRequirementsDraft(
+  requirements: JobProjectRequirement[]
+): Record<ProjectRequirementKind, boolean> {
+  const draft = {} as Record<ProjectRequirementKind, boolean>;
+  for (const kind of REQUIREMENT_DISPLAY_ORDER) {
+    draft[kind] = requirements.find((r) => r.kind === kind)?.isRequired === true;
+  }
+  return draft;
+}
 
 export function JobWorkflowExtrasSection({
   job,
@@ -158,10 +167,76 @@ export function JobWorkflowExtrasSection({
     workers.find((w) => userIdToBackend(w.id) === sl.responsiblePersonId)
       ?.display_name ?? "";
 
-  const [requirementsBusy, setRequirementsBusy] = useState(false);
-  const [requirementsError, setRequirementsError] = useState<string | null>(null);
-  const [stageFlagBusy, setStageFlagBusy] = useState(false);
-  const [stageFlagError, setStageFlagError] = useState<string | null>(null);
+  // Draft state for the whole Project Requirements card — nothing saves
+  // until the button at the bottom is clicked, which is also what decides
+  // whether that button is active or dulled out (see `requirementsDirty`).
+  const [draftFlags, setDraftFlags] = useState<ProjectStageRequirements>(
+    extras.projectStageRequirements ?? {}
+  );
+  const [draftRequirements, setDraftRequirements] = useState<
+    Record<ProjectRequirementKind, boolean>
+  >(() => buildRequirementsDraft(requirements));
+  const [requirementsSaveBusy, setRequirementsSaveBusy] = useState(false);
+  const [requirementsSaveError, setRequirementsSaveError] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    setDraftFlags(extras.projectStageRequirements ?? {});
+    setDraftRequirements(buildRequirementsDraft(requirements));
+    // extras/requirements are both derived from job — job alone is the real
+    // trigger for "the saved state changed under us, resync the draft".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job]);
+
+  const savedFlags = extras.projectStageRequirements ?? {};
+  const flagsDirty = STAGE_FLAG_ITEMS.some(
+    ({ key }) => Boolean(draftFlags[key]) !== Boolean(savedFlags[key])
+  );
+  const requirementsDirty = REQUIREMENT_DISPLAY_ORDER.some(
+    (kind) =>
+      draftRequirements[kind] !==
+      (requirements.find((r) => r.kind === kind)?.isRequired === true)
+  );
+  const projectRequirementsDirty = flagsDirty || requirementsDirty;
+
+  const saveProjectRequirements = async () => {
+    if (!job.dbId) return;
+    setRequirementsSaveBusy(true);
+    setRequirementsSaveError(null);
+    try {
+      const changedKinds = REQUIREMENT_DISPLAY_ORDER.filter(
+        (kind) =>
+          draftRequirements[kind] !==
+          (requirements.find((r) => r.kind === kind)?.isRequired === true)
+      );
+      for (const kind of changedKinds) {
+        await setJobRequirement(job.dbId, kind, draftRequirements[kind]);
+      }
+      await onSavePatch({
+        printDetails: {
+          ...pd,
+          workflowExtras: {
+            ...extras,
+            projectStageRequirements: { ...draftFlags, confirmed: true },
+            // Saving here is now the one action that makes Project
+            // Requirements authoritative for the timeline — even if "Job
+            // Stage Setting" was used more recently, this takes over.
+            stageSelectionSource: "requirements",
+          },
+        },
+      });
+      if (changedKinds.length > 0) {
+        await onJobChanged?.();
+      }
+    } catch (e) {
+      setRequirementsSaveError(
+        e instanceof Error ? e.message : "Could not save project requirements"
+      );
+    } finally {
+      setRequirementsSaveBusy(false);
+    }
+  };
 
   const [showLogisticsModal, setShowLogisticsModal] = useState(false);
   // Seeded from the logistics record, so the form opens on what it will save.
@@ -215,85 +290,6 @@ export function JobWorkflowExtrasSection({
         workflowExtras: merged,
       },
     });
-  };
-
-  const patchRequirement = async (
-    kind: ProjectRequirementKind,
-    required: boolean
-  ) => {
-    if (!job.dbId) return;
-    setRequirementsBusy(true);
-    setRequirementsError(null);
-    try {
-      await setJobRequirement(job.dbId, kind, required);
-      await onJobChanged?.();
-    } catch (e) {
-      setRequirementsError(
-        e instanceof Error ? e.message : "Could not update project requirement"
-      );
-    } finally {
-      setRequirementsBusy(false);
-    }
-  };
-
-  // The 9 "which path does this job take" checkboxes save immediately, same
-  // as the 4 real requirements above — no separate draft/Save step.
-  const toggleStageFlag = async (
-    key: keyof ProjectStageRequirements,
-    checked: boolean
-  ) => {
-    setStageFlagBusy(true);
-    setStageFlagError(null);
-    try {
-      await onSavePatch({
-        printDetails: {
-          ...pd,
-          workflowExtras: {
-            ...extras,
-            projectStageRequirements: {
-              ...(extras.projectStageRequirements ?? {}),
-              [key]: checked,
-            },
-          },
-        },
-      });
-    } catch (e) {
-      setStageFlagError(
-        e instanceof Error ? e.message : "Could not update project stage"
-      );
-    } finally {
-      setStageFlagBusy(false);
-    }
-  };
-
-  // "Save and Resume": the explicit, deliberate action that confirms the
-  // checkboxes above and unlocks the timeline — not something that happens
-  // as a side effect of ticking any one box. There's no real hold/resume
-  // call here: the job was never actually put on hold, this is purely the
-  // frontend's own "setup confirmed" flag (see isStageSetupDone).
-  const confirmStageSetup = async () => {
-    setStageFlagBusy(true);
-    setStageFlagError(null);
-    try {
-      await onSavePatch({
-        printDetails: {
-          ...pd,
-          workflowExtras: {
-            ...extras,
-            projectStageRequirements: {
-              ...(extras.projectStageRequirements ?? {}),
-              confirmed: true,
-            },
-          },
-        },
-      });
-    } catch (e) {
-      setStageFlagError(
-        e instanceof Error ? e.message : "Could not save project requirements"
-      );
-    } finally {
-      setStageFlagBusy(false);
-    }
   };
 
   const saveLogistics = () => {
@@ -356,25 +352,12 @@ export function JobWorkflowExtrasSection({
               Select project requirements
             </span>
           )}
-          {requirementsError ? (
+          {requirementsSaveError ? (
             <p className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              <span>{requirementsError}</span>
+              <span>{requirementsSaveError}</span>
               <button
                 type="button"
-                onClick={() => setRequirementsError(null)}
-                aria-label="Dismiss"
-                className="shrink-0 rounded p-0.5 text-red-500 hover:bg-red-100 hover:text-red-700"
-              >
-                <X className="h-3.5 w-3.5" aria-hidden />
-              </button>
-            </p>
-          ) : null}
-          {stageFlagError ? (
-            <p className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              <span>{stageFlagError}</span>
-              <button
-                type="button"
-                onClick={() => setStageFlagError(null)}
+                onClick={() => setRequirementsSaveError(null)}
                 aria-label="Dismiss"
                 className="shrink-0 rounded p-0.5 text-red-500 hover:bg-red-100 hover:text-red-700"
               >
@@ -390,9 +373,16 @@ export function JobWorkflowExtrasSection({
               >
                 <input
                   type="checkbox"
-                  checked={extras.projectStageRequirements?.[key] === true}
-                  onChange={(e) => void toggleStageFlag(key, e.target.checked)}
-                  disabled={isSaving || stageFlagBusy || cancelled || !job.dbId}
+                  checked={draftFlags[key] === true}
+                  onChange={(e) =>
+                    setDraftFlags((prev) => ({
+                      ...prev,
+                      [key]: e.target.checked,
+                    }))
+                  }
+                  disabled={
+                    isSaving || requirementsSaveBusy || cancelled || !job.dbId
+                  }
                   className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
                 />
                 {label}
@@ -409,10 +399,15 @@ export function JobWorkflowExtrasSection({
                 >
                   <input
                     type="checkbox"
-                    checked={row?.isRequired === true}
-                    onChange={(e) => void patchRequirement(kind, e.target.checked)}
+                    checked={draftRequirements[kind] === true}
+                    onChange={(e) =>
+                      setDraftRequirements((prev) => ({
+                        ...prev,
+                        [kind]: e.target.checked,
+                      }))
+                    }
                     disabled={
-                      isSaving || requirementsBusy || cancelled || !job.dbId
+                      isSaving || requirementsSaveBusy || cancelled || !job.dbId
                     }
                     className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
                   />
@@ -433,18 +428,26 @@ export function JobWorkflowExtrasSection({
               </>
             ) : null}
           </p>
-          {!isStageSetupDone(job) && (
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-lg bg-[#F97316] px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void confirmStageSetup()}
-                disabled={isSaving || stageFlagBusy || cancelled || !job.dbId}
-              >
-                {stageFlagBusy ? "Saving…" : "Save and Resume"}
-              </button>
-            </div>
-          )}
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              className={`inline-flex items-center justify-center rounded-lg px-3.5 py-1.5 text-xs font-semibold shadow-sm transition-colors disabled:cursor-not-allowed ${
+                projectRequirementsDirty
+                  ? "bg-[#F97316] text-white hover:bg-[#EA580C]"
+                  : "bg-slate-200 text-slate-400"
+              }`}
+              onClick={() => void saveProjectRequirements()}
+              disabled={
+                !projectRequirementsDirty ||
+                isSaving ||
+                requirementsSaveBusy ||
+                cancelled ||
+                !job.dbId
+              }
+            >
+              {requirementsSaveBusy ? "Saving…" : "Save"}
+            </button>
+          </div>
         </WidgetCard>
 
         <section className="grid gap-4 lg:grid-cols-2">

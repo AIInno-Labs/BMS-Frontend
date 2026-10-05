@@ -633,12 +633,22 @@ export function JobTimelineAnalytics({
       stages[firstIncompleteIndex] = { ...stages[firstIncompleteIndex], state: "active" };
     }
 
+    const manualSub = job.printDetails?.workflowExtras?.manualSelectedSubStageIds;
     for (let i = 0; i < stages.length; i++) {
       const real = byKey.get(stages[i].id);
       if (!real) continue;
+      let fromReal = subStagesFromReal(real.children, stages[i].state);
+      // Same manual "Select Stages" narrowing as the simulated path below —
+      // otherwise the real backend tree (fetched from Status Control) always
+      // wins and shows every substage regardless of what was picked.
+      const picked = manualSub?.[stages[i].id];
+      if (fromReal && picked) {
+        const narrowed = fromReal.filter((s) => picked.includes(s.id));
+        if (narrowed.length > 0) fromReal = narrowed;
+      }
       stages[i] = {
         ...stages[i],
-        subStages: subStagesFromReal(real.children, stages[i].state) ?? stages[i].subStages,
+        subStages: fromReal ?? stages[i].subStages,
       };
     }
 
