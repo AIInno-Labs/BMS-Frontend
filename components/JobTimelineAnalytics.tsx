@@ -99,6 +99,16 @@ const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
 // stage has started. Falls back to the group label for jobs the backend
 // hasn't populated it on.
 function jobStageLabel(job: Job): string {
+  // Ready jobs often still sit on the draft milestone — don't show that as
+  // Pending / Not Started when setup is already confirmed.
+  if (
+    job.isReady ||
+    job.status === "Ready to Manufacture"
+  ) {
+    if (!job.currentStageKey || job.currentStageKey === "draft") {
+      return "Ready to Manufacture";
+    }
+  }
   return (
     timelineStageInfo(job.currentStageKey)?.title ??
     STAGE_GROUP_LABEL[resolveStatusGroup(job.status)]

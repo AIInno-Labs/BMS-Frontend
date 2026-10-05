@@ -210,9 +210,13 @@ export interface Job {
   /** Stage-tree completion, served on the list projection only. */
   percentComplete?: number | null;
   /**
-   * When the job stopped being idle. Null means its project requirements have
-   * never been confirmed, so the job page prompts for them and offers the
-   * Ready button.
+   * True after Mark Ready. False means setup is unconfirmed, so the job page
+   * prompts for requirements and offers the Ready button.
+   */
+  isReady?: boolean;
+  /**
+   * When project requirements were first saved. Null until then; one-time
+   * (drives the "Select project requirements" flag).
    */
   requirementsConfirmedAt?: string | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */

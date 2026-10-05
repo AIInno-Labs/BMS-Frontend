@@ -25,7 +25,6 @@ import {
 } from "@/lib/jobWorkflowExtras";
 import { formatShortDate } from "@/lib/mockData";
 import {
-  isStageSetupDone,
   stageKeysForRequirements,
 } from "@/lib/jobTimelineAnalytics";
 import {
@@ -394,7 +393,7 @@ export function JobWorkflowExtrasSection({
     <>
       <div className="mt-4 space-y-4">
         <WidgetCard title="Project Requirements" icon={ListChecks}>
-          {!isStageSetupDone(job) && (
+          {job.requirementsConfirmedAt == null && (
             <span className="mb-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
               Select project requirements
             </span>

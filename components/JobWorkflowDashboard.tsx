@@ -46,6 +46,7 @@ import {
   SELECTABLE_SUBSTAGES,
   TIMELINE_STAGES,
   type TimelineStageId,
+  selectedTimelineStageIds,
   stageKeysForManualSelection,
 } from "@/lib/jobTimelineAnalytics";
 import {
@@ -559,13 +560,9 @@ function asMilestones(stages: FrpJobStageDTO[]): FrpJobStageDTO[] {
 /**
  * The Job Stage Setting modal's tick state, read off the job's real stage tree.
  *
- * A stage is ticked when it is not disabled, so the modal opens on what the job
- * actually has - whether that was set through this modal or through Project
- * Requirements, which never writes the manual pick.
- *
- * Milestones with no operations of their own (Dispatch) are represented by a
- * single entry named after the milestone, matching SELECTABLE_SUBSTAGES, so the
- * modal can tick them like any other.
+ * A stage is ticked (enabled) when it is not disabled. Unticked = disabled.
+ * Opening the modal reflects what the job actually has — whether that came
+ * from this modal or from Project Requirements.
  */
 function stageDraftFromTree(
   tree: FrpJobStageDTO[]
@@ -652,9 +649,6 @@ export function JobWorkflowDashboard({
   const [stageModalDraft, setStageModalDraft] = useState<
     Record<string, string[]>
   >({});
-  const [expandedStages, setExpandedStages] = useState<Set<TimelineStageId>>(
-    new Set()
-  );
   const [showStageConfirm, setShowStageConfirm] = useState(false);
   const [readyBusy, setReadyBusy] = useState(false);
   const [readyError, setReadyError] = useState<string | null>(null);
@@ -673,7 +667,7 @@ export function JobWorkflowDashboard({
    * describe is perfectly ordinary and still has to be startable.
    */
   const jobIsIdle =
-    job.requirementsConfirmedAt == null &&
+    !job.isReady &&
     !cancelled &&
     (job.currentStageKey == null || job.currentStageKey === "draft");
 
@@ -940,8 +934,15 @@ export function JobWorkflowDashboard({
   }, [sortedFiles, sharePointTimedOutIds]);
 
   const displayFiles = useMemo(() => {
-    if (!fileUploading || !fileUploadDraft.file)
-      return filesWithSharePointTimeout;
+    const enabledStages = selectedTimelineStageIds(job);
+    const showProductionDocs = enabledStages.includes("production");
+    const showDrawingDocs = enabledStages.includes("design");
+    const visible = filesWithSharePointTimeout.filter((file) => {
+      if (file.documentType === "PRODUCTION") return showProductionDocs;
+      if (file.documentType === "DRAWING") return showDrawingDocs;
+      return true;
+    });
+    if (!fileUploading || !fileUploadDraft.file) return visible;
     const optimistic: JobFile = {
       name: fileUploadDraft.file.name,
       category: "Uploading",
@@ -951,9 +952,9 @@ export function JobWorkflowDashboard({
     };
     return [
       optimistic,
-      ...filesWithSharePointTimeout.filter((f) => f.name !== optimistic.name),
+      ...visible.filter((f) => f.name !== optimistic.name),
     ];
-  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout]);
+  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout, job]);
 
   useEffect(() => {
     const now = Date.now();
@@ -1043,6 +1044,7 @@ export function JobWorkflowDashboard({
     documentType?: FrpJobDocumentDTO["documentType"];
   }) => {
     if (input.documentId == null) return;
+    const enabledStages = selectedTimelineStageIds(job);
     const tab =
       input.documentType === "DRAWING"
         ? "drawing"
@@ -1050,6 +1052,8 @@ export function JobWorkflowDashboard({
         ? "po"
         : null;
     if (!tab) return;
+    if (tab === "po" && !enabledStages.includes("production")) return;
+    if (tab === "drawing" && !enabledStages.includes("design")) return;
     setVersionsFocus({ documentId: input.documentId, tab });
     window.requestAnimationFrame(() => {
       document.getElementById("job-document-versions")?.scrollIntoView({
@@ -1352,7 +1356,6 @@ export function JobWorkflowDashboard({
               // modal showing every stage still on while the job has four of
               // them switched off. The tree is what the job actually has,
               // whichever route switched them off.
-              setExpandedStages(new Set());
               setStageModalDraft(stageDraftFromTree(stageTreeAll));
               setShowStageModal(true);
               if (job.dbId != null) {
@@ -1905,8 +1908,7 @@ export function JobWorkflowDashboard({
       >
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           <p className="text-sm text-slate-600">
-            Expand a stage to pick its substages. A stage only shows on the
-            timeline once at least one of its substages is checked.
+            Tick to enable a stage or substage. Untick to disable it.
           </p>
           <div className="space-y-2">
             {CONFIGURABLE_TIMELINE_STAGE_IDS.filter(
@@ -1914,41 +1916,69 @@ export function JobWorkflowDashboard({
             ).map((id) => {
               const info = TIMELINE_STAGES.find((s) => s.id === id);
               const selectedIds = stageModalDraft[id] ?? [];
+              const substages = SELECTABLE_SUBSTAGES[id];
+              const allSelected =
+                substages.length > 0 &&
+                selectedIds.length === substages.length;
               return (
-                <StageSubstageRow
+                <div
                   key={id}
-                  stageId={id}
-                  title={info?.title ?? id}
-                  selectedIds={selectedIds}
-                  expanded={expandedStages.has(id)}
-                  onToggleExpanded={() =>
-                    setExpandedStages((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(id)) next.delete(id);
-                      else next.add(id);
-                      return next;
-                    })
-                  }
-                  onToggleSubstage={(subId, checked) =>
-                    setStageModalDraft((prev) => {
-                      const current = prev[id] ?? [];
-                      return {
-                        ...prev,
-                        [id]: checked
-                          ? [...current, subId]
-                          : current.filter((s) => s !== subId),
-                      };
-                    })
-                  }
-                  onToggleAll={(checked) =>
-                    setStageModalDraft((prev) => ({
-                      ...prev,
-                      [id]: checked
-                        ? SELECTABLE_SUBSTAGES[id].map((s) => s.id)
-                        : [],
-                    }))
-                  }
-                />
+                  className="overflow-hidden rounded-lg border border-[#E5E7EB]"
+                >
+                  <label className="flex cursor-pointer items-center gap-2 bg-white px-3 py-2 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate =
+                            selectedIds.length > 0 && !allSelected;
+                        }
+                      }}
+                      onChange={(e) =>
+                        setStageModalDraft((prev) => ({
+                          ...prev,
+                          [id]: e.target.checked
+                            ? substages.map((s) => s.id)
+                            : [],
+                        }))
+                      }
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
+                    />
+                    <span className="flex-1 text-sm font-medium text-slate-800">
+                      {info?.title ?? id}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {selectedIds.length}/{substages.length}
+                    </span>
+                  </label>
+                  <div className="space-y-1.5 border-t border-[#E5E7EB] bg-slate-50/60 px-3 py-2 pl-9">
+                    {substages.map((sub) => (
+                      <label
+                        key={sub.id}
+                        className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(sub.id)}
+                          onChange={(e) =>
+                            setStageModalDraft((prev) => {
+                              const current = prev[id] ?? [];
+                              return {
+                                ...prev,
+                                [id]: e.target.checked
+                                  ? [...current, sub.id]
+                                  : current.filter((s) => s !== sub.id),
+                              };
+                            })
+                          }
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600"
+                        />
+                        {sub.title}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -2703,107 +2733,6 @@ function CustomerRow({
         </p>
         <p className="break-words text-sm text-slate-700">{value}</p>
       </div>
-    </div>
-  );
-}
-
-/** A native checkbox with the `indeterminate` visual state — not settable via
- *  a JSX prop, so it has to go through a ref. */
-function IndeterminateCheckbox({
-  checked,
-  indeterminate,
-  onChange,
-  className,
-}: {
-  checked: boolean;
-  indeterminate: boolean;
-  onChange: (checked: boolean) => void;
-  className?: string;
-}) {
-  return (
-    <input
-      type="checkbox"
-      checked={checked}
-      ref={(el) => {
-        if (el) el.indeterminate = indeterminate;
-      }}
-      onChange={(e) => onChange(e.target.checked)}
-      onClick={(e) => e.stopPropagation()}
-      className={className}
-    />
-  );
-}
-
-/**
- * One stage's row in the "Job Settings" modal: a header (expand chevron +
- * parent checkbox that selects/clears every substage at once + a status pill
- * showing whether the stage will appear on the timeline), and, once
- * expanded, the individual substage checkboxes underneath.
- */
-function StageSubstageRow({
-  stageId,
-  title,
-  selectedIds,
-  expanded,
-  onToggleExpanded,
-  onToggleSubstage,
-  onToggleAll,
-}: {
-  stageId: TimelineStageId;
-  title: string;
-  selectedIds: string[];
-  expanded: boolean;
-  onToggleExpanded: () => void;
-  onToggleSubstage: (subId: string, checked: boolean) => void;
-  onToggleAll: (checked: boolean) => void;
-}) {
-  const substages = SELECTABLE_SUBSTAGES[stageId] ?? [];
-  const selectedCount = selectedIds.length;
-  const allSelected = substages.length > 0 && selectedCount === substages.length;
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-[#E5E7EB]">
-      <div
-        className="flex cursor-pointer items-center gap-2 bg-white px-3 py-2 hover:bg-slate-50"
-        onClick={onToggleExpanded}
-      >
-        <ChevronUp
-          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
-            expanded ? "" : "rotate-180"
-          }`}
-          aria-hidden
-        />
-        <IndeterminateCheckbox
-          checked={allSelected}
-          indeterminate={selectedCount > 0 && !allSelected}
-          onChange={onToggleAll}
-          className="h-4 w-4 shrink-0 rounded border-slate-300 text-orange-600"
-        />
-        <span className="flex-1 text-sm font-medium text-slate-800">
-          {title}
-        </span>
-        <span className="text-xs text-slate-500">
-          {selectedCount}/{substages.length}
-        </span>
-      </div>
-      {expanded && (
-        <div className="space-y-1.5 border-t border-[#E5E7EB] bg-slate-50/60 px-3 py-2 pl-9">
-          {substages.map((sub) => (
-            <label
-              key={sub.id}
-              className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
-            >
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(sub.id)}
-                onChange={(e) => onToggleSubstage(sub.id, e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600"
-              />
-              {sub.title}
-            </label>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

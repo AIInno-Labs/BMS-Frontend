@@ -123,18 +123,16 @@ export const SELECTABLE_SUBSTAGES: Record<
  *
  * Three things settle it, and any one is enough:
  *
- * - `requirementsConfirmedAt`, set by Mark Ready. This is the real gate: a job
- *   can be taken out of idle without any requirement applying to it, and that
- *   job's timeline must still work. Without this the stages stayed faded after
- *   marking ready — completed ones included, which plainly do apply.
- * - Project Requirements having been confirmed, or
+ * - `isReady`, set by Mark Ready, or
+ * - `requirementsConfirmedAt`, set when project requirements are saved, or
  * - the Job Stage Setting modal having been used,
  *
  * the latter two covering jobs set up before Mark Ready existed, whose
- * timestamp is null but whose stages were chosen all the same.
+ * flag is false but whose stages were chosen all the same.
  */
 export function isStageSetupDone(job: Job): boolean {
   return (
+    job.isReady === true ||
     job.requirementsConfirmedAt != null ||
     job.printDetails?.workflowExtras?.stageSelectionSource != null
   );

@@ -34,7 +34,7 @@ import {
   jobTypeToBackend,
   jobTypeToUi,
   statusToBackend,
-  statusToUi,
+  jobStatusToUi,
 } from "@/lib/frp/job-status";
 
 /* ------------------------------------------------------------ backend DTOs */
@@ -62,9 +62,12 @@ export interface FrpJobSummaryDTO {
   notes?: string | null;
   percentComplete?: number | null;
   /**
-   * When the job stopped being idle — the Ready button, or any earlier
-   * confirmation. Null means nobody has said what kind of work this is yet,
-   * which is what the job page prompts about.
+   * True after Mark Ready confirms setup. False means idle — the job page
+   * prompts and offers the Ready button. Independent of requirement checkboxes.
+   */
+  isReady?: boolean;
+  /**
+   * When project requirements were first saved. Null until then; one-time.
    */
   requirementsConfirmedAt?: string | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
@@ -144,8 +147,12 @@ export interface FrpJobDTO {
   /** Mirrors IGNORE_OVERDUE when that requirement is decided required. */
   ignoreOverdue?: boolean;
   /**
-   * `READ_ONLY` — when the job stopped being idle, set by `PUT /jobs/{id}/ready`.
-   * Null means its project requirements have never been confirmed.
+   * `READ_ONLY` — true after `PUT /jobs/{id}/ready`. False means project setup
+   * has never been confirmed. Independent of requirement checkboxes.
+   */
+  isReady?: boolean;
+  /**
+   * `READ_ONLY` — when requirements were first saved. Null until then; one-time.
    */
   requirementsConfirmedAt?: string | null;
 }
@@ -717,7 +724,10 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     quoteValidUntil: null,
     estimatedHours: null,
     resinType: resinToUi(dto.resinCode),
-    status: statusToUi(dto.stageStatus),
+    status: jobStatusToUi({
+      stageStatus: dto.stageStatus,
+      isReady: dto.isReady,
+    }),
     priority: priorityToUi(dto.priority),
     jobType: jobTypeToUi(dto.jobType),
     alert: null,
@@ -727,6 +737,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     installRequired: false,
     qaCompleted: false,
     ignoreOverdue: dto.ignoreOverdue ?? false,
+    isReady: dto.isReady === true,
     requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
     clientContactName: dto.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
@@ -933,7 +944,10 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     estimatedHours: dto.estimatedHours ?? null,
     // Resin lives on the job row, not the card — the card mirrors it for print.
     resinType: resinToUi(dto.resinCode),
-    status: statusToUi(dto.stageStatus),
+    status: jobStatusToUi({
+      stageStatus: dto.stageStatus,
+      isReady: dto.isReady,
+    }),
     priority: priorityToUi(dto.priority),
     alert: dto.alert ?? null,
     notes: dto.notes ?? null,
@@ -953,6 +967,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     installRequired: card?.installRequired ?? false,
     qaCompleted: card?.qaCompleted ?? false,
     ignoreOverdue: dto.ignoreOverdue ?? false,
+    isReady: dto.isReady === true,
     requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
     clientContactName: dto.contactDetails?.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
