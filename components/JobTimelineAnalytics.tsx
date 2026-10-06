@@ -670,8 +670,18 @@ export function JobTimelineAnalytics({
       "qc",
       "dispatch",
     ];
-    const vals = ROLLUP.map((k) => byKey.get(k)?.percentComplete ?? 0);
-    const overallProgress = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    // Only milestones the backend returned are averaged. Disabled milestones are
+    // left out of the stage list, so they must not count as 0% here.
+    const enabledRollup = ROLLUP.map((k) => byKey.get(k)).filter(
+      (m): m is FrpJobStageDTO => m != null
+    );
+    const overallProgress =
+      enabledRollup.length === 0
+        ? 0
+        : Math.round(
+            enabledRollup.reduce((sum, m) => sum + (m.percentComplete ?? 0), 0) /
+              enabledRollup.length
+          );
 
     // Furthest stage that is complete or active — drives the connector fill.
     let activeIndex = 0;

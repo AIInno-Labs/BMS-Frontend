@@ -2022,6 +2022,11 @@ export function JobWorkflowDashboard({
                 job.dbId,
                 stageKeysForManualSelection(stageModalDraft)
               );
+              // Saving the stage setup counts as Mark Ready (see the
+              // requirements save in JobWorkflowExtrasSection).
+              if (job.isReady !== true) {
+                await markJobReady(job.dbId);
+              }
             }
             await onSavePatch({
               printDetails: {
