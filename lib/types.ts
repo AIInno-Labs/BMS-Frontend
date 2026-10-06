@@ -1,11 +1,21 @@
-export type JobStatus =
-  | "Pending"
-  | "Awaiting Manager Approval"
-  | "Ready to Manufacture"
-  | "In Fabrication"
-  | "On Hold"
-  | "Complete"
-  | "Cancelled";
+import type { AnyJobStatus } from "@/lib/jobStatus";
+import type { ProjectRequirementKind } from "@/lib/frp/project-requirements";
+
+/**
+ * Widened during the DEL-01 status-model migration.
+ *
+ * Accepts both the canonical PRD lifecycle and the seven legacy states so
+ * existing call sites keep compiling while new work targets the canonical
+ * model. Import the precise unions (`JobStatus`, `LegacyJobStatus`) from
+ * `@/lib/jobStatus` directly when you need to exclude one or the other.
+ */
+export type JobStatus = AnyJobStatus;
+
+export type {
+  AnyJobStatus,
+  JobExceptionStatus,
+  LegacyJobStatus,
+} from "@/lib/jobStatus";
 
 export type ResinType =
   | "Isophthalic Polyester"
@@ -15,9 +25,17 @@ export type ResinType =
 export type JobPriority = "Normal" | "High" | "RUSH";
 
 export interface JobCardClipRow {
+  /** Legacy single-label clip line (print form / old cards). */
   clip: string;
   qty: string;
   packedBy: string;
+  /** Job inventory columns — same layout as the job Inventory panel. */
+  productGroup?: string;
+  attribute1?: string;
+  attribute2?: string;
+  attribute3?: string;
+  resin?: string;
+  colour?: string;
 }
 
 export interface JobCardPack {
@@ -33,16 +51,8 @@ export interface JobMaterialRow {
   availability: string;
 }
 
-export interface RequiredInventoryItem {
-  label: string;
-  qty: string;
-}
-
 /** Extended job-card fields (serialized in pack_dimensions JSON). */
 export interface JobWorkflowExtras {
-  documentsRequired?: boolean;
-  sampleRequired?: boolean;
-  coiRequired?: boolean;
   jobType?: string;
   projectedStartDate?: string;
   productionStatus?: string;
@@ -59,11 +69,61 @@ export interface JobWorkflowExtras {
   additionalNotes?: string;
   resinMatQty?: string;
   fiberRollQty?: string;
-  requiredInventory?: RequiredInventoryItem[];
   jobCardNotes?: string;
   /** `true` = Yes, `false` = No, `null` = not set */
   paymentReceived?: boolean | null;
   paymentDueDate?: string;
+  /**
+   * The "which path does this job take" checkboxes — folded into Project
+   * Requirements. Drives which timeline stages show once `confirmed`
+   * (see `selectedTimelineStageIds` in `lib/jobTimelineAnalytics.ts`).
+   * `undefined`/`confirmed` falsy means the job stays in "Pending" with the
+   * timeline showing (but locking) every stage. Only actually drives the
+   * timeline while `stageSelectionSource` is `"requirements"`.
+   */
+  projectStageRequirements?: ProjectStageRequirements;
+  /**
+   * A direct, manual substage pick from the "Job Stage Setting" modal on the
+   * job detail page. Keyed by parent stage id (e.g. `"design"`); a stage
+   * shows on the timeline only if its array here is non-empty. Only
+   * actually drives the timeline while `stageSelectionSource` is `"manual"`.
+   */
+  manualSelectedSubStageIds?: Record<string, string[]>;
+  /**
+   * Which of the two stage-selection mechanisms is currently authoritative
+   * — whichever was saved most recently. Without this, once the modal had
+   * ever been used it would win forever, even after someone went back and
+   * re-confirmed Project Requirements expecting *that* to take effect.
+   */
+  stageSelectionSource?: "requirements" | "manual";
+}
+
+/**
+ * "Plan A" per the client's own spec — a deliberately simple, slightly messy
+ * mapping of business options straight onto timeline stages (see the
+ * comments on `selectedTimelineStageIds`). Only `supplyOnly` /
+ * `orderFromSupplierSupplyOnly` / `orderFromSupplierFabrication` / `project` /
+ * `drawings` / `loc` affect the timeline; the rest are informational only.
+ */
+export interface ProjectStageRequirements {
+  supplyOnly?: boolean;
+  orderFromSupplierSupplyOnly?: boolean;
+  orderFromSupplierFabrication?: boolean;
+  project?: boolean;
+  drawings?: boolean;
+  loc?: boolean;
+  orderPartsExternal?: boolean;
+  warranty?: boolean;
+  siteVisitMeasure?: boolean;
+  /** Informational only — no effect on the timeline. */
+  installation?: boolean;
+  /**
+   * Set only by the "Save and Resume" button — distinct from having merely
+   * ticked a box or two. The timeline stays locked to "everything, faded"
+   * until this is explicitly confirmed, not the moment any single checkbox
+   * is touched.
+   */
+  confirmed?: boolean;
 }
 
 export interface JobCardPrintDetails {
@@ -91,11 +151,18 @@ export interface JobCardPrintDetails {
 }
 
 export interface Job {
-  /** Supabase UUID (for updates). */
+  /**
+   * Spring Boot job primary key (stringified).
+   *
+   * Every write path addresses the job by this, not by `id` — the backend
+   * routes are `/jobs/{id}` with a numeric `@PathVariable Long`.
+   */
   dbId?: string;
-  /** Public job number, e.g. JOB-1001 */
+  /** Public job number, e.g. JOB-1001. Server-allocated, read-only. */
   id: string;
   clientName: string;
+  /** From `contactDetails.address` when present. */
+  clientAddress?: string;
   projectName: string;
   date: string;
   /** Factory due date — set manually on the job card. */
@@ -107,15 +174,103 @@ export interface Job {
   status: JobStatus;
   priority: JobPriority;
   alert: string | null;
+  /** Free working notes on the job. Distinct from the short `alert` flag. */
+  notes: string | null;
+  /** What the job is, in prose. Distinct from notes. */
+  description?: string | null;
+  /** Kind of work (`JobType`). Null on jobs raised before the field existed. */
+  jobType?: string | null;
   manufacturingRequired: boolean;
   installRequired: boolean;
   qaCompleted: boolean;
+  /** Excludes this job from the "Overdue" stage card/list even past its due date. */
+  ignoreOverdue: boolean;
   clientContactName: string;
   assignedWorkerId: string | null;
-  /** Stored in Supabase `assigned_worker_name` */
+  /** Assigned worker display name (`assignedTo` on Spring Boot). */
   assignedWorkerName?: string | null;
+  /** Quote owner's name (e.g. a Quotient salesperson); may have no user. */
+  ownerName?: string | null;
+  /** Customer order/PO number, from a Quotient acceptance. */
+  orderNumber?: string | null;
+  /** The quote's selected items (Quotient `selected_items`), verbatim. */
+  selectedItems?: Array<Record<string, unknown>> | null;
+  /** ISO 4217 code from the originating quote's payload, if any. */
+  currency?: string | null;
   manualInstructions: string;
+  /** How and when the job ships — one row per job, saved on the job. */
+  schedulingLogistics?: JobSchedulingLogistics | null;
   printDetails?: JobCardPrintDetails;
-  /** ISO timestamp from Supabase `created_at` (for sorting / display). */
+  /** ISO timestamp from Spring Boot `createdDate`. */
   createdAt?: string;
+  /** Set for quote-derived jobs; drives `origin` on the backend. */
+  quoteNumber?: string | null;
+  /** `QUOTE` when raised from a quote, `FACTORY` when raised in-house. */
+  origin?: "QUOTE" | "FACTORY";
+  /** Stage-tree completion, served on the list projection only. */
+  percentComplete?: number | null;
+  /**
+   * True after Mark Ready. False means setup is unconfirmed, so the job page
+   * prompts for requirements and offers the Ready button.
+   */
+  isReady?: boolean;
+  /**
+   * When project requirements were first saved. Null until then; one-time
+   * (drives the "Select project requirements" flag).
+   */
+  requirementsConfirmedAt?: string | null;
+  /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
+  currentStageKey?: string | null;
+  /** Id of that milestone — `JobDTO.currentStageId`. Sent as `jobStageId` on document upload. */
+  currentStageId?: number | null;
+  /** Material lines for the job (backend `job_inventory`). Inline on
+   *  `GET /jobs/{id}`; mutated via `/jobs/{id}/job-inventory`. */
+  inventory?: JobInventoryLine[];
+  /** Documents / sample / ignore-overdue / cash-payment flags — backend `job_project_requirements`. */
+  requirements?: JobProjectRequirement[];
+}
+
+/** One project requirement row — `kind` mirrors backend `ProjectRequirement`. */
+export interface JobProjectRequirement {
+  kind: ProjectRequirementKind;
+  label: string;
+  /** `null` = not decided yet; distinct from an explicit `false`. */
+  isRequired: boolean | null;
+  remarks?: string | null;
+}
+
+/** One row of the job's material/inventory table (`JobInventoryDTO`). */
+export interface JobInventoryLine {
+  id?: number;
+  masterInventoryId?: number;
+  category?: string | null;
+  profileType?: string | null;
+  size?: string | null;
+  materialGrade?: string | null;
+  /** Integer; backend `JobInventoryDTO.quantity` is never negative. */
+  quantity?: number | null;
+}
+
+export type ShipmentMethod =
+  | "INHOUSE_DELIVERY"
+  | "CUSTOMER_COLLECT"
+  | "THIRD_PARTY_COURIER"
+  | "FREIGHT_FORWARDER"
+  | "OTHER";
+
+/**
+ * How and when one job ships. One-to-one with the job. `jobStatus` is a local
+ * logistics status (raw backend value) — it does not move the job's stage.
+ */
+export interface JobSchedulingLogistics {
+  jobStatus: string | null;
+  responsiblePersonId: number | null;
+  accountable: string | null;
+  contactId: number | null;
+  shipDate: string | null;
+  shipmentMethod: ShipmentMethod | null;
+  freightAccount: string | null;
+  carrierAccount: string | null;
+  billingAddress: string | null;
+  deliveryAddress: string | null;
 }

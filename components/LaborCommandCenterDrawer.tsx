@@ -246,7 +246,7 @@ export function LaborCommandCenterDrawer({
       onClose={onClose}
       title="Floor Capacity & Labor Schedule"
     >
-      <div className="space-y-8 p-5 sm:p-6">
+      <div className="space-y-8">
         <div className="rounded-xl border border-blue-100 bg-blue-50 p-5 shadow-sm">
           <div className="mb-3 flex items-center gap-2">
             <Activity className="h-5 w-5 text-blue-600" aria-hidden />
