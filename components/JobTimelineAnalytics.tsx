@@ -658,7 +658,7 @@ export function JobTimelineAnalytics({
       }
       stages[i] = {
         ...stages[i],
-        subStages: fromReal ?? stages[i].subStages,
+        subStages: fromReal,
       };
     }
 
@@ -744,14 +744,12 @@ export function JobTimelineAnalytics({
   );
 
   const focusedStage = useMemo(() => {
-    if (selected?.type === "stage") {
-      return data.stages.find((s) => s.id === selected.stageId);
-    }
-    return data.stages.find((s) => s.state === "active" && s.subStages?.length);
-  }, [data.stages, selected]);
+    if (selected?.type !== "stage") return undefined;
+    return visibleStages.find((s) => s.id === selected.stageId);
+  }, [selected, visibleStages]);
 
   const focusedStageIndex = focusedStage
-    ? data.stages.findIndex((s) => s.id === focusedStage.id)
+    ? visibleStages.findIndex((s) => s.id === focusedStage.id)
     : -1;
 
   const toggle = (key: DetailKey) => {
@@ -1000,7 +998,10 @@ export function JobTimelineAnalytics({
                 <div
                   className="pointer-events-none absolute -top-3"
                   style={{
-                    left: `calc(1.5rem + ${focusedStageIndex} * (100% - 3rem) / 6)`,
+                    left: `calc(1.5rem + ${focusedStageIndex} * (100% - 3rem) / ${Math.max(
+                      1,
+                      visibleStages.length - 1
+                    )})`,
                     transform: "translateX(-50%)",
                   }}
                   aria-hidden
