@@ -13,7 +13,7 @@ import {
   listJobStages,
   updateJobStage,
 } from "@/lib/frp/api";
-import { buildJobTimelineAnalytics } from "@/lib/jobTimelineAnalytics";
+import { buildJobTimelineAnalytics, isStageSetupDone } from "@/lib/jobTimelineAnalytics";
 import type { FrpJobDocumentDTO, FrpJobStageDTO, FrpJobStageUpdateRequest } from "@/lib/frp/job-mapper";
 import {
   emptyPoItemRow,
@@ -137,6 +137,10 @@ export function JobStatusCard({
     isCancelledJob(job.status) ||
     isJobLockedForCashPayment(job) ||
     isOnHoldJob(job.status);
+  const setupLocked =
+    !isStageSetupDone(job) &&
+    (job.currentStageKey == null || job.currentStageKey === "draft");
+  const controlsLocked = locked || setupLocked;
   const [stages, setStages] = useState<FrpJobStageDTO[] | null>(null);
   const [loading, setLoading] = useState(true);
   // loadError means there is no stage data to show at all (gates the
@@ -267,6 +271,7 @@ export function JobStatusCard({
       body: FrpJobStageUpdateRequest,
       files?: File[]
     ): Promise<boolean> => {
+      if (controlsLocked) return false;
       if (!job.dbId || stage.id == null) return false;
       setSavingId(stage.id);
       setActionError(null);
@@ -285,11 +290,11 @@ export function JobStatusCard({
         setUploading(false);
       }
     },
-    [job.dbId, load, onJobChanged, onDocumentsChanged]
+    [controlsLocked, job.dbId, load, onJobChanged, onDocumentsChanged]
   );
 
   const openStageModal = (stage: FrpJobStageDTO) => {
-    if (locked) return;
+    if (controlsLocked) return;
     setModalStage(stage);
     // Files themselves aren't re-picked on open — already-uploaded documents
     // are shown read-only from `stage.documents` (see the modal body below).
@@ -326,7 +331,7 @@ export function JobStatusCard({
   };
 
   const onToggle = (stage: FrpJobStageDTO) => {
-    if (locked || savingId != null) return;
+    if (controlsLocked || savingId != null) return;
     if (stage.status === "COMPLETE") {
       void persist(stage, { status: "PENDING" });
       return;
@@ -447,6 +452,7 @@ export function JobStatusCard({
   }
 
   const saveStageModal = async () => {
+    if (controlsLocked) return;
     if (!modalStage || modalStage.id == null) return;
     setActionError(null);
     // A document is required unless "No attachment required" is ticked; when
@@ -522,7 +528,7 @@ export function JobStatusCard({
   /** Deletes an already-uploaded document. Purely a document action — it
    *  doesn't touch the stage's own COMPLETE status either way. */
   const handleDeleteDocument = async (docId: number, docName?: string) => {
-    if (locked) return;
+    if (controlsLocked) return;
     if (!window.confirm(`Delete ${docName ?? "this document"}?`)) return;
     setDeletingDocId(docId);
     setActionError(null);
@@ -583,6 +589,11 @@ export function JobStatusCard({
                 </button>
               </div>
             )}
+            {setupLocked ? (
+              <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-2 text-sm text-sky-800">
+                Mark this job ready before updating stage or substage progress.
+              </p>
+            ) : null}
             {milestones.length === 0 ? (
               <p className="rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2 text-sm text-slate-600">
                 No stages for this job yet.
@@ -641,9 +652,9 @@ export function JobStatusCard({
                         <input
                           type="checkbox"
                           checked={done}
-                          disabled={locked || savingId != null}
+                          disabled={controlsLocked || savingId != null}
                           onChange={() => onToggle(item)}
-                          className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-orange-600 focus:ring-orange-300"
+                          className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-orange-600 focus:ring-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <span className="min-w-0 flex-1 truncate">{item.stageName}</span>
 
@@ -678,11 +689,12 @@ export function JobStatusCard({
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={controlsLocked}
                                   onClick={(e) => {
                                     e.preventDefault();
                                     openStageModal(item);
                                   }}
-                                  className="inline-flex items-center text-slate-400 hover:text-orange-600"
+                                  className="inline-flex items-center text-slate-400 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
                                   aria-label="View or edit note"
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
@@ -691,11 +703,12 @@ export function JobStatusCard({
                             ) : (
                               <button
                                 type="button"
+                                disabled={controlsLocked}
                                 onClick={(e) => {
                                   e.preventDefault();
                                   openStageModal(item);
                                 }}
-                                className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
+                                className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 aria-label="View or edit note"
                               >
                                 {item.notes ? (
@@ -1105,8 +1118,8 @@ export function JobStatusCard({
                                     doc.documentName
                                   )
                                 }
-                                disabled={deletingDocId === doc.id}
-                                className="shrink-0 rounded-md p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                                disabled={controlsLocked || deletingDocId === doc.id}
+                                className="shrink-0 rounded-md p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 aria-label={`Delete ${doc.documentName}`}
                               >
                                 {deletingDocId === doc.id ? (
@@ -1182,6 +1195,7 @@ export function JobStatusCard({
             onClick={() => void saveStageModal()}
             disabled={
               uploading ||
+              controlsLocked ||
               (modalStage != null && savingId === modalStage.id) ||
               (!draftNotRequired &&
                 !modalHadDocument &&
