@@ -29,6 +29,7 @@ import {
 } from "@/lib/jobTimelineAnalytics";
 import {
   applyJobStageSelection,
+  markJobReady,
   setJobRequirement,
   saveJobMeasurements,
 } from "@/lib/frp/api";
@@ -256,6 +257,11 @@ export function JobWorkflowExtrasSection({
           },
         })
       );
+      // Saving the setup counts as Mark Ready. The server only flips isReady
+      // through this call, so it is made here once the stages are applied.
+      if (job.isReady !== true) {
+        await markJobReady(job.dbId);
+      }
 
       await onSavePatch({
         printDetails: {
