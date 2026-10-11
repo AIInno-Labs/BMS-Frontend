@@ -1,6 +1,6 @@
 /**
  * @deprecated Import from `@/lib/jobData` instead.
- * Kept for backward-compatible imports during the Spring Boot migration.
+ * Kept for backward-compatible imports during the Supabase migration.
  */
 export {
   buildScheduleFromJobs,

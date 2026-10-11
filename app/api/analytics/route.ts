@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
-import { emptyAnalyticsSnapshot } from "@/lib/analytics/types";
+import { fetchAnalyticsSnapshot } from "@/lib/supabase/analytics-repository";
 
 export async function GET() {
-  return NextResponse.json(emptyAnalyticsSnapshot());
+  try {
+    const snapshot = await fetchAnalyticsSnapshot();
+    return NextResponse.json(snapshot);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Analytics fetch failed";
+    console.error("[api/analytics]", message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

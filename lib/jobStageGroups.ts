@@ -1,16 +1,16 @@
-import type { Job } from "@/lib/types";
-import {
-  JOB_STATUSES,
-  JOB_STATUS_META,
-  resolveStatusGroup,
-  type AnyJobStatus,
-  type JobStatus,
-} from "@/lib/jobStatus";
+import type { Job, JobStatus } from "@/lib/types";
 
 export type JobStageGroup = "delivered" | "manufacturing" | "not-started";
 
 export function getJobStageGroup(job: Job): JobStageGroup {
-  return resolveStatusGroup(job.status);
+  if (job.status === "Complete") return "delivered";
+  if (
+    job.status === "In Fabrication" ||
+    job.status === "Ready to Manufacture"
+  ) {
+    return "manufacturing";
+  }
+  return "not-started";
 }
 
 export function jobMatchesStageGroup(job: Job, group: JobStageGroup): boolean {
@@ -21,40 +21,35 @@ export function filterJobsByStageGroup(jobs: Job[], group: JobStageGroup): Job[]
   return jobs.filter((job) => jobMatchesStageGroup(job, group));
 }
 
-/** Canonical lifecycle statuses belonging to a stage group, in order. */
-function canonicalStatusesFor(group: JobStageGroup): JobStatus[] {
-  return JOB_STATUSES.filter((status) => JOB_STATUS_META[status].group === group);
-}
-
 export const STAGE_GROUP_INFO: Record<
   JobStageGroup,
   {
     label: string;
     headline: string;
     description: string;
-    statuses: AnyJobStatus[];
+    statuses: JobStatus[];
   }
 > = {
   delivered: {
     label: "Delivered",
     headline: "Completed programs",
     description:
-      "Fabrication finished — invoiced, awaiting fulfilment, or closed out.",
-    statuses: canonicalStatusesFor("delivered"),
+      "Jobs marked Complete — fabrication finished and ready for close-out, invoicing, or archive.",
+    statuses: ["Complete"],
   },
   manufacturing: {
     label: "Manufacturing",
     headline: "Active fabrication",
     description:
-      "Released to the shop floor — in production through to QA sign-off.",
-    statuses: canonicalStatusesFor("manufacturing"),
+      "Jobs Ready to Manufacture or In Fabrication — scheduled or currently on the shop floor.",
+    statuses: ["Ready to Manufacture", "In Fabrication"],
   },
   "not-started": {
     label: "Not Started",
     headline: "Pre-production queue",
     description:
-      "Quoting, drawings, and approvals — not yet released to manufacturing.",
-    statuses: canonicalStatusesFor("not-started"),
+      "Jobs Pending, awaiting manager approval, or On Hold — not yet in active manufacturing.",
+    statuses: ["Pending", "Awaiting Manager Approval", "On Hold"],
   },
 };
 
