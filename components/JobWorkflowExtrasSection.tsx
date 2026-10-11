@@ -255,7 +255,8 @@ export function JobWorkflowExtrasSection({
               stageSelectionSource: "requirements",
             },
           },
-        })
+        }),
+        "REQUIREMENTS"
       );
       // Saving the setup counts as Mark Ready. The server only flips isReady
       // through this call, so it is made here once the stages are applied.
@@ -399,11 +400,43 @@ export function JobWorkflowExtrasSection({
     <>
       <div className="mt-4 space-y-4">
         <WidgetCard title="Project Requirements" icon={ListChecks}>
-          {job.requirementsConfirmedAt == null && (
-            <span className="mb-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-              Select project requirements
-            </span>
-          )}
+          {(() => {
+            // Prefer the job column; fall back to the card JSON for jobs saved
+            // before stage_selection_source existed.
+            const extrasSource =
+              extras.stageSelectionSource === "manual"
+                ? "MANUAL"
+                : extras.stageSelectionSource === "requirements"
+                  ? "REQUIREMENTS"
+                  : null;
+            const source = job.stageSelectionSource ?? extrasSource;
+
+            if (source === "MANUAL") {
+              return (
+                <span className="mb-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                  Stages overridden by job settings
+                </span>
+              );
+            }
+            if (
+              job.requirementsConfirmedAt != null &&
+              source === "REQUIREMENTS"
+            ) {
+              return (
+                <span className="mb-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                  Stages overridden by project requirements
+                </span>
+              );
+            }
+            if (job.requirementsConfirmedAt == null) {
+              return (
+                <span className="mb-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                  Select project requirements
+                </span>
+              );
+            }
+            return null;
+          })()}
           {requirementsSaveError ? (
             <p className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               <span>{requirementsSaveError}</span>

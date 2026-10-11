@@ -2020,7 +2020,8 @@ export function JobWorkflowDashboard({
             if (job.dbId != null) {
               await applyJobStageSelection(
                 job.dbId,
-                stageKeysForManualSelection(stageModalDraft)
+                stageKeysForManualSelection(stageModalDraft),
+                "MANUAL"
               );
               // Saving the stage setup counts as Mark Ready (see the
               // requirements save in JobWorkflowExtrasSection).

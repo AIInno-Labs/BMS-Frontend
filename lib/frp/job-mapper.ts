@@ -70,6 +70,8 @@ export interface FrpJobSummaryDTO {
    * When project requirements were first saved. Null until then; one-time.
    */
   requirementsConfirmedAt?: string | null;
+  /** `REQUIREMENTS` | `MANUAL` | `NONE` — null until either path has run. */
+  stageSelectionSource?: "REQUIREMENTS" | "MANUAL" | "NONE" | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   createdDate?: string;
@@ -155,6 +157,8 @@ export interface FrpJobDTO {
    * `READ_ONLY` — when requirements were first saved. Null until then; one-time.
    */
   requirementsConfirmedAt?: string | null;
+  /** `READ_ONLY` — which UI path last applied stage selection. */
+  stageSelectionSource?: "REQUIREMENTS" | "MANUAL" | "NONE" | null;
 }
 
 /** `JobProjectRequirementDTO` — one project requirement row. */
@@ -739,6 +743,7 @@ export function frpJobSummaryToUi(dto: FrpJobSummaryDTO): Job {
     ignoreOverdue: dto.ignoreOverdue ?? false,
     isReady: dto.isReady === true,
     requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
+    stageSelectionSource: dto.stageSelectionSource ?? null,
     clientContactName: dto.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
@@ -969,6 +974,7 @@ export function frpJobToUi(dto: FrpJobDTO): Job {
     ignoreOverdue: dto.ignoreOverdue ?? false,
     isReady: dto.isReady === true,
     requirementsConfirmedAt: dto.requirementsConfirmedAt ?? null,
+    stageSelectionSource: dto.stageSelectionSource ?? null,
     clientContactName: dto.contactDetails?.contactName ?? "",
     assignedWorkerId: userIdToUi(dto.assignedUserId),
     assignedWorkerName: null,
