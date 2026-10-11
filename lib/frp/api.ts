@@ -1169,13 +1169,22 @@ export async function listJobStages(
  * its own keeps all of them, so "the whole milestone applies" needs no
  * enumeration.
  */
+export type StageSelectionSource = "REQUIREMENTS" | "MANUAL" | "NONE";
+
 export async function applyJobStageSelection(
   dbId: string | number,
-  stageKeys: string[]
+  stageKeys: string[],
+  source?: StageSelectionSource
 ): Promise<FrpJobStageDTO[]> {
   return frpFetch<FrpJobStageDTO[]>(
     `/jobs/${encodeURIComponent(String(dbId))}/stages/selection`,
-    { method: "PUT", body: JSON.stringify({ stageKeys }) }
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        stageKeys,
+        ...(source ? { source } : {}),
+      }),
+    }
   );
 }
 

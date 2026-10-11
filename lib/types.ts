@@ -219,6 +219,11 @@ export interface Job {
    * (drives the "Select project requirements" flag).
    */
   requirementsConfirmedAt?: string | null;
+  /**
+   * Job column — which UI path last applied stage selection.
+   * Null until either Project Requirements or Job Settings has run.
+   */
+  stageSelectionSource?: "REQUIREMENTS" | "MANUAL" | "NONE" | null;
   /** Furthest milestone that's complete or active, e.g. `"design"`. `READ_ONLY`. */
   currentStageKey?: string | null;
   /** Id of that milestone — `JobDTO.currentStageId`. Sent as `jobStageId` on document upload. */
