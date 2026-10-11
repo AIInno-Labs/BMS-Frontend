@@ -1,6 +1,7 @@
 "use client";
 
 import { useJobs } from "@/context/JobsContext";
+import { Spinner } from "@/components/ui/Loading";
 
 const fieldClass =
   "mt-1 w-full min-h-[40px] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20";
@@ -38,18 +39,29 @@ export function RaisedBySelect({
 
   if (!hydrated || directorsLoading) {
     return (
-      <select disabled className={selectClass} aria-label="Raised by">
-        <option>Loading directors…</option>
-      </select>
+      <div className="relative">
+        <select disabled className={selectClass} aria-label="Raised by">
+          <option>Loading…</option>
+        </select>
+        <Spinner
+          size="xs"
+          className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2"
+        />
+      </div>
     );
   }
 
   if (directors.length === 0) {
     return (
-      <p className="text-sm text-amber-700">
-        No directors in database. Run{" "}
-        <code className="text-xs">supabase/scripts/directors-setup.sql</code> in Supabase.
-      </p>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder="Raised by (free text)"
+        className={selectClass}
+        aria-label="Raised by"
+      />
     );
   }
 

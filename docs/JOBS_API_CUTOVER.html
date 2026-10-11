@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobs API cutover — what changed</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#fff; --ink:#1a1a18; --muted:#6b6b66; --line:#e4e4df;
+    --ok:#1a7f4b; --ok-bg:#e8f5ee; --bad:#b4241f; --bad-bg:#fdeceb;
+    --warn:#8a5a00; --warn-bg:#fdf3e0; --new:#1d5fa8; --new-bg:#e8f0fb;
+    --code-bg:#f4f4f1; --del:#b4241f; --add:#1a7f4b;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#151513; --panel:#1d1d1a; --ink:#eceae4; --muted:#9a9a92; --line:#33332e;
+      --ok:#5cc98d; --ok-bg:#16301f; --bad:#f2867f; --bad-bg:#3a1c1a;
+      --warn:#e5b361; --warn-bg:#38290f; --new:#7fb2ee; --new-bg:#14263c;
+      --code-bg:#262622; --del:#f2867f; --add:#5cc98d;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#151513; --panel:#1d1d1a; --ink:#eceae4; --muted:#9a9a92; --line:#33332e;
+    --ok:#5cc98d; --ok-bg:#16301f; --bad:#f2867f; --bad-bg:#3a1c1a;
+    --warn:#e5b361; --warn-bg:#38290f; --new:#7fb2ee; --new-bg:#14263c;
+    --code-bg:#262622; --del:#f2867f; --add:#5cc98d;
+  }
+  :root[data-theme="light"]{
+    --bg:#fbfbfa; --panel:#fff; --ink:#1a1a18; --muted:#6b6b66; --line:#e4e4df;
+    --ok:#1a7f4b; --ok-bg:#e8f5ee; --bad:#b4241f; --bad-bg:#fdeceb;
+    --warn:#8a5a00; --warn-bg:#fdf3e0; --new:#1d5fa8; --new-bg:#e8f0fb;
+    --code-bg:#f4f4f1; --del:#b4241f; --add:#1a7f4b;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 20px 100px}
+
+  header.top{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px}
+  h1{font-size:clamp(23px,4vw,34px);line-height:1.15;margin:0 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:15px;margin:0;max-width:80ch}
+  .meta{margin-top:13px;font-family:var(--mono);font-size:12px;color:var(--muted);line-height:1.9}
+  .meta b{color:var(--ink);font-weight:600}
+
+  h2{font-size:19px;margin:48px 0 6px;letter-spacing:-.01em;
+     padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h2 .n{font-family:var(--mono);font-size:13px;color:var(--muted);margin-right:10px}
+  h3{font-size:14.5px;margin:26px 0 8px;letter-spacing:-.01em}
+  p.note{color:var(--muted);font-size:14px;margin:9px 0 16px;max-width:80ch}
+
+  code{font-family:var(--mono);font-size:12.5px;background:var(--code-bg);
+       padding:1px 5px;border-radius:3px;word-break:break-word}
+  td code{font-size:11.5px;padding:1px 4px}
+
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;
+          background:var(--panel);margin:14px 0 8px}
+  table{border-collapse:collapse;width:100%;min-width:720px;font-size:13px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+     color:var(--muted);font-weight:600;padding:11px 13px;
+     border-bottom:1px solid var(--line);white-space:nowrap;background:var(--panel);
+     position:sticky;top:0}
+  td{padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+
+  .tag{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:700;
+       letter-spacing:.04em;padding:3px 7px;border-radius:4px;white-space:nowrap}
+  .t-new{color:var(--new);background:var(--new-bg)}
+  .t-mod{color:var(--warn);background:var(--warn-bg)}
+  .t-fix{color:var(--ok);background:var(--ok-bg)}
+  .t-open{color:var(--bad);background:var(--bad-bg)}
+
+  tr.fix td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+  tr.open td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+  tr.mod td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+  tr.new td:first-child{box-shadow:inset 3px 0 0 var(--new)}
+
+  .why{display:block;margin-top:5px;font-size:12px;color:var(--muted)}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:24px 0 8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .card .num{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1}
+  .card .lbl{font-size:11.5px;color:var(--muted);margin-top:5px;text-transform:uppercase;letter-spacing:.05em}
+  .card.ok .num{color:var(--ok)} .card.bad .num{color:var(--bad)}
+  .card.new .num{color:var(--new)}
+
+  .callout{border-left:3px solid var(--muted);background:var(--code-bg);
+           padding:14px 17px;border-radius:0 7px 7px 0;margin:18px 0;font-size:13.5px}
+  .callout.b{border-left-color:var(--bad);background:var(--bad-bg)}
+  .callout.g{border-left-color:var(--ok);background:var(--ok-bg)}
+  .callout.w{border-left-color:var(--warn);background:var(--warn-bg)}
+  .callout p{margin:0 0 8px} .callout p:last-child{margin:0}
+
+  .diff{font-family:var(--mono);font-size:12px;background:var(--panel);
+        border:1px solid var(--line);border-radius:7px;overflow-x:auto;margin:12px 0}
+  .diff div{padding:2px 14px;white-space:pre}
+  .diff .d{color:var(--del);background:var(--bad-bg)}
+  .diff .a{color:var(--add);background:var(--ok-bg)}
+  .diff .c{color:var(--muted)}
+
+  .flow{font-family:var(--mono);font-size:12px;background:var(--code-bg);
+        border:1px solid var(--line);border-radius:7px;padding:15px 17px;
+        overflow-x:auto;white-space:pre;margin:14px 0;line-height:1.65}
+
+  ul{padding-left:19px;margin:9px 0} li{margin:5px 0;font-size:13.5px}
+
+  footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:12.5px;line-height:1.8}
+  @media(max-width:640px){ .wrap{padding:26px 14px 70px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>Jobs API cutover — what changed</h1>
+  <p class="sub">The frontend now speaks the job API the Spring Boot backend actually serves. Every change below is against what the backend requires, per <code>frp/docs/domain-schema-api.html</code> Rev 2 and the shipped controllers.</p>
+  <p class="meta">
+    <b>Direction</b> Option A — Rev 2 governs the domain; the frontend adapts<br>
+    <b>Scope</b> jobs only · frontend + 4 backend files · auth/users/roles/privileges/parameters untouched<br>
+    <b>Verified</b> <code>tsc --noEmit</code> 722 files, 0 errors · backend full recompile on JDK 26, 0 errors<br>
+    <b>Components changed</b> 5 · counts rewired in 3, two call sites in the rest
+  </p>
+</header>
+
+<div class="cards">
+  <div class="card new"><div class="num">2</div><div class="lbl">Files added</div></div>
+  <div class="card"><div class="num">11</div><div class="lbl">Files changed</div></div>
+  <div class="card ok"><div class="num">10</div><div class="lbl">Breaks fixed</div></div>
+  <div class="card bad"><div class="num">4</div><div class="lbl">Still blocked</div></div>
+</div>
+
+<div class="callout g">
+  <p><b>Why no component rewrites were needed.</b> The UI already compares status against the exact seven strings that map 1:1 onto the backend enum — <code>"Pending"</code>, <code>"Awaiting Manager Approval"</code>, <code>"Ready to Manufacture"</code>, <code>"In Fabrication"</code>, <code>"On Hold"</code>, <code>"Complete"</code>, <code>"Cancelled"</code> — across <code>Dashboard</code>, <code>JobsList</code>, <code>AnalyticsPage</code>, <code>FactoryCommandPanel</code> and <code>CreateNewJobDrawer</code>. Adding a translation layer at the API boundary was enough; every component kept compiling untouched.</p>
+</div>
+
+<!-- ================================================================= -->
+<h2><span class="n">01</span>Endpoints — before and after</h2>
+
+<div class="scroll"><table>
+<thead><tr><th>Operation</th><th>Was calling</th><th>Now calls</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr class="fix"><td>List jobs</td>
+    <td><code>GET /jobs?sort=createdDate,desc&amp;size=500</code></td>
+    <td><code>GET /jobs?sort=RECENT&amp;size=200</code><span class="why">→ <code>PageResponse&lt;JobSummaryDTO&gt;</code></span></td>
+    <td><span class="tag t-fix">400 → 200</span></td></tr>
+<tr class="fix"><td>Get one job</td><td><code>GET /jobs/{jobNumber}</code></td>
+    <td><code>GET /jobs/{dbId}</code></td><td><span class="tag t-fix">400 → 200</span></td></tr>
+<tr class="fix"><td>Create</td><td><code>POST /jobs</code> + a <code>/customers</code> pre-step</td>
+    <td><code>POST /jobs</code> then <code>PUT /jobs/{id}/job-card</code></td><td><span class="tag t-fix">403 → 200</span></td></tr>
+<tr class="fix"><td>Update fields</td><td><code>PATCH /jobs/{jobNumber}</code></td>
+    <td><code>PUT /jobs</code> with <code>id</code> + <code>version</code></td><td><span class="tag t-fix">404 → 200</span></td></tr>
+<tr class="fix"><td>Save job card</td><td>nested in the PATCH body — went nowhere</td>
+    <td><code>PUT /jobs/{id}/job-card?version=</code></td><td><span class="tag t-fix">now persists</span></td></tr>
+<tr class="fix"><td>Change status</td><td>a <code>status</code> field the backend ignores</td>
+    <td><code>GET /jobs/{id}/stages</code> → <code>PUT /jobs/{id}/stages/{stageId}</code></td><td><span class="tag t-fix">no-op → real</span></td></tr>
+<tr class="fix"><td>Audit trail</td><td><code>GET /jobs/{jobNumber}/audit</code></td>
+    <td><code>GET /jobs/{dbId}/audit</code></td><td><span class="tag t-fix">400 → 200</span></td></tr>
+<tr class="fix"><td>Staff roster</td><td>hardcoded <code>[]</code></td>
+    <td><code>GET /users</code> → <code>DbStaffRow[]</code></td><td><span class="tag t-fix">now populated</span></td></tr>
+<tr class="new"><td>Cancel a job</td><td>—</td><td><code>DELETE /jobs/{id}</code></td><td><span class="tag t-new">NEW</span></td></tr>
+<tr class="fix"><td>KPI counts</td><td>derived client-side from the loaded page</td>
+    <td><code>GET /jobs/counts</code> — <b>wired into every tile</b>, see §06</td><td><span class="tag t-fix">now correct</span></td></tr>
+<tr class="new"><td>Stages / scan</td><td>—</td><td><code>listJobStages</code> · <code>updateJobStage</code> · <code>scanJobStage</code></td><td><span class="tag t-new">NEW</span></td></tr>
+<tr class="mod"><td>Customers</td><td><code>GET/POST /customers</code></td>
+    <td><b>removed</b> — backend resolves the customer inline from <code>customerCompanyName</code></td><td><span class="tag t-mod">DELETED</span></td></tr>
+</tbody></table></div>
+
+<!-- ================================================================= -->
+<h2><span class="n">02</span>Files</h2>
+
+<div class="scroll"><table>
+<thead><tr><th>File</th><th>Change</th></tr></thead>
+<tbody>
+<tr class="new"><td><code>lib/frp/job-status.ts</code><br><span class="tag t-new">NEW</span></td>
+    <td>The presentation layer Rev 2 §7.1 assumes exists but neither side had written. Backend enum ↔ UI label for status, priority, resin, plus <code>STATUS_TARGET_STAGE</code> mapping a target status to the stage that must move. The only place either vocabulary is spelled out.</td></tr>
+<tr class="mod"><td><code>lib/frp/job-mapper.ts</code></td>
+    <td>Rewritten. DTO interfaces now mirror <code>JobDTO</code>, <code>JobSummaryDTO</code>, <code>JobCountsDTO</code>, <code>JobAuditHistoryDTO</code>, <code>JobStageDTO</code> exactly. Added <code>frpJobSummaryToUi</code> (list rows carry no card) and <code>uiJobToJobCardPayload</code>.</td></tr>
+<tr class="mod"><td><code>lib/frp/api.ts</code></td>
+    <td>Jobs section rewritten against the real routes; stage helpers and <code>advanceJobStatus</code> added; the <code>/customers</code> client deleted with a comment explaining why.</td></tr>
+<tr class="mod"><td><code>context/JobsContext.tsx</code></td>
+    <td>Create and update rewritten to the real call sequence. Staff roster from <code>GET /users</code>. Added <code>loadJobDetail</code> for the full record. Stopped swallowing 403.</td></tr>
+<tr class="mod"><td><code>lib/frp/job-audit.ts</code></td>
+    <td>Reads <code>eventCode</code>/<code>actor</code>/<code>occurredAt</code> instead of the <code>action</code>/<code>performedBy</code>/<code>performedAt</code> fields the backend never sent, and renders the structured <code>detail</code> map.</td></tr>
+<tr class="mod"><td><code>lib/types.ts</code></td>
+    <td><code>Job</code> gains <code>version</code>, <code>customerId</code>, <code>quoteNumber</code>, <code>origin</code>, <code>percentComplete</code>.</td></tr>
+<tr class="mod"><td><code>app/api/jobs/[jobNumber]/</code> → <code>[jobId]/</code></td>
+    <td>Renamed; the print proxy resolves by database id and rejects a non-numeric segment with a clear 400 instead of forwarding a request that cannot succeed.</td></tr>
+<tr class="mod"><td><code>components/JobCard.tsx</code> · <code>JobWorkflowDashboard.tsx</code></td>
+    <td>Two call sites pass <code>job.dbId</code> where a job number was being passed. No other component logic touched.</td></tr>
+<tr class="mod"><td><code>package.json</code></td>
+    <td><code>BMS_API_SPEC</code> repointed from <code>../BMS-backend/</code> (does not exist) to <code>../frp/</code>, so <code>api:types</code>, <code>api:mock</code> and <code>api:lint</code> run.</td></tr>
+</tbody></table></div>
+
+<!-- ================================================================= -->
+<h2><span class="n">03</span>The three translations</h2>
+<p class="note">Rev 2 §7.1: <i>"the prototype's display strings become a presentation concern, not a stored value."</i> This is that concern, implemented.</p>
+
+<div class="flow">STATUS   PENDING ←→ "Pending"                        The seven UI strings map 1:1
+         AWAITING_MANAGER_APPROVAL ←→ "Awaiting Manager Approval"
+         READY_TO_MANUFACTURE ←→ "Ready to Manufacture"
+         IN_FABRICATION ←→ "In Fabrication"
+         ON_HOLD ←→ "On Hold"
+         COMPLETE ←→ "Complete"
+         CANCELLED ←→ "Cancelled"
+
+         The 15 PRD lifecycle labels collapse onto these seven — many-to-one,
+         derived from JOB_STATUS_META[].group so it cannot drift.
+
+PRIORITY NORMAL ←→ "Normal"     Was sending "Normal" → 400 (Jackson is case-sensitive),
+         HIGH   ←→ "High"       and reading "HIGH" → silently displayed "Normal".
+         RUSH   ←→ "RUSH"
+
+RESIN    ISO  ←→ "Isophthalic Polyester"    resin_code, seeded by migration V7.
+         VE   ←→ "Vinyl Ester"              The catalogue exists because the same
+         PHEN ←→ "Phenolic"                 three resins were spelled three ways.</div>
+
+<!-- ================================================================= -->
+<h2><span class="n">04</span>Status changes now go through stages</h2>
+<p class="note">This is the part that was silently doing nothing before. <code>stageStatus</code> is <code>READ_ONLY</code> on <code>JobDTO</code> and recomputed by <code>JobStageServiceImpl.recomputeJobStatus</code> — "a cache with exactly one writer". So a status change is a stage change.</p>
+
+<div class="flow">updateJob(job)
+  │
+  ├─ status differs from the loaded value?
+  │     ├─ CANCELLED     → DELETE /jobs/{id}
+  │     └─ otherwise     → GET  /jobs/{id}/stages          find stageKey
+  │                        PUT  /jobs/{id}/stages/{id}     move it
+  │                        GET  /jobs/{id}                 re-read the bumped version
+  │
+  ├─ PUT /jobs                        fields + id + version
+  └─ PUT /jobs/{id}/job-card?version= the card, replaced as a unit
+
+Stage keys, from recomputeJobStatus:
+  approval  complete  → READY_TO_MANUFACTURE      production in-progress → IN_FABRICATION
+  completed complete  → COMPLETE                  production blocked     → ON_HOLD</div>
+
+<div class="callout w">
+  <p><b>Re-reading the version is conditional, deliberately.</b> A stage move bumps the row, so the token the edit was loaded with goes stale through no fault of the user — that case re-reads. Re-reading <em>unconditionally</em> would refresh past a genuinely concurrent edit and quietly defeat the optimistic lock, which is the exact lost-update problem Rev 2 §06 added <code>@Version</code> to prevent. When no stage moved, the loaded version is sent as-is and a real conflict surfaces as 409.</p>
+</div>
+
+<!-- ================================================================= -->
+<h2><span class="n">05</span>Job numbers now come from the frontend</h2>
+<p class="note">This one is a <b>backend</b> change as well — the frontend could not have done it alone.</p>
+
+<div class="callout w">
+  <p><b>Before:</b> <code>JobDTO.jobNumber</code> was <code>@JsonProperty(access = READ_ONLY)</code>, so Jackson dropped it inbound and <code>create()</code> never read it. Every factory job got a sequence value like <code>JOB-0007</code>, and the number typed into the create drawer was silently discarded.</p>
+  <p><b>After:</b> the field is writable on create. A supplied number is used; omitting it still allocates from <code>SequenceGeneratorService</code>. Quote-derived jobs remain <code>JOB-Q-{quoteNumber}</code>.</p>
+</div>
+
+<div class="scroll"><table>
+<thead><tr><th>Rule</th><th>Where enforced</th></tr></thead>
+<tbody>
+<tr class="fix"><td><b>No prefix required</b> — <code>JOB-1101</code>, <code>1101</code>, <code>A-22/B</code> all valid</td>
+    <td>Only the character set and length are checked: <code>^[A-Za-z0-9._-]+$</code>, ≤ 64 chars (matching <code>job_number VARCHAR(64)</code> in V3). Same rule on both sides.</td></tr>
+<tr class="fix"><td><b>Unique per organization</b></td>
+    <td>Three layers: the drawer checks loaded jobs, <code>existsByJobNumberAndOrganizationId</code> checks the tenant, and <code>uk_job_org_job_number</code> is the backstop for the check-then-insert race.</td></tr>
+<tr class="fix"><td><b>Upper-cased on the server</b></td>
+    <td>Postgres compares text case-sensitively, so without this <code>job-1101</code> and <code>JOB-1101</code> would both insert and the numbers would not actually be unique. Normalising buys case-insensitive uniqueness with no functional index.</td></tr>
+<tr class="fix"><td><b>Immutable after create</b></td>
+    <td><code>update()</code> already had this guard — it was dead code while the field was <code>READ_ONLY</code> and always arrived null. It is live now.</td></tr>
+</tbody></table></div>
+
+<h3>Duplicates return a clean 409</h3>
+<p class="note">With numbers coming from the client, collisions go from near-impossible to routine, so the error path started to matter.</p>
+<div class="diff">
+<div class="c">before — same failure, two different answers</div>
+<div class="d">- app-level check → OperationNotPermittedException → 400</div>
+<div class="d">- lost the race   → DataIntegrityViolationException → 409, body containing</div>
+<div class="d">    'duplicate key value violates unique constraint "uk_job_org_job_number"'</div>
+<div class="c">after</div>
+<div class="a">+ both paths → 409, businessErrorCode 306,</div>
+<div class="a">    "That job number is already used in this organization"</div>
+<div class="a">+ raw constraint text is logged, not returned</div>
+</div>
+<p class="note">New <code>DuplicateResourceException</code> renders as 409 rather than reusing <code>OperationNotPermittedException</code>: a duplicate is not a malformed request, and the caller's remedy is a different value rather than a corrected one.</p>
+
+<div class="callout b">
+  <p><b>Two things the operator should know.</b> The drawer's suggested number (<code>max + 1</code>) is derived only from the jobs this browser has loaded — one capped page — so with more jobs than that, or two people creating at once, it will propose one that is taken. It is a starting point, not an allocation; the 409 is the real answer. <b>Leaving the field empty is the only collision-free option</b>, since the sequence generator allocates server-side.</p>
+  <p>Also: manual numbers and the sequence share one namespace. Type <code>JOB-1101</code> while the sequence sits at <code>JOB-0007</code> and nothing breaks now, but the sequence will eventually reach 1101 and that create will fail as a duplicate. Advancing the sequence past a manually-supplied number would fix it — not done here, as it needs a floor-setting API the generator does not expose.</p>
+</div>
+
+<!-- ================================================================= -->
+<h2><span class="n">06</span>All counts come from <code>GET /jobs/counts</code></h2>
+<p class="note">Frontend-only change. Every KPI tile, donut segment and stage card now reads one org-wide aggregate instead of tallying the array this browser happens to hold.</p>
+
+<div class="callout b">
+  <p><b>The tiles were under-reporting, and would have got worse.</b> They counted the loaded <code>jobs</code> array — one page, now capped at 200 (it was requesting 500, which the contract caps at 200 anyway). A tenant with 250 jobs saw "ACTIVE JOBS" computed from 200 of them. The number sat directly above a table drawn from the same partial list, so nothing looked wrong.</p>
+  <p><code>JobCountsDTO</code> aggregates in the database across the whole organization, so it stays right regardless of page size.</p>
+</div>
+
+<div class="scroll"><table>
+<thead><tr><th>Surface</th><th>Was</th><th class="w">Now</th></tr></thead>
+<tbody>
+<tr class="fix"><td><code>DashboardKpiCards</code><span class="why">Active · Manufacturing · Delivered · Overdue</span></td>
+    <td>four <code>jobs.filter(...).length</code> passes, including an <code>Overdue</code> pass that re-parsed every due date in the browser</td>
+    <td><code>counts.active</code>, <code>.manufacturing</code>, <code>.delivered</code>, <code>.overdue</code></td></tr>
+<tr class="fix"><td><code>Dashboard</code><span class="why">delayed, ready, fabrication, awaiting, active, donut</span></td>
+    <td>eight <code>useMemo</code> tallies over <code>jobs</code></td>
+    <td>direct reads — the memos are gone, since there is nothing left to compute</td></tr>
+<tr class="fix"><td><code>JobsList</code> stage cards<span class="why">Not Started · Manufacturing · Delivered</span></td>
+    <td>three filters over the <code>jobs</code> prop</td>
+    <td><code>stageGroupCounts(counts)</code>, shared with the dashboard donut so the two can no longer disagree</td></tr>
+</tbody></table></div>
+
+<h3>One source, one fallback</h3>
+<div class="flow">lib/frp/job-counts.ts
+
+  countsFromDto(dto)     GET /jobs/counts        → authoritative: true
+  deriveFromJobs(jobs)   fallback, loaded page   → authoritative: false
+  stageGroupCounts(c)    the three buckets, shared by the donut and stage cards
+
+JobsContext.refreshJobs()
+  ├─ listJobs(...)              the page the table renders
+  └─ getJobCounts()             the numbers every tile renders
+       └─ on failure → deriveFromJobs(list)</div>
+
+<p class="note">The fallback matters because <code>/jobs/counts</code> carries <code>JOB_READ</code> like everything else: a role without it, or an older backend, would otherwise blank every tile to zero. Falling back to the loaded page keeps them plausible — and <code>authoritative: false</code> records that they are a floor rather than a total, if you later want to surface that in the UI.</p>
+
+<!-- ================================================================= -->
+<h2><span class="n">07</span>Two silent failures, now loud</h2>
+
+<div class="diff">
+<div class="c">context/JobsContext.tsx — refreshJobs</div>
+<div class="d">- if (e.status === 403 || e.status === 401 || e.status === 500) {</div>
+<div class="d">-   setJobs([]); setError(null); return [];   // renders as "no jobs"</div>
+<div class="a">+ if (e instanceof FrpApiError &amp;&amp; e.status === 403) {</div>
+<div class="a">+   setError("You do not have access to jobs. If you are an organization</div>
+<div class="a">+     admin, the JOB_* privileges may not be granted to your role yet.");</div>
+</div>
+
+<div class="callout b">
+  <p><b>That swallow was hiding the highest-priority backend bug.</b> <code>PrivilegeCatalogSynchronizer</code> reconciles newly-discovered <code>JOB_*</code>, <code>QUOTE_*</code> and <code>STAGE_ADVANCE</code> codes onto <code>SUPER_ADMIN</code> only; for <code>ORG_ADMIN</code> it back-fills exactly one code, <code>INTEGRATION_PARAM_MANAGE</code>. Any org admin whose role predates the job module holds none of the job privileges, and the interceptor is deny-by-default.</p>
+  <p>The frontend will now say so. <b>The backend fix is still required</b> — a one-method change in <code>PrivilegeCatalogSynchronizer.java:112</code> to grant all non-platform ACTION codes, matching what org provisioning already does at creation time. Until it lands, an existing tenant still sees no jobs.</p>
+</div>
+
+<div class="diff">
+<div class="c">lib/frp/job-mapper.ts — priority and version</div>
+<div class="d">- if (value === "Normal" || value === "High") return value;  // "NORMAL" fell through</div>
+<div class="d">- return "Normal";                                           // HIGH displayed as Normal</div>
+<div class="a">+ return PRIORITY_TO_UI[value.trim().toUpperCase()] ?? "Normal";</div>
+<div class="c"></div>
+<div class="a">+ if (job.version == null) throw new Error(`Job ${job.id} has no version —</div>
+<div class="a">+   refresh before saving, or the backend will reject the write.`);</div>
+</div>
+
+<!-- ================================================================= -->
+<h2><span class="n">08</span>Still blocked on the backend</h2>
+<p class="note">Not worked around. Each fails with a specific message rather than appearing to succeed.</p>
+
+<div class="scroll"><table>
+<thead><tr><th>Capability</th><th>Needs</th><th>Current behaviour</th></tr></thead>
+<tbody>
+<tr class="open"><td>Jobs visible to existing org admins</td>
+    <td><code>PrivilegeCatalogSynchronizer</code> back-fill</td>
+    <td>Explicit "you do not have access" message. <b>Ship this first — it gates everything else.</b></td></tr>
+<tr class="open"><td>Manufacturing / install / QA flags</td>
+    <td>Add them to <code>JobDTO</code> — Rev 2 §07 lists them on the entity, the DTO omits them</td>
+    <td>Carried in the job-card JSON so they round-trip. Move to real fields once exposed.</td></tr>
+<tr class="open"><td>Customer directory &amp; contact name</td>
+    <td><code>CustomerController</code> (Rev 2 §16 <code>CUSTOMER_READ</code>)</td>
+    <td>Create works via inline resolution; <code>clientContactName</code> is write-only and reads back empty.</td></tr>
+<tr class="open"><td>Floor rebalance</td>
+    <td><code>POST /floor/rebalance</code> (Rev 2 §13)</td>
+    <td>Returns a message naming the missing endpoint instead of a fake result.</td></tr>
+<tr class="open"><td>Job-card print audit row</td>
+    <td><code>GET /jobs/{id}/job-card-html</code> (Rev 2 §13)</td>
+    <td>Next.js proxies it; the <code>JOB_CARD_DOWNLOADED</code> row is not written.</td></tr>
+<tr class="open"><td>Analytics · inventory · quotes screen</td>
+    <td><code>GET /analytics</code>, <code>GET /inventory</code>; quotes needs a frontend fix</td>
+    <td>Untouched — out of scope for the jobs cutover. <code>QuotesPage</code> still reads Supabase snake_case.</td></tr>
+</tbody></table></div>
+
+<!-- ================================================================= -->
+<h2><span class="n">09</span>How to verify</h2>
+<div class="flow"># backend
+cd frp &amp;&amp; ./mvnw spring-boot:run          # Postgres on :5432, API on :8080/api/v1
+
+# frontend
+cd FRP-frontend &amp;&amp; npm run dev            # :3000
+
+# already passing
+./node_modules/.bin/tsc --noEmit          # 722 files, 0 errors, strict
+
+Then, signed in as a user holding JOB_READ:
+  /jobs        list loads, status and priority correct, assignee resolves
+  /jobs/[id]   card loads; Save persists; Print opens
+  status edit  moves the stage, badge follows, audit row appears
+  create       no /customers call; company resolved from the name</div>
+
+<div class="callout">
+  <p><b>If the job list is empty and shows the access message,</b> that is the privilege back-fill, not the cutover. Confirm with <code>GET /auth/me</code> — <code>rolesPrivileges</code> will not contain <code>JOB_READ</code>. Granting it to the <code>ORG_ADMIN</code> role, or applying the synchronizer fix, resolves it.</p>
+</div>
+
+<footer>
+  Frontend <code>FRP-frontend</code> @ <code>del-1</code> · backend <code>frp</code> @ <code>main</code>.<br>
+  Written against <code>frp/docs/domain-schema-api.html</code> Rev 2 §06/§07/§13/§16 and the shipped
+  <code>JobController</code>, <code>JobDTO</code>, <code>JobSummaryDTO</code>, <code>JobStageServiceImpl</code>, <code>JobStatusLabel</code>, migrations <code>V3</code>/<code>V7</code>.<br>
+  Companions: <code>frp/docs/frontend-backend-contract-map.html</code> · <code>API_ALIGNMENT_PLAN.md</code>.
+</footer>
+
+</div>
+</body>
+</html>

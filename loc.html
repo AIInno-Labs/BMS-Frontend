@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Letter of Compliance</title>
+
+<style>
+
+*{
+    box-sizing:border-box;
+    margin:0;
+    padding:0;
+    font-family:Arial, sans-serif;
+}
+
+body{
+    padding:20px;
+    background:#fff;
+}
+
+body.jc-print{
+    padding:0;
+    margin:0;
+    background:#fff;
+}
+
+@page{
+    size:A4 portrait;
+    margin:2mm;
+}
+
+@media print{
+    html,body{
+        width:100%;
+        margin:0;
+        padding:0;
+        background:#fff;
+    }
+}
+
+.loc-doc{
+    max-width:720px;
+    margin:0 auto;
+    padding:16mm 14mm;
+}
+
+.loc-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    border-bottom:2px solid #1c1c1c;
+    padding-bottom:14px;
+    margin-bottom:24px;
+}
+
+.loc-brand img{
+    height:38px;
+}
+
+.loc-meta{
+    text-align:right;
+    font-size:11px;
+    color:#333;
+    line-height:1.7;
+}
+
+.loc-meta b{
+    color:#111;
+    font-weight:700;
+}
+
+.loc-title{
+    text-align:center;
+    margin-bottom:24px;
+}
+
+.loc-title h1{
+    font-size:20px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    font-weight:700;
+}
+
+.loc-title p{
+    font-size:10px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:#777;
+    margin-top:4px;
+}
+
+.loc-para{
+    font-size:13px;
+    line-height:1.8;
+    color:#222;
+    margin-bottom:22px;
+}
+
+.loc-para b{
+    font-weight:700;
+    color:#111;
+}
+
+.loc-section-title{
+    background:#2c5985;
+    color:#fff;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    padding:7px 12px;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+}
+
+.loc-spec-box{
+    border:1px solid #999;
+    border-top:none;
+    padding:12px 14px;
+    margin-bottom:22px;
+    font-size:12px;
+    line-height:1.6;
+    color:#222;
+    min-height:48px;
+    white-space:pre-wrap;
+}
+
+.loc-notes{
+    font-size:11px;
+    color:#444;
+    line-height:1.6;
+    margin:-10px 0 22px;
+    white-space:pre-wrap;
+}
+
+.loc-notes:empty{
+    display:none;
+    margin:0;
+}
+
+.loc-notes:not(:empty)::before{
+    content:"Notes";
+    display:block;
+    font-size:9px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:#777;
+    margin-bottom:4px;
+}
+
+.loc-sign-block{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    margin-bottom:22px;
+}
+
+.loc-sign-cell{
+    width:260px;
+    max-width:100%;
+    padding:10px 0;
+    text-align:left;
+}
+
+.loc-sign-k{
+    font-size:9px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:#777;
+    margin-bottom:8px;
+}
+
+.loc-sign-v{
+    font-size:13px;
+    color:#111;
+    font-weight:600;
+}
+
+.loc-sign-line{
+    width:160px;
+    margin-top:26px;
+    border-bottom:1px solid #999;
+}
+
+.loc-footer{
+    margin-top:32px;
+    font-size:8px;
+    color:#9a9a9a;
+    letter-spacing:0.02em;
+    border-top:1px solid #e2e2e2;
+    padding-top:8px;
+}
+
+</style>
+</head>
+<body class="jc-print">
+
+<div class="loc-doc">
+
+  <div class="loc-header">
+    <div class="loc-brand">
+      <img src="./public/frp-logo-lockup-trimmed.png" alt="FRP Engineering">
+    </div>
+    <div class="loc-meta">
+      Job # <b data-jc="jobNumber"></b><br>
+      Date <b data-jc="documentDate"></b>
+    </div>
+  </div>
+
+  <div class="loc-title">
+    <h1>Letter of Compliance</h1>
+    <p>Certificate of material conformance</p>
+  </div>
+
+  <p class="loc-para">
+    The following item, manufactured on <b data-jc="manufactureDate"></b> at the
+    workshop located at <b data-jc="workshopAddress"></b>, is certified to be
+    within specification.
+  </p>
+
+  <div class="loc-section-title">Material Specifications</div>
+  <div class="loc-spec-box" data-jc="materialsList"></div>
+
+  <div class="loc-notes" data-jc="additionalNotes"></div>
+
+  <p class="loc-para">
+    I, <b data-jc="confirmedByName"></b>, confirm this material to be compliant
+    to specification.
+  </p>
+
+  <div class="loc-sign-block">
+    <div class="loc-sign-cell">
+      <div class="loc-sign-k">Name</div>
+      <div class="loc-sign-v" data-jc="signName"></div>
+    </div>
+    <div class="loc-sign-cell">
+      <div class="loc-sign-k">Signature</div>
+      <div class="loc-sign-line"></div>
+    </div>
+    <div class="loc-sign-cell">
+      <div class="loc-sign-k">Date Signed</div>
+      <div class="loc-sign-v" data-jc="dateSigned"></div>
+    </div>
+  </div>
+
+  <div class="loc-footer">Job <span data-jc="jobNumberFooter"></span> <span class="loc-watermark"></span></div>
+
+</div>
+
+</body>
+</html>
