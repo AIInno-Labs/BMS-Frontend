@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect } from "react";
 import { X } from "lucide-react";
 
 interface EnterpriseDrawerProps {
@@ -9,10 +8,6 @@ interface EnterpriseDrawerProps {
   onClose: () => void;
   title: string;
   subtitle?: string;
-  /** Rendered in the header (below the title/subtitle), not the scrollable
-   *  body — for a form-level error/notice that should stay put regardless of
-   *  scroll position, e.g. a save validation failure. */
-  banner?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
   ariaLabelledBy?: string;
@@ -25,18 +20,11 @@ export function EnterpriseDrawer({
   onClose,
   title,
   subtitle,
-  banner,
   children,
   footer,
   ariaLabelledBy = "drawer-title",
   panelClassName,
 }: EnterpriseDrawerProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   useEffect(() => {
     if (!open) return;
 
@@ -53,12 +41,12 @@ export function EnterpriseDrawer({
     };
   }, [open, onClose]);
 
-  if (!open || !mounted) return null;
+  if (!open) return null;
 
   const panelWidthClass =
-    panelClassName ?? "md:w-[min(560px,92vw)]";
+    panelClassName ?? "md:w-[40%] md:max-w-[560px]";
 
-  return createPortal(
+  return (
     <div className="fixed inset-0 z-[100] animate-[fadeIn_0.2s_ease-out]">
       <button
         type="button"
@@ -73,34 +61,29 @@ export function EnterpriseDrawer({
         aria-labelledby={ariaLabelledBy}
         className={`absolute top-0 right-0 z-10 flex h-full w-full max-w-full flex-col border-l border-[#E2E8F0] bg-white shadow-xl animate-[slideInRight_0.28s_ease-out] max-md:rounded-none ${panelWidthClass}`}
       >
-        <header className="flex shrink-0 flex-col gap-3 border-b border-slate-200 px-5 py-5 sm:px-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 pr-2">
-              <h2
-                id={ariaLabelledBy}
-                className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl"
-              >
-                {title}
-              </h2>
-              {subtitle && (
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-600 sm:text-base">
-                  {subtitle}
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-all duration-150 ease-in-out hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-              aria-label="Close"
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-6">
+          <div className="min-w-0 pr-2">
+            <h2
+              id={ariaLabelledBy}
+              className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl"
             >
-              <X className="h-5 w-5" />
-            </button>
+              {title}
+            </h2>
+            {subtitle && (
+              <p className="mt-1 text-base text-slate-600">{subtitle}</p>
+            )}
           </div>
-          {banner}
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-all duration-150 ease-in-out hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-[#F8FAFC] px-5 py-5 sm:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#F8FAFC]">
           {children}
         </div>
 
@@ -110,7 +93,6 @@ export function EnterpriseDrawer({
           </footer>
         ) : null}
       </aside>
-    </div>,
-    document.body
+    </div>
   );
 }

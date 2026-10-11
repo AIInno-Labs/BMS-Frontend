@@ -155,15 +155,15 @@ export function AppProfileMenu() {
 
           {isAuthenticated && (
             <>
-              <Link
-                href="/settings/profile"
+              <button
+                type="button"
                 role="menuitem"
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
                 onClick={() => setOpen(false)}
               >
                 <User className="h-4 w-4 text-slate-500" aria-hidden />
-                <span className="truncate">{user?.email || "Profile"}</span>
-              </Link>
+                {user?.email || "Profile"}
+              </button>
               <button
                 type="button"
                 role="menuitem"

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ArrowLeft,
   Calendar,
@@ -17,35 +18,23 @@ import {
   User,
 } from "lucide-react";
 import { formatShortDate } from "@/lib/mockData";
-import {
-  DRAFT_DUE_DATE_WARNING,
-  needsDraftDueDateWarning,
-} from "@/lib/frp/job-status";
-import { resolveStatusGroup } from "@/lib/jobStatus";
-import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job, JobPriority } from "@/lib/types";
 import { getWorkerDisplayName } from "@/lib/workers";
-import { BackToJobsLink } from "@/components/BackToJobsLink";
-import { JobJourneyPanels } from "@/components/JobJourneyPanels";
-
-const STAGE_LABEL: Record<JobStageGroup, string> = {
-  manufacturing: "MANUFACTURING",
-  delivered: "DELIVERED",
-  "not-started": "NOT STARTED",
-};
-
-const STAGE_BADGE_CLASS: Record<JobStageGroup, string> = {
-  delivered: "border-[#86EFAC] bg-[#DCFCE7] text-[#166534]",
-  manufacturing: "border-[#93C5FD] bg-[#DBEAFE] text-[#1D4ED8]",
-  "not-started": "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]",
-};
 
 function getStageLabel(status: Job["status"]): string {
-  return STAGE_LABEL[resolveStatusGroup(status)];
+  if (status === "In Fabrication") return "MANUFACTURING";
+  if (status === "Complete") return "DELIVERED";
+  return "NOT STARTED";
 }
 
 function getStageBadgeClass(status: Job["status"]): string {
-  return STAGE_BADGE_CLASS[resolveStatusGroup(status)];
+  if (status === "Complete") {
+    return "border-[#86EFAC] bg-[#DCFCE7] text-[#166534]";
+  }
+  if (status === "In Fabrication") {
+    return "border-[#93C5FD] bg-[#DBEAFE] text-[#1D4ED8]";
+  }
+  return "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]";
 }
 
 function getPriorityBadgeClass(priority: JobPriority): string {
@@ -55,18 +44,9 @@ function getPriorityBadgeClass(priority: JobPriority): string {
   return "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]";
 }
 
-/**
- * Empty string when there is no due date — the caller drops the whole line,
- * icon included, rather than labelling something else as a deadline.
- *
- * No fallback to `job.date`: that is when the job was raised, which has no
- * relationship to when it is due. It was being printed after the word "Due",
- * and — parsed from a timestamp and rendered through the local timezone — it
- * landed a day off the creation date too, so the label was wrong twice over.
- */
 function formatDueLine(job: Job): string {
-  const raw = job.dueDate;
-  if (!raw) return "";
+  const raw = job.dueDate ?? job.date;
+  if (!raw) return "Due date not set";
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return `Due ${raw}`;
   return `Due ${d.toLocaleDateString(undefined, {
@@ -135,10 +115,13 @@ export function JobDetailsView({
 
   return (
     <div className="no-print mx-auto w-full min-w-0 max-w-6xl px-3 py-3 sm:px-6 sm:py-6">
-      <BackToJobsLink className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-[#2563EB]">
+      <Link
+        href="/jobs"
+        className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-[#2563EB]"
+      >
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Back to Jobs
-      </BackToJobsLink>
+      </Link>
 
       {saveError && (
         <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -167,20 +150,10 @@ export function JobDetailsView({
             </div>
             <p className="mt-2 text-lg font-semibold text-[#0F172A]">{job.clientName}</p>
             <p className="mt-0.5 text-sm text-slate-600">{job.projectName}</p>
-            {/* The warning sits where the date would be, not in the page
-                header: a missing due date is a fact about this field, and it
-                reads as one only next to the field it is missing from. */}
-            {formatDueLine(job) ? (
-              <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-slate-600">
-                <Calendar className="h-4 w-4 text-slate-400" aria-hidden />
-                {formatDueLine(job)}
-              </p>
-            ) : needsDraftDueDateWarning(job) ? (
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
-                <Calendar className="h-3.5 w-3.5 text-amber-600" aria-hidden />
-                {DRAFT_DUE_DATE_WARNING}
-              </p>
-            ) : null}
+            <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-slate-600">
+              <Calendar className="h-4 w-4 text-slate-400" aria-hidden />
+              {formatDueLine(job)}
+            </p>
           </div>
 
           {isManager && (
@@ -215,7 +188,7 @@ export function JobDetailsView({
         </div>
       </section>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <div className="space-y-4">
           <section className="rounded-[14px] border border-[#E2E8F0] bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-[#0F172A]">Job Details</h2>
@@ -239,17 +212,10 @@ export function JobDetailsView({
                   Description
                 </dt>
                 <dd className="mt-0.5 leading-relaxed text-slate-700">
-                  {job.description?.trim() ||
-                    job.manualInstructions?.trim() ||
+                  {job.manualInstructions?.trim() ||
                     job.alert ||
                     "No description provided."}
                 </dd>
-              </div>
-              <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Job type
-                </dt>
-                <dd className="mt-0.5 text-[#0F172A]">{job.jobType || "—"}</dd>
               </div>
               <div>
                 <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -349,8 +315,6 @@ export function JobDetailsView({
               Upload File
             </button>
           </section>
-
-          <JobJourneyPanels job={job} />
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, RefreshCw, UserX, Users } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
@@ -13,10 +13,7 @@ import {
   updateUser,
 } from "@/lib/frp/api";
 import type { RoleDTO, UserDTO } from "@/lib/frp/types";
-import { LoadingState, SkeletonRows } from "@/components/ui/Loading";
 import { FrpApiError } from "@/lib/frp/types";
-import { CreateUserSchema, EditUserSchema } from "@/lib/schemas/user";
-import { fieldErrorsFrom } from "@/lib/schemas/shared";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -83,14 +80,9 @@ export function UsersAdminPage() {
     }
   }, [isAuthenticated, canManage, page]);
 
-  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (authLoading || !isAuthenticated || !canManage || me?.id == null) return;
-    const key = `${me.id}:${page}`;
-    if (lastLoadedKeyRef.current === key) return;
-    lastLoadedKeyRef.current = key;
     void load();
-  }, [authLoading, isAuthenticated, canManage, me?.id, page, load]);
+  }, [load]);
 
   async function onDisable(u: UserDTO) {
     if (u.id == null) return;
@@ -113,7 +105,7 @@ export function UsersAdminPage() {
   if (authLoading || !canManage) {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <LoadingState />
+        <p className="text-sm text-slate-600">Loading…</p>
       </main>
     );
   }
@@ -158,8 +150,8 @@ export function UsersAdminPage() {
           </p>
         )}
 
-        <div className="scrollbar-thin app-card mt-6 overflow-x-auto !p-0">
-          <table className="min-w-[720px] w-full text-left text-sm">
+        <div className="app-card mt-6 overflow-x-auto !p-0">
+          <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Name</th>
@@ -172,7 +164,11 @@ export function UsersAdminPage() {
             </thead>
             <tbody>
               {loading ? (
-                <SkeletonRows columns={6} />
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-slate-500">
+                    Loading…
+                  </td>
+                </tr>
               ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-slate-500">
@@ -199,10 +195,10 @@ export function UsersAdminPage() {
                       {u.totpEnabled ? "Enrolled" : "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-nowrap gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-orange-50"
                           onClick={() => setEditUser(u)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -211,7 +207,7 @@ export function UsersAdminPage() {
                         {u.enabled !== false && u.id !== me?.id && (
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
                             onClick={() => void onDisable(u)}
                           >
                             <UserX className="h-3.5 w-3.5" />
@@ -289,7 +285,6 @@ function CreateUserDrawer({
   const [mobileNumber, setMobileNumber] = useState("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -300,7 +295,6 @@ function CreateUserDrawer({
     setMobileNumber("");
     setRoleIds([]);
     setError(null);
-    setFieldErrors({});
   }, [open]);
 
   function toggleRole(id: number) {
@@ -311,28 +305,14 @@ function CreateUserDrawer({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-    setFieldErrors({});
-
-    const parsed = CreateUserSchema.safeParse({
-      email,
-      password,
-      displayName,
-      mobileNumber,
-    });
-    if (!parsed.success) {
-      setFieldErrors(fieldErrorsFrom(parsed.error));
-      return;
-    }
-
     setSaving(true);
+    setError(null);
     try {
-      const data = parsed.data;
       await createUser({
-        email: data.email,
-        password: data.password,
-        displayName: data.displayName,
-        mobileNumber: data.mobileNumber || undefined,
+        email: email.trim(),
+        password,
+        displayName: displayName.trim(),
+        mobileNumber: mobileNumber.trim() || undefined,
         roleIds,
       });
       onCreated();
@@ -364,9 +344,6 @@ function CreateUserDrawer({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          {fieldErrors.email && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
-          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="cu-name">
@@ -379,9 +356,6 @@ function CreateUserDrawer({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
           />
-          {fieldErrors.displayName && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.displayName}</p>
-          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="cu-pass">
@@ -396,9 +370,6 @@ function CreateUserDrawer({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          {fieldErrors.password && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
-          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="cu-mobile">
@@ -410,9 +381,6 @@ function CreateUserDrawer({
             value={mobileNumber}
             onChange={(e) => setMobileNumber(e.target.value)}
           />
-          {fieldErrors.mobileNumber && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.mobileNumber}</p>
-          )}
         </div>
         <fieldset>
           <legend className={labelClass}>Roles</legend>
@@ -476,7 +444,6 @@ function EditUserDrawer({
   const [password, setPassword] = useState("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -487,7 +454,6 @@ function EditUserDrawer({
     setPassword("");
     setRoleIds(user.roleIds ?? []);
     setError(null);
-    setFieldErrors({});
   }, [open, user]);
 
   function toggleRole(id: number) {
@@ -499,25 +465,16 @@ function EditUserDrawer({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!user?.id) return;
-    setError(null);
-    setFieldErrors({});
-
-    const parsed = EditUserSchema.safeParse({ displayName, mobileNumber, password });
-    if (!parsed.success) {
-      setFieldErrors(fieldErrorsFrom(parsed.error));
-      return;
-    }
-
     setSaving(true);
+    setError(null);
     try {
-      const data = parsed.data;
       await updateUser({
         id: user.id,
-        displayName: data.displayName,
-        mobileNumber: data.mobileNumber || undefined,
+        displayName: displayName.trim(),
+        mobileNumber: mobileNumber.trim() || undefined,
         enabled,
         roleIds,
-        password: data.password || undefined,
+        password: password.trim() || undefined,
       });
       onSaved();
     } catch (err) {
@@ -552,9 +509,6 @@ function EditUserDrawer({
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
             />
-            {fieldErrors.displayName && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.displayName}</p>
-            )}
           </div>
           <div>
             <label className={labelClass} htmlFor="eu-mobile">
@@ -566,9 +520,6 @@ function EditUserDrawer({
               value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
             />
-            {fieldErrors.mobileNumber && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.mobileNumber}</p>
-            )}
           </div>
           <div>
             <label className={labelClass} htmlFor="eu-pass">
@@ -582,9 +533,6 @@ function EditUserDrawer({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {fieldErrors.password && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
-            )}
           </div>
           <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <input

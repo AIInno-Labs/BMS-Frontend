@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, RefreshCw, Shield } from "lucide-react";
 import { CreateRoleDrawer } from "@/components/org/CreateRoleDrawer";
@@ -8,16 +8,10 @@ import { useAuth } from "@/context/AuthContext";
 import { listRoles } from "@/lib/frp/api";
 import type { RoleDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
-import { LoadingState, SkeletonRows } from "@/components/ui/Loading";
 
 export function RolesAdminPage() {
-  const {
-    loading: authLoading,
-    isAuthenticated,
-    canManageRoles,
-    appRole,
-    user,
-  } = useAuth();
+  const { loading: authLoading, isAuthenticated, canManageRoles, appRole } =
+    useAuth();
   const router = useRouter();
   const [roles, setRoles] = useState<RoleDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +35,7 @@ export function RolesAdminPage() {
   }, [authLoading, isAuthenticated, canManageRoles, appRole, router]);
 
   const load = useCallback(async () => {
+    if (!isAuthenticated) return;
     setLoading(true);
     setError(null);
     try {
@@ -58,18 +53,11 @@ export function RolesAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
-  // Wait until auth bootstrap finishes and we have a user — otherwise the
-  // first /roles call can race the token getter and surface a false
-  // "Missing privilege: ROLE_READ" with an empty table.
-  const lastLoadedUserRef = useRef<number | null>(null);
   useEffect(() => {
-    if (authLoading || !isAuthenticated || user?.id == null) return;
-    if (lastLoadedUserRef.current === user.id) return;
-    lastLoadedUserRef.current = user.id;
     void load();
-  }, [authLoading, isAuthenticated, user?.id, load]);
+  }, [load]);
 
   function openCreate() {
     setEditRole(null);
@@ -89,7 +77,7 @@ export function RolesAdminPage() {
   if (authLoading || !isAuthenticated) {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <LoadingState />
+        <p className="text-sm text-slate-600">Loading…</p>
       </main>
     );
   }
@@ -98,7 +86,7 @@ export function RolesAdminPage() {
     <main className="app-mesh-bg flex-1 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
+          <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               Organization Admin
             </p>
@@ -108,10 +96,10 @@ export function RolesAdminPage() {
               organization.
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="btn-secondary inline-flex items-center gap-1.5 px-4 py-2.5 text-sm sm:gap-2 sm:px-8 sm:py-4 sm:text-base"
+              className="btn-secondary inline-flex items-center gap-2"
               onClick={() => void load()}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -119,7 +107,7 @@ export function RolesAdminPage() {
             </button>
             <button
               type="button"
-              className="btn-primary inline-flex items-center gap-1.5 px-4 py-2.5 text-sm sm:gap-2 sm:px-8 sm:py-4 sm:text-base"
+              className="btn-primary inline-flex items-center gap-2"
               onClick={openCreate}
             >
               <Plus className="h-4 w-4" />
@@ -131,13 +119,6 @@ export function RolesAdminPage() {
         {error && (
           <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
-            {error.includes("ROLE_READ") && (
-              <p className="mt-1 text-xs text-red-600/90">
-                Your org-admin role needs the ROLE_READ privilege to list roles.
-                Try Refresh, or sign out and back in. If it persists, re-grant
-                ROLE_READ on the ORG_ADMIN role.
-              </p>
-            )}
           </div>
         )}
 
@@ -152,7 +133,13 @@ export function RolesAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && <SkeletonRows columns={4} />}
+              {loading && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                    Loading roles…
+                  </td>
+                </tr>
+              )}
               {!loading && roles.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-12 text-center">
