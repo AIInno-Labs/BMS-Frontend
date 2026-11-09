@@ -119,7 +119,7 @@ export const ACCESS_PRIVILEGE_MAP: Map<AccessKey, string | readonly string[]> =
     // share the same privilege as uploading any other job document.
     [ACCESS_KEYS.PO_CREATE, "PO_CREATE"],
     [ACCESS_KEYS.QUOTES_VIEW, MENU_CODES.QUOTES],
-    [ACCESS_KEYS.ANALYTICS_VIEW, [MENU_CODES.ANALYTICS, MENU_CODES.DASHBOARD]],
+    [ACCESS_KEYS.ANALYTICS_VIEW, MENU_CODES.ANALYTICS],
     // No ACTION equivalent — MENU_QUOTIENT must be assigned explicitly by Org
     // Admin (see CreateRoleDrawer) for a custom role to see it; no ACTION
     // fallback to fail open on like the keys above.
