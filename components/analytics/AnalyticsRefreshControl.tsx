@@ -3,6 +3,7 @@
 import { RefreshCw, Radio } from "lucide-react";
 
 const AUTO_REFRESH_KEY = "bmsman-analytics-auto-refresh";
+const FAIL_STREAK_KEY = "bmsman-analytics-fail-streak";
 
 export function readAutoRefreshPreference(): boolean {
   if (typeof window === "undefined") return true;
@@ -16,6 +17,17 @@ export function writeAutoRefreshPreference(enabled: boolean) {
   localStorage.setItem(AUTO_REFRESH_KEY, enabled ? "true" : "false");
 }
 
+/** Consecutive failed analytics API refresh cycles, persisted so a reload doesn't reset the streak. */
+export function readAnalyticsFailStreak(): number {
+  if (typeof window === "undefined") return 0;
+  const stored = Number(localStorage.getItem(FAIL_STREAK_KEY));
+  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
+
+export function writeAnalyticsFailStreak(streak: number) {
+  localStorage.setItem(FAIL_STREAK_KEY, String(streak));
+}
+
 export const ANALYTICS_POLL_MS = 12_000;
 
 interface AnalyticsRefreshControlProps {
@@ -25,6 +37,10 @@ interface AnalyticsRefreshControlProps {
   refreshing: boolean;
   lastUpdated: Date | null;
   compact?: boolean;
+  /** Whether to show "Live" in the badge. Defaults to `autoRefresh` — pass explicitly to show "Paused" while the toggle stays on (e.g. after repeated API failures). */
+  live?: boolean;
+  /** True when `live` is false specifically because refresh calls kept failing (not because the user paused it) — shows a network-connectivity hint. */
+  degraded?: boolean;
 }
 
 function formatLastSync(d: Date | null): string {
@@ -43,6 +59,8 @@ export function AnalyticsRefreshControl({
   refreshing,
   lastUpdated,
   compact = false,
+  live = autoRefresh,
+  degraded = false,
 }: AnalyticsRefreshControlProps) {
   return (
     <div
@@ -52,20 +70,28 @@ export function AnalyticsRefreshControl({
         className={`flex items-center gap-1.5 text-slate-600 ${compact ? "text-xs" : "gap-2 text-sm"}`}
       >
         <span
+          title={degraded ? "Check your network connectivity" : undefined}
           className={`inline-flex items-center gap-1 rounded-full border ${
             compact ? "px-2 py-0.5" : "gap-1.5 px-2.5 py-1"
           } ${
-            autoRefresh
+            live
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-slate-200 bg-slate-50 text-slate-600"
+              : degraded
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-slate-200 bg-slate-50 text-slate-600"
           }`}
         >
           <Radio
-            className={`h-3.5 w-3.5 ${autoRefresh ? "analytics-live-dot text-emerald-600" : ""}`}
+            className={`h-3.5 w-3.5 ${live ? "analytics-live-dot text-emerald-600" : ""}`}
             aria-hidden
           />
-          {autoRefresh ? "Live" : "Paused"}
+          {live ? "Live" : "Paused"}
         </span>
+        {degraded && (
+          <span className="text-amber-700">
+            {compact ? "Check connection" : "Check your network connectivity"}
+          </span>
+        )}
         {!compact && <span className="hidden sm:inline text-slate-400">·</span>}
         <span className="tabular-nums">
           {refreshing ? "Syncing…" : formatLastSync(lastUpdated)}

@@ -18,7 +18,9 @@ import { InlineLoading } from "@/components/ui/Loading";
 import {
   ANALYTICS_POLL_MS,
   AnalyticsRefreshControl,
+  readAnalyticsFailStreak,
   readAutoRefreshPreference,
+  writeAnalyticsFailStreak,
   writeAutoRefreshPreference,
 } from "@/components/analytics/AnalyticsRefreshControl";
 import { useJobs } from "@/context/JobsContext";
@@ -81,6 +83,9 @@ const QUOTIENT_COLORS: Record<string, string> = {
   quote_completed: STATUS_THEME.delivered.strong,
 };
 
+/** Consecutive failed refresh cycles before the badge drops from "Live" to "Paused". */
+const LIVE_FAIL_THRESHOLD = 2;
+
 type JobDeltas = {
   total: number | null;
   ready: number | null;
@@ -103,6 +108,7 @@ export function AnalyticsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [failStreak, setFailStreak] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [syncTick, setSyncTick] = useState(0);
   const [jobDeltas, setJobDeltas] = useState<JobDeltas>({
@@ -128,18 +134,32 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     setAutoRefresh(readAutoRefreshPreference());
+    setFailStreak(readAnalyticsFailStreak());
+  }, []);
+
+  const recordApiOutcome = useCallback((success: boolean) => {
+    setFailStreak((prev) => {
+      const next = success ? 0 : prev + 1;
+      writeAnalyticsFailStreak(next);
+      return next;
+    });
   }, []);
 
   const loadAnalytics = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
+    let callFailed = false;
+    const onCallError = () => {
+      callFailed = true;
+      return null;
+    };
     try {
       const empty = emptyAnalyticsSnapshot();
       const [quoteCounts, topClients, resinCounts, jobCounts] = await Promise.all([
-        getQuoteEventCounts().catch(() => null),
-        getTopClients(5).catch(() => null),
-        getJobResinCounts().catch(() => null),
-        getJobCounts({ ignoreOverdue: false }).catch(() => null),
+        getQuoteEventCounts().catch(onCallError),
+        getTopClients(5).catch(onCallError),
+        getJobResinCounts().catch(onCallError),
+        getJobCounts({ ignoreOverdue: false }).catch(onCallError),
       ]);
 
       if (jobCounts?.overdue != null) {
@@ -173,12 +193,14 @@ export function AnalyticsPage() {
         setQuotientDelta(total - prevQuotientRef.current);
       }
       prevQuotientRef.current = total;
+      recordApiOutcome(!callFailed);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load analytics");
+      recordApiOutcome(false);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [recordApiOutcome]);
 
   const jobStats = useMemo(() => {
     const fromPage = computeJobAnalytics(jobs);
@@ -285,7 +307,8 @@ export function AnalyticsPage() {
     void refreshAll(false);
   };
 
-  const live = autoRefresh;
+  const live = autoRefresh && failStreak < LIVE_FAIL_THRESHOLD;
+  const degraded = autoRefresh && !live;
 
   return (
     <main className="app-mesh-bg relative flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -314,6 +337,8 @@ export function AnalyticsPage() {
           <AnalyticsRefreshControl
             compact
             autoRefresh={autoRefresh}
+            live={live}
+            degraded={degraded}
             onAutoRefreshChange={handleAutoRefreshChange}
             onRefresh={handleManualRefresh}
             refreshing={refreshing || loading}
