@@ -1,3 +1,5 @@
+import { resolveStatusGroup } from "@/lib/jobStatus";
+import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { JobStatus } from "@/lib/types";
 
 export const STATUS_THEME = {
@@ -20,10 +22,14 @@ export const STATUS_THEME = {
 
 export type StatusBucket = keyof typeof STATUS_THEME;
 
+const GROUP_TO_BUCKET: Record<JobStageGroup, StatusBucket> = {
+  delivered: "delivered",
+  manufacturing: "manufacturing",
+  "not-started": "notStarted",
+};
+
 export function statusToBucket(status: JobStatus): StatusBucket {
-  if (status === "Complete") return "delivered";
-  if (status === "In Fabrication") return "manufacturing";
-  return "notStarted";
+  return GROUP_TO_BUCKET[resolveStatusGroup(status)];
 }
 
 export function statusColor(status: JobStatus) {

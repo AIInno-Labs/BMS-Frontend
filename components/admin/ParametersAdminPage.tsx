@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { EnterpriseDrawer } from "@/components/EnterpriseDrawer";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/frp/api";
 import type { ApplicationParameterDTO, OrganizationDTO } from "@/lib/frp/types";
 import { FrpApiError } from "@/lib/frp/types";
+import { LoadingState } from "@/components/ui/Loading";
 
 const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
@@ -26,9 +27,10 @@ function isSecretParam(name: string) {
   return SECRET_SUFFIXES.some((s) => name.endsWith(s));
 }
 
-function groupOf(name: string): "SharePoint" | "Quotient" | "Other" {
+function groupOf(name: string): "SharePoint" | "Quotient" | "LLM" | "Other" {
   if (name.startsWith("SHAREPOINT_")) return "SharePoint";
   if (name.startsWith("QUOTIENT_")) return "Quotient";
+  if (name.startsWith("LLM_")) return "LLM";
   return "Other";
 }
 
@@ -71,8 +73,11 @@ export function ParametersAdminPage() {
     }
   }, [authLoading, isAuthenticated, appRole, router]);
 
+  const lastOrgsLoadedForRoleRef = useRef<string | null>(null);
   useEffect(() => {
     if (appRole !== "superadmin") return;
+    if (lastOrgsLoadedForRoleRef.current === appRole) return;
+    lastOrgsLoadedForRoleRef.current = appRole;
     void (async () => {
       try {
         const res = await listOrganizations(0, 100);
@@ -109,14 +114,19 @@ export function ParametersAdminPage() {
     }
   }, [appRole, scope, orgId]);
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const key = `${appRole}:${scope}:${orgId}`;
+    if (lastLoadedKeyRef.current === key) return;
+    lastLoadedKeyRef.current = key;
     void load();
-  }, [load]);
+  }, [load, appRole, scope, orgId]);
 
   const grouped = useMemo(() => {
     const map: Record<string, ApplicationParameterDTO[]> = {
       SharePoint: [],
       Quotient: [],
+      LLM: [],
       Other: [],
     };
     for (const p of params) {
@@ -198,7 +208,7 @@ export function ParametersAdminPage() {
   if (authLoading || appRole !== "superadmin") {
     return (
       <main className="app-mesh-bg flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-slate-600">Loading…</p>
+        <LoadingState />
       </main>
     );
   }
@@ -356,16 +366,18 @@ export function ParametersAdminPage() {
         )}
 
         {loading ? (
-          <p className="mt-4 text-sm text-slate-500">Loading…</p>
+          <div className="mt-4 flex justify-center">
+            <LoadingState />
+          </div>
         ) : scope === "org" && orgId === "" ? (
           <p className="mt-4 text-sm text-slate-500">Select an organization.</p>
         ) : (
-          (["SharePoint", "Quotient", "Other"] as const).map((group) => (
-            <div key={group} className="app-card mt-4 overflow-x-auto !p-0">
-              <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-[#111827]">
+          (["SharePoint", "Quotient", "LLM", "Other"] as const).map((group) => (
+            <div key={group} className="app-card mt-4 !p-0">
+              <div className="border-b border-slate-100 px-4 py-3 text-base font-semibold text-[#111827]">
                 {group}
               </div>
-              {renderTable(grouped[group])}
+              <div className="scrollbar-thin overflow-x-auto">{renderTable(grouped[group])}</div>
             </div>
           ))
         )}

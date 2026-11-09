@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
-import { listActiveDirectorsFromDb } from "@/lib/supabase/directors-repository";
-import { listJobsFromDb } from "@/lib/supabase/jobs-repository";
-import { listStaffFromDb } from "@/lib/supabase/floor-repository";
 
+/**
+ * Domain data now lives on the Spring Boot API (`NEXT_PUBLIC_FRP_API_BASE_URL`).
+ * The browser calls `/jobs` via `lib/frp/api.ts` — this Next route is retired.
+ */
 export async function GET() {
-  try {
-    const [jobs, staff, directors] = await Promise.all([
-      listJobsFromDb(),
-      listStaffFromDb().catch(() => []),
-      listActiveDirectorsFromDb().catch(() => []),
-    ]);
-    return NextResponse.json({ jobs, staff, directors });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to load jobs";
-    console.error("[api/jobs] GET", message);
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  return NextResponse.json(
+    {
+      error:
+        "Deprecated: use the Spring Boot /jobs API via lib/frp/api.ts (JobsContext).",
+    },
+    { status: 410 }
+  );
 }

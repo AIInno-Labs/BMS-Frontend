@@ -2,18 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { OfficialJobCardData } from "@/lib/jobCardPrint";
+import { padInventoryRowsForPrint } from "@/lib/jobCardPrint";
 import { officialDataToFieldValues } from "@/lib/jobCardPdfFieldMap";
 
 const HTML_FIELD_IDS_ALLOW_RAW = new Set([
   "scopeLines",
+  "scopeRightLines",
   "notes",
   "deliveryInstructions",
 ]);
 
+const INVENTORY_ROWS_MARKER = "<!--JC_INVENTORY_ROWS-->";
+
 let cachedTemplate: string | null = null;
 
 function loadPdfTemplate(): string {
-  if (!cachedTemplate) {
+  // Always re-read in development so pdf.html edits show up without a restart.
+  if (process.env.NODE_ENV !== "production" || !cachedTemplate) {
     cachedTemplate = fs.readFileSync(
       path.join(process.cwd(), "pdf.html"),
       "utf8"
@@ -45,6 +50,30 @@ function fillDataJc(html: string, id: string, raw: string): string {
   return html.replace(pattern, `$1${value}$3`);
 }
 
+function inventoryRowsHtml(data: OfficialJobCardData): string {
+  const { rows, blankStartIndex } = padInventoryRowsForPrint(data.clipRows);
+  return rows
+    .map((row, index) => {
+      const blankClass =
+        index >= blankStartIndex ? ' class="inventory-blank"' : "";
+      const cells = [
+        row.productGroup || "",
+        row.attribute1 || "",
+        row.attribute2 || "",
+        row.attribute3 || "",
+        row.resin || "",
+        row.colour || "",
+        (row.qty ?? "").trim(),
+        (row.packedBy ?? "").trim(),
+      ].map((value) => {
+        const escaped = escapeHtml(value.trim());
+        return `<td>${escaped || "&nbsp;"}</td>`;
+      });
+      return `<tr${blankClass}>${cells.join("")}</tr>`;
+    })
+    .join("\n");
+}
+
 export type JobCardPrintHtmlOptions = {
   /** Opens the browser print dialog when the page loads. */
   autoprint?: boolean;
@@ -63,8 +92,12 @@ export function buildJobCardPrintHtml(
     logoSrc
   );
 
+  html = html.replace(INVENTORY_ROWS_MARKER, inventoryRowsHtml(data));
+
   const values = officialDataToFieldValues(data);
   for (const [id, value] of Object.entries(values)) {
+    // Inventory rows are injected above — skip legacy clip.* bindings.
+    if (id.startsWith("clip.")) continue;
     html = fillDataJc(html, id, value);
   }
 
