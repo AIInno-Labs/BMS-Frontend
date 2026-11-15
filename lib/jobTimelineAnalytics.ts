@@ -1,3 +1,4 @@
+import { jobDisplayStage } from "@/lib/jobDisplayStage";
 import type { Job } from "@/lib/types";
 
 export const TIMELINE_STAGE_IDS = [
@@ -505,7 +506,11 @@ export function buildJobTimelineAnalytics(
 
     return {
       id: stage.id,
-      title: stage.title,
+      // First step reads "Ready" once Mark Ready is done while still on Draft.
+      title:
+        stage.id === "draft" && jobDisplayStage(job) === "ready"
+          ? "Ready"
+          : stage.title,
       dateLabel: formatStageDate(startDate),
       durationLabel:
         state === "active"

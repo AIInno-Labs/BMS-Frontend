@@ -16,7 +16,11 @@ const groupStyles: Record<JobStageGroup, string> = {
 /** Cancelled is terminal, not merely pre-production — darkened to read apart. */
 const CANCELLED_STYLE = "border-red-200 bg-red-50 text-red-900";
 
-export function StatusBadge({ status }: { status: JobStatus }) {
+/**
+ * `label` replaces the printed text (the job detail page passes the shared stage
+ * word, see lib/jobDisplayStage.ts); colour and tooltip still follow `status`.
+ */
+export function StatusBadge({ status, label }: { status: JobStatus; label?: string }) {
   const className =
     status === "Cancelled" ? CANCELLED_STYLE : groupStyles[resolveStatusGroup(status)];
 
@@ -25,7 +29,7 @@ export function StatusBadge({ status }: { status: JobStatus }) {
       title={statusDescription(status) || undefined}
       className={`inline-flex items-center rounded-lg border px-3 py-1 text-sm font-semibold leading-none sm:text-base ${className}`}
     >
-      {status}
+      {label ?? status}
     </span>
   );
 }

@@ -48,7 +48,14 @@ import {
   type BackendJobStatus,
 } from "@/lib/frp/job-status";
 import { resolveStatusGroup } from "@/lib/jobStatus";
-import { timelineStageInfo } from "@/lib/jobTimelineAnalytics";
+import {
+  jobMatchesStageFilter,
+  jobStageChipLabel,
+  parseStageFilterParam,
+  stageFilterFromLegacyStatus,
+  STAGE_FILTER_BACKEND_STATUSES,
+  type StageFilterKey,
+} from "@/lib/jobDisplayStage";
 import { listJobs, type FrpJobSort } from "@/lib/frp/api";
 import { frpJobSummaryToUi, userIdToBackend } from "@/lib/frp/job-mapper";
 import {
@@ -97,6 +104,24 @@ const STAGE_GROUP_BACKEND_STATUSES: Record<JobStageGroup, BackendJobStatus[]> = 
  *  one of them; "overdue" cuts across not-started/manufacturing by due date
  *  instead of status, so it's tracked separately from `JobStageGroup`. */
 type StageCardKey = "not-started" | "manufacturing" | "overdue";
+
+type UrlParams = { get(name: string): string | null };
+
+/** `?stage=` (Pending / Drawing / Approval / Ready), or the older `?status=` links. */
+function readStageFilter(params: UrlParams): StageFilterKey | null {
+  return (
+    parseStageFilterParam(params.get("stage")) ??
+    stageFilterFromLegacyStatus(params.get("status"))
+  );
+}
+
+/** Plain stored-status filter (In Fabrication, Delivered...). Statuses that now
+ *  belong to a stage filter are not repeated here. */
+function readStatusFilter(params: UrlParams): JobStatus | "All" {
+  const status = params.get("status");
+  if (!status || stageFilterFromLegacyStatus(status)) return "All";
+  return status as JobStatus;
+}
 
 function parseStageCardParam(value: string | null | undefined): StageCardKey | null {
   if (value === "not-started" || value === "manufacturing" || value === "overdue") {
@@ -162,32 +187,12 @@ function getStageBadgeClass(job: Job): string {
   return STAGE_GROUP_CLASS[resolveStatusGroup(job.status)];
 }
 
-const STAGE_GROUP_LABEL_FULL: Record<JobStageGroup, string> = {
-  "not-started": "Not Started",
-  manufacturing: "Manufacturing",
-  delivered: "Delivered",
-};
-
-const STAGE_GROUP_LABEL_SHORT: Record<JobStageGroup, string> = {
-  "not-started": "New",
-  manufacturing: "Mfg",
-  delivered: "Del",
-};
-
-// currentStageKey (backend-computed: furthest milestone that's complete or
-// active) names the real stage, e.g. "Drawing" — more precise than the
-// coarse status group, which only advances once the *next* stage has
-// started. Falls back to the group label for jobs the backend hasn't
-// populated it on. On this list, draft is shown as "Pending" (filter /
-// status language); the job timeline still uses "Draft".
+// One chip word per job, shared with the detail page, timeline and Stage filter
+// (see lib/jobDisplayStage.ts): Pending / Ready on Draft, Drawing, Approval,
+// Ready to Manufacture before production starts, then Production / QC /
+// Dispatch / Completed.
 function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
-  if (job.currentStageKey === "draft") {
-    return "Pending";
-  }
-  const real = timelineStageInfo(job.currentStageKey);
-  if (real) return variant === "full" ? real.title : real.shortLabel;
-  const group = resolveStatusGroup(job.status);
-  return variant === "full" ? STAGE_GROUP_LABEL_FULL[group] : STAGE_GROUP_LABEL_SHORT[group];
+  return jobStageChipLabel(job, variant);
 }
 
 const STAGE_BADGE_CLASS =
@@ -240,12 +245,19 @@ export function JobsList({ jobs }: JobsListProps) {
   const [searchQuery, setSearchQuery] = useState(
     () => searchParams.get("q") ?? ""
   );
-  const [statusFilter, setStatusFilter] = useState<JobStatus | "All">(
-    () => (searchParams.get("status") as JobStatus | null) ?? "All"
+  const [statusFilter, setStatusFilter] = useState<JobStatus | "All">(() =>
+    readStatusFilter(searchParams)
+  );
+  const [stageFilter, setStageFilter] = useState<StageFilterKey | null>(() =>
+    readStageFilter(searchParams)
   );
   const [stageGroupFilter, setStageGroupFilter] = useState<StageCardKey | null>(
     () => parseStageCardParam(searchParams.get("group"))
   );
+  /** A card (Overdue / Not Started / Manufacturing) or a Pending / Drawing /
+   *  Approval / Ready stage is selected: served by fetching the matching
+   *  statuses and narrowing client side, instead of one paged request. */
+  const crawlActive = Boolean(stageGroupFilter || stageFilter);
   const [sortBy, setSortBy] = useState<JobSortOption>("created_desc");
   const [page, setPage] = useState(() => {
     const fromUrl = Number(searchParams.get("page"));
@@ -286,7 +298,8 @@ export function JobsList({ jobs }: JobsListProps) {
     const fromUrl = parseStageCardParam(searchParams.get("group"));
     setStageGroupFilter(fromUrl);
     setSearchQuery(searchParams.get("q") ?? "");
-    setStatusFilter((searchParams.get("status") as JobStatus | null) ?? "All");
+    setStatusFilter(readStatusFilter(searchParams));
+    setStageFilter(readStageFilter(searchParams));
     const pageFromUrl = Number(searchParams.get("page"));
     setPage(Number.isFinite(pageFromUrl) && pageFromUrl >= 1 ? Math.trunc(pageFromUrl) : 1);
   }, [searchParams]);
@@ -318,7 +331,8 @@ export function JobsList({ jobs }: JobsListProps) {
     setPage(1);
     if (next) {
       setStatusFilter("All");
-      updateUrlParams({ group: next, status: null, page: null });
+      setStageFilter(null);
+      updateUrlParams({ group: next, status: null, stage: null, page: null });
     } else {
       updateUrlParams({ group: null, page: null });
     }
@@ -372,7 +386,7 @@ export function JobsList({ jobs }: JobsListProps) {
       return;
     }
     setPage(1);
-  }, [effectiveSearchQuery, statusFilter, stageGroupFilter, sortBy]);
+  }, [effectiveSearchQuery, statusFilter, stageFilter, stageGroupFilter, sortBy]);
 
   // ------------------------------------------------------------------
   // Worker mode — GET /jobs?assignedTo=&status=&search= per status in
@@ -475,7 +489,7 @@ export function JobsList({ jobs }: JobsListProps) {
   const [defaultError, setDefaultError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isWorker || stageGroupFilter) return;
+    if (isWorker || crawlActive) return;
     let cancelled = false;
     setDefaultLoading(true);
     setDefaultError(null);
@@ -532,7 +546,7 @@ export function JobsList({ jobs }: JobsListProps) {
     };
   }, [
     isWorker,
-    stageGroupFilter,
+    crawlActive,
     statusFilter,
     effectiveSearchQuery,
     sortBy,
@@ -548,7 +562,7 @@ export function JobsList({ jobs }: JobsListProps) {
   const [groupError, setGroupError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isWorker || !stageGroupFilter) return;
+    if (isWorker || !crawlActive) return;
     let cancelled = false;
     setGroupLoading(true);
     setGroupError(null);
@@ -560,8 +574,11 @@ export function JobsList({ jobs }: JobsListProps) {
       // delivered, not cancelled) whose due date has passed — so it crawls
       // both the not-started and manufacturing statuses and filters by date
       // client side, mirroring `deriveFromJobs`'s overdue predicate.
-      const statuses =
-        stageGroupFilter === "overdue"
+      // A Pending / Drawing / Approval / Ready stage picks its statuses from
+      // lib/jobDisplayStage.ts and is narrowed by the job's chip afterwards.
+      const statuses: BackendJobStatus[] = stageFilter
+        ? STAGE_FILTER_BACKEND_STATUSES[stageFilter]
+        : stageGroupFilter === "overdue"
           ? [
               ...STAGE_GROUP_BACKEND_STATUSES["not-started"],
               ...STAGE_GROUP_BACKEND_STATUSES.manufacturing,
@@ -583,6 +600,9 @@ export function JobsList({ jobs }: JobsListProps) {
           collected.push(...(res.content ?? []).map(frpJobSummaryToUi));
           if (res.last || (res.content ?? []).length === 0) break;
         }
+      }
+      if (stageFilter) {
+        return collected.filter((job) => jobMatchesStageFilter(job, stageFilter));
       }
       if (stageGroupFilter === "overdue") {
         const now = Date.now();
@@ -613,10 +633,10 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter, assignedToFilter, dueFrom, dueTo, listRevision]);
+  }, [isWorker, stageGroupFilter, stageFilter, assignedToFilter, dueFrom, dueTo, listRevision]);
 
   const groupFilteredJobs = useMemo(() => {
-    if (!stageGroupFilter) return [];
+    if (!crawlActive) return [];
     const parsed = parseNaturalLanguageQuery(effectiveSearchQuery);
     const textQuery = parsed.searchText.toLowerCase();
     if (!textQuery) return groupRows;
@@ -629,7 +649,7 @@ export function JobsList({ jobs }: JobsListProps) {
         contactName.includes(textQuery)
       );
     });
-  }, [groupRows, stageGroupFilter, effectiveSearchQuery]);
+  }, [groupRows, crawlActive, effectiveSearchQuery]);
 
   const groupSortedJobs = useMemo(
     () => sortJobs(groupFilteredJobs, sortBy),
@@ -644,15 +664,15 @@ export function JobsList({ jobs }: JobsListProps) {
   );
 
   useEffect(() => {
-    if (isWorker || !stageGroupFilter) return;
+    if (isWorker || !crawlActive) return;
     if (page > groupPages) setPage(groupPages);
-  }, [isWorker, stageGroupFilter, page, groupPages]);
+  }, [isWorker, crawlActive, page, groupPages]);
 
-  const adminTableJobs = stageGroupFilter ? groupPagedJobs : defaultRows;
-  const adminTotalItems = stageGroupFilter ? groupSortedJobs.length : defaultTotalItems;
-  const adminTotalPages = stageGroupFilter ? groupPages : defaultTotalPages;
-  const adminPage = stageGroupFilter ? safeGroupPage : page;
-  const adminError = stageGroupFilter ? groupError : defaultError;
+  const adminTableJobs = crawlActive ? groupPagedJobs : defaultRows;
+  const adminTotalItems = crawlActive ? groupSortedJobs.length : defaultTotalItems;
+  const adminTotalPages = crawlActive ? groupPages : defaultTotalPages;
+  const adminPage = crawlActive ? safeGroupPage : page;
+  const adminError = crawlActive ? groupError : defaultError;
 
   const displayedJobs = isWorker ? workerPagedJobs : adminTableJobs;
   const displayedTotalItems = isWorker ? workerSortedJobs.length : adminTotalItems;
@@ -796,7 +816,7 @@ export function JobsList({ jobs }: JobsListProps) {
           </div>
           <label
             className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[13px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
-              stageGroupFilter || statusFilter !== "All"
+              stageGroupFilter || stageFilter || statusFilter !== "All"
                 ? "border-orange-300 ring-1 ring-orange-200"
                 : "border-[#E5E7EB]"
             }`}
@@ -806,18 +826,22 @@ export function JobsList({ jobs }: JobsListProps) {
               value={
                 stageGroupFilter
                   ? `group:${stageGroupFilter}`
-                  : statusFilter === "All"
-                    ? "All"
-                    : `status:${statusFilter}`
+                  : stageFilter
+                    ? `stage:${stageFilter}`
+                    : statusFilter === "All"
+                      ? "All"
+                      : `status:${statusFilter}`
               }
               onChange={(e) => {
                 const next = e.target.value;
                 setPage(1);
                 if (next === "All") {
                   setStatusFilter("All");
+                  setStageFilter(null);
                   setStageGroupFilter(null);
                   updateUrlParams({
                     status: null,
+                    stage: null,
                     group: null,
                     page: null,
                   });
@@ -826,10 +850,25 @@ export function JobsList({ jobs }: JobsListProps) {
                 if (next.startsWith("group:")) {
                   const group = parseStageCardParam(next.slice("group:".length));
                   setStatusFilter("All");
+                  setStageFilter(null);
                   setStageGroupFilter(group);
                   updateUrlParams({
                     group,
                     status: null,
+                    stage: null,
+                    page: null,
+                  });
+                  return;
+                }
+                if (next.startsWith("stage:")) {
+                  const stage = parseStageFilterParam(next.slice("stage:".length));
+                  setStatusFilter("All");
+                  setStageFilter(stage);
+                  setStageGroupFilter(null);
+                  updateUrlParams({
+                    stage,
+                    status: null,
+                    group: null,
                     page: null,
                   });
                   return;
@@ -837,9 +876,11 @@ export function JobsList({ jobs }: JobsListProps) {
                 if (next.startsWith("status:")) {
                   const status = next.slice("status:".length) as JobStatus;
                   setStatusFilter(status);
+                  setStageFilter(null);
                   setStageGroupFilter(null);
                   updateUrlParams({
                     status,
+                    stage: null,
                     group: null,
                     page: null,
                   });
@@ -851,10 +892,16 @@ export function JobsList({ jobs }: JobsListProps) {
               <option value="All">All</option>
               <option value="group:overdue">Overdue</option>
               <option value="group:not-started">Not Started</option>
-              <option value="group:manufacturing">Manufacturing</option>
-              <option value="status:Pending">Pending</option>
-              <option value="status:Awaiting Manager Approval">Approval</option>
-              <option value="status:Ready to Manufacture">Ready</option>
+              {/* Not offered in the dropdown any more; kept only while the
+                  Manufacturing card (or a dashboard link) has it active, so the
+                  select never shows the wrong label. */}
+              {stageGroupFilter === "manufacturing" && (
+                <option value="group:manufacturing">Manufacturing</option>
+              )}
+              <option value="stage:pending">Pending</option>
+              <option value="stage:drawing">Drawing</option>
+              <option value="stage:approval">Approval</option>
+              <option value="stage:ready">Ready</option>
               <option value="status:In Fabrication">In Fabrication</option>
               <option value="status:Complete">Delivered</option>
             </select>
@@ -890,11 +937,11 @@ export function JobsList({ jobs }: JobsListProps) {
         </label>
       )}
 
-      {!isWorker && !stageGroupFilter && defaultLoading && defaultRows.length === 0 ? (
+      {!isWorker && !crawlActive && defaultLoading && defaultRows.length === 0 ? (
         <div className="app-card flex justify-center">
           <LoadingState />
         </div>
-      ) : !isWorker && stageGroupFilter && groupLoading && groupRows.length === 0 ? (
+      ) : !isWorker && crawlActive && groupLoading && groupRows.length === 0 ? (
         <div className="app-card flex justify-center">
           <LoadingState />
         </div>
@@ -910,7 +957,9 @@ export function JobsList({ jobs }: JobsListProps) {
             ? "No assigned jobs on the floor right now. Check back later."
             : stageGroupFilter
               ? `No jobs in ${CARD_INFO[stageGroupFilter].label} match your search. Clear filters or try another stage.`
-              : "No jobs match your filters. Try clearing search or selecting another stage."}
+              : stageFilter
+                ? "No jobs with this stage match your search. Clear filters or try another stage."
+                : "No jobs match your filters. Try clearing search or selecting another stage."}
         </p>
       ) : (
         <>

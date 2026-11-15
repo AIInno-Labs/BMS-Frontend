@@ -37,6 +37,7 @@ import { ensurePrintDetails } from "@/lib/jobCardFormDefaults";
 import type { JobCardPrintDetails } from "@/lib/types";
 import { QaTraceabilitySection } from "@/components/QaTraceabilitySection";
 import { StatusBadge } from "@/components/StatusBadge";
+import { jobStatusText } from "@/lib/jobDisplayStage";
 import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
 import { useAutoDismiss } from "@/hooks/useAutoDismiss";
@@ -917,7 +918,7 @@ export function JobCard({ jobId }: JobCardProps) {
           <div className="min-w-0 space-y-5 px-4 py-5 print:space-y-4 print:p-5 sm:px-6">
             <div className="no-print space-y-3">
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                <StatusBadge status={display.status} />
+                <StatusBadge status={display.status} label={jobStatusText(display)} />
                 <PriorityAlertsCell job={display} layout="inline" showAlert={false} />
                 {display.assignedWorkerId && (
                   <span className="inline-flex max-w-full items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-medium leading-snug text-slate-700">

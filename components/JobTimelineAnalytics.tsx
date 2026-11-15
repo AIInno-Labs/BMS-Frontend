@@ -20,7 +20,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useJobs } from "@/context/JobsContext";
 import {
   buildJobTimelineAnalytics,
-  timelineStageInfo,
   isStageSetupDone,
   selectedTimelineStageIds,
   type JobTimelineAnalyticsData,
@@ -38,6 +37,7 @@ import {
   DRAFT_DUE_DATE_WARNING,
 } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
+import { jobStageChipLabel } from "@/lib/jobDisplayStage";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job } from "@/lib/types";
@@ -81,38 +81,18 @@ function formatDueLine(job: Job): string {
   })}`;
 }
 
-const STAGE_GROUP_LABEL: Record<JobStageGroup, string> = {
-  "not-started": "Not Started",
-  manufacturing: "Manufacturing",
-  delivered: "Delivered",
-};
-
 const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
   "not-started": "status-pill status-pill--not-started",
   manufacturing: "status-pill status-pill--manufacturing",
   delivered: "status-pill status-pill--delivered",
 };
 
-// `currentStageKey` (backend-computed: furthest milestone that's complete or
-// active) names the real stage the job is sitting at, e.g. "Drawing" — more
-// precise than the coarse status group, which only flips once the *next*
-// stage has started. Falls back to the group label for jobs the backend
-// hasn't populated it on.
+// Same word as the Jobs list chip and the detail-page status (see
+// lib/jobDisplayStage.ts): Ready once marked ready on Draft, Drawing,
+// Approval, Ready to Manufacture before production starts, then
+// Production / QC / Dispatch / Completed.
 function jobStageLabel(job: Job): string {
-  // Ready jobs often still sit on the draft milestone — don't show that as
-  // Pending / Not Started when setup is already confirmed.
-  if (
-    job.isReady ||
-    job.status === "Ready to Manufacture"
-  ) {
-    if (!job.currentStageKey || job.currentStageKey === "draft") {
-      return "Ready to Manufacture";
-    }
-  }
-  return (
-    timelineStageInfo(job.currentStageKey)?.title ??
-    STAGE_GROUP_LABEL[resolveStatusGroup(job.status)]
-  );
+  return jobStageChipLabel(job, "full");
 }
 
 function jobStageClass(status: Job["status"]): string {

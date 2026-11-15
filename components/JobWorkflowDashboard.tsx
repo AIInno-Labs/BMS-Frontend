@@ -110,6 +110,7 @@ import {
   resolveWorkerNameFromId,
 } from "@/lib/workers";
 import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
+import { jobStatusText } from "@/lib/jobDisplayStage";
 import {
   CASH_PAYMENT_BLOCK_MESSAGE,
   isJobLockedForCashPayment,
@@ -1595,7 +1596,7 @@ export function JobWorkflowDashboard({
             </span>
             <p className="text-sm text-slate-500">
               Type: {job.jobType || extras.jobType || "—"} · Stage:{" "}
-              {cancelled ? "Cancelled" : job.status}
+              {jobStatusText(job)}
             </p>
             <p className="text-sm text-slate-500">
               Due: {job.dueDate ? formatShortDate(job.dueDate) : "Not set"}

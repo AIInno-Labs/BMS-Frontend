@@ -25,6 +25,7 @@ import {
 } from "@/lib/poLineItems";
 import type { Job } from "@/lib/types";
 import { isCancelledJob, isOnHoldJob } from "@/lib/frp/job-status";
+import { jobStatusText } from "@/lib/jobDisplayStage";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
 
 const DOC_PAGE_SIZE = 5;
@@ -559,7 +560,7 @@ export function JobStatusCard({
             Current status
           </span>
           <span className="text-sm font-semibold text-orange-700">
-            {isCancelledJob(job.status) ? "Cancelled" : job.status}
+            {jobStatusText(job)}
           </span>
         </div>
 
