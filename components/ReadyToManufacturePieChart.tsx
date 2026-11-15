@@ -116,7 +116,7 @@ export function ReadyToManufacturePieChart({
               <span className="text-base font-bold tabular-nums text-slate-900">
                 {centerValue}
               </span>
-              <span className="mt-0.5 max-w-20 text-center text-[10px] font-medium leading-tight text-slate-600">
+              <span className="mt-0.5 max-w-20 text-center text-[12px] font-medium leading-tight text-slate-600">
                 {centerLabel}
               </span>
             </div>
@@ -146,11 +146,11 @@ export function ReadyToManufacturePieChart({
                       style={{ backgroundColor: entry.fill }}
                       aria-hidden
                     />
-                    <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                    <span className="truncate text-[12px] font-semibold uppercase tracking-wide text-slate-700">
                       {label}
                     </span>
                   </span>
-                  <span className="inline-flex items-center gap-1.5 text-[11px]">
+                  <span className="inline-flex items-center gap-1.5 text-[13px]">
                     <span className="font-semibold text-slate-900">{entry.value}</span>
                     <span className="text-slate-500">{pct}%</span>
                   </span>
@@ -198,7 +198,7 @@ export function ReadyToManufacturePieChart({
                 backgroundColor: "#ffffff",
                 border: "1px solid #e2e8f0",
                 borderRadius: "12px",
-                fontSize: "16px",
+                fontSize: "17px",
                 fontWeight: 500,
                 color: "#0f172a",
               }}

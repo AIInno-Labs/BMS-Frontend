@@ -139,7 +139,7 @@ export function AppNav({ compact = false }: { compact?: boolean }) {
       aria-label="Main navigation"
     >
       {sectionLabel && (
-        <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <p className="px-3 pb-1 text-[12px] font-semibold uppercase tracking-wide text-slate-400">
           {sectionLabel}
         </p>
       )}

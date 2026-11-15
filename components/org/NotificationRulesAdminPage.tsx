@@ -85,7 +85,7 @@ export function NotificationRulesAdminPage() {
     <main className="app-mesh-bg flex-1 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
         <div className="mb-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             Organization Admin
           </p>
           <h2 className="mt-1 text-xl font-semibold text-[#111827]">

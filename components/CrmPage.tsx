@@ -579,7 +579,7 @@ export function CrmPage({ company }: { company: string }) {
                           verticalAlign="bottom"
                           height={40}
                           iconType="circle"
-                          wrapperStyle={{ fontSize: 11, color: "#475569" }}
+                          wrapperStyle={{ fontSize: 13, color: "#475569" }}
                         />
                       </PieChart>
                     </ResponsiveContainer>
@@ -610,12 +610,12 @@ export function CrmPage({ company }: { company: string }) {
                       margin={{ top: 4, right: 24, left: 4, bottom: 4 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#64748b" }} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: "#64748b" }} />
                       <YAxis
                         type="category"
                         dataKey="name"
                         width={110}
-                        tick={{ fill: "#64748b", fontSize: 11 }}
+                        tick={{ fill: "#64748b", fontSize: 13 }}
                       />
                       <Tooltip formatter={(value: number) => [`${value} jobs`, "Count"]} />
                       <Bar
@@ -681,9 +681,9 @@ export function CrmPage({ company }: { company: string }) {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#64748b" }} />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#64748b" }} />
                     <YAxis
-                      tick={{ fontSize: 10, fill: "#64748b" }}
+                      tick={{ fontSize: 12, fill: "#64748b" }}
                       width={56}
                       tickFormatter={(v: number) => fmtMoney(v)}
                     />
@@ -750,7 +750,7 @@ export function CrmPage({ company }: { company: string }) {
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis
                         dataKey="name"
-                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        tick={{ fontSize: 13, fill: "#64748b" }}
                         angle={-20}
                         textAnchor="end"
                         height={50}

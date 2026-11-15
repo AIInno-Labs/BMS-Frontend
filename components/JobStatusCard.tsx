@@ -555,7 +555,7 @@ export function JobStatusCard({
     <>
       <WidgetCard title="Status Control" icon={ListChecks} className={className}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] px-2.5 py-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <span className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
             Current status
           </span>
           <span className="text-sm font-semibold text-orange-700">
@@ -600,7 +600,7 @@ export function JobStatusCard({
               </p>
             ) : (
               <>
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <label className="block text-[13px] font-semibold uppercase tracking-wide text-slate-500">
               View checklist for
               <select
                 value={selectedKey ?? ""}
@@ -630,7 +630,7 @@ export function JobStatusCard({
                       style={{ width: `${selected.percentComplete ?? 0}%` }}
                     />
                   </div>
-                  <span className="text-[11px] font-semibold tabular-nums text-slate-500">
+                  <span className="text-[13px] font-semibold tabular-nums text-slate-500">
                     {selected.percentComplete ?? 0}%
                   </span>
                 </div>
@@ -673,7 +673,7 @@ export function JobStatusCard({
                                     }
                                     openStageModal(item);
                                   }}
-                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600"
+                                  className="inline-flex items-center gap-1 text-[13px] font-medium text-slate-400 hover:text-orange-600"
                                   aria-label={
                                     versionsDocument(docs) && onOpenDocument
                                       ? "Open in Document Versions"
@@ -708,7 +708,7 @@ export function JobStatusCard({
                                   e.preventDefault();
                                   openStageModal(item);
                                 }}
-                                className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-slate-400 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 aria-label="View or edit note"
                               >
                                 {item.notes ? (
@@ -730,7 +730,7 @@ export function JobStatusCard({
                           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-400" />
                         ) : (
                           <span
-                            className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${statusPillClass(
+                            className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[12px] font-semibold ${statusPillClass(
                               item.status
                             )}`}
                           >
@@ -1017,7 +1017,7 @@ export function JobStatusCard({
                                 )}
                                 <span className="min-w-0 truncate">
                                   <span className="truncate">{file.name}</span>
-                                  <span className="ml-1.5 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                                  <span className="ml-1.5 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-orange-700">
                                     New
                                   </span>
                                 </span>
@@ -1103,7 +1103,7 @@ export function JobStatusCard({
                                   </span>
                                 )}
                                 {fromProduction ? (
-                                  <span className="ml-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                  <span className="ml-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                                     Production
                                   </span>
                                 ) : null}

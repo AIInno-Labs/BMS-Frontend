@@ -413,7 +413,7 @@ export function JobWorkflowExtrasSection({
 
             if (source === "MANUAL") {
               return (
-                <span className="mb-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                <span className="mb-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
                   Stages overridden by job settings
                 </span>
               );
@@ -423,14 +423,14 @@ export function JobWorkflowExtrasSection({
               source === "REQUIREMENTS"
             ) {
               return (
-                <span className="mb-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                <span className="mb-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-sky-800">
                   Stages overridden by project requirements
                 </span>
               );
             }
             if (job.requirementsConfirmedAt == null) {
               return (
-                <span className="mb-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                <span className="mb-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-red-700">
                   Select project requirements
                 </span>
               );

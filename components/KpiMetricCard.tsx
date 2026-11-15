@@ -74,7 +74,7 @@ export function KpiMetricCard({
           />
           <span
             className={`truncate font-semibold uppercase tracking-wider text-slate-500 ${
-              compact ? "text-[10px]" : "text-xs"
+              compact ? "text-[12px]" : "text-xs"
             }`}
           >
             {label}

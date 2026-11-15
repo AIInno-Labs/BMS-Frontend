@@ -126,7 +126,7 @@ export function AnimatedStatTile({
             />
             <p
               className={`truncate font-semibold uppercase tracking-wider text-slate-500 ${
-                compact ? "text-[10px]" : "text-xs"
+                compact ? "text-[12px]" : "text-xs"
               }`}
             >
               {label}
@@ -146,7 +146,7 @@ export function AnimatedStatTile({
       </div>
 
       <div className={`flex flex-wrap items-center gap-1.5 ${compact ? "mt-1" : "mt-2"}`}>
-        <p className={`text-slate-600 ${compact ? "text-[11px] leading-tight" : "text-sm"}`}>
+        <p className={`text-slate-600 ${compact ? "text-[13px] leading-tight" : "text-sm"}`}>
           {hint}
         </p>
         {delta != null && delta !== 0 && (

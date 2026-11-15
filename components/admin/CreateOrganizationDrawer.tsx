@@ -13,7 +13,7 @@ const inputClass =
   "mt-2 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
 
 const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  "block text-[12px] font-semibold uppercase tracking-wide text-slate-500";
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -141,7 +141,7 @@ export function CreateOrganizationDrawer({
     >
       <form id="create-org-form" onSubmit={onSubmit} className="space-y-6">
         <section className="space-y-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
             Organization
           </h3>
           <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-4 sm:gap-y-4">
@@ -288,7 +288,7 @@ export function CreateOrganizationDrawer({
         </section>
 
         <section className="space-y-4 border-t border-slate-200 pt-6">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
             Organization admin
           </h3>
           <div className="grid gap-4 sm:grid-cols-2 sm:gap-x-4 sm:gap-y-4">

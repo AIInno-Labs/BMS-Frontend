@@ -98,13 +98,13 @@ export function PoManualEntryFields({
       </label>
 
       <div className="flex items-center justify-between pt-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
           Line items
         </p>
         <button
           type="button"
           onClick={() => onItemsChange([...items, emptyPoItemRow()])}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-orange-700 hover:text-orange-800"
+          className="inline-flex items-center gap-1 text-[13px] font-medium text-orange-700 hover:text-orange-800"
         >
           <Plus className="h-3 w-3" />
           Add item
@@ -120,7 +120,7 @@ export function PoManualEntryFields({
             className="space-y-2 rounded-lg border border-[#E5E7EB] bg-[#FAFBFC] p-2.5"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-500">Item {index + 1}</span>
+              <span className="text-[13px] font-semibold text-slate-500">Item {index + 1}</span>
               {items.length > 1 ? (
                 <button
                   type="button"

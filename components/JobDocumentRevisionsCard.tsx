@@ -1238,7 +1238,7 @@ export function JobDocumentRevisionsCard({
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-end gap-2">
-                    <label className="block flex-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <label className="block flex-1 text-[13px] font-semibold uppercase tracking-wide text-slate-500">
                       Version
                       <select
                         value={selectedPo.id ?? ""}
@@ -1308,7 +1308,7 @@ export function JobDocumentRevisionsCard({
                           <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                               <thead>
-                                <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                                <tr className="text-left text-[12px] uppercase tracking-wide text-slate-500">
                                   <th className="pb-1 pr-2 font-semibold">Field</th>
                                   <th className="pb-1 pr-2 font-semibold">Quote</th>
                                   <th className="pb-1 font-semibold">This PO</th>
@@ -1335,7 +1335,7 @@ export function JobDocumentRevisionsCard({
                                         <tr className="border-t-2 border-[#E5E7EB]">
                                           <td
                                             colSpan={3}
-                                            className="bg-[#FAFBFC] py-1 pr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                                            className="bg-[#FAFBFC] py-1 pr-2 text-[13px] font-semibold uppercase tracking-wide text-slate-500"
                                           >
                                             {section.group}
                                             {hint ? (
@@ -1475,7 +1475,7 @@ export function JobDocumentRevisionsCard({
             ) : (
               <div className="space-y-3">
                 <div className="flex items-end gap-2">
-                  <label className="block flex-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <label className="block flex-1 text-[13px] font-semibold uppercase tracking-wide text-slate-500">
                     Revision
                     <select
                       value={selectedDrawing.id ?? ""}
@@ -1520,7 +1520,7 @@ export function JobDocumentRevisionsCard({
                     ) : null}
 
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                         Notes
                       </p>
                       {selectedDrawing.remarks?.trim() ? (
@@ -1573,7 +1573,7 @@ export function JobDocumentRevisionsCard({
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           {comparison ? (
             <>
-              <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <p className="pt-1 text-[13px] font-semibold uppercase tracking-wide text-slate-500">
                 Accepted quote (baseline)
               </p>
               <ModalField label="Quote quantity" value={poDetailsDraft.quoteQty} onChange={() => {}} disabled />
@@ -1592,7 +1592,7 @@ export function JobDocumentRevisionsCard({
               OCR/LLM extraction managed to read.
             </p>
           )}
-          <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <p className="pt-1 text-[13px] font-semibold uppercase tracking-wide text-slate-500">
             This PO
           </p>
           <PoManualEntryFields

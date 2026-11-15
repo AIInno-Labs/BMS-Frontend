@@ -191,7 +191,7 @@ function getStageBadgeLabel(job: Job, variant: "full" | "short"): string {
 }
 
 const STAGE_BADGE_CLASS =
-  "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide";
+  "inline-flex rounded-full border px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide";
 
 /** Stage from currentStageKey, plus Cancelled/On Hold when stageStatus says so. */
 function JobListStageBadges({
@@ -708,7 +708,7 @@ export function JobsList({ jobs }: JobsListProps) {
                   </span>
                 </div>
                 <Sparkline points={card.line} color={card.accent} />
-                <p className="mt-2 text-[11px] font-medium text-slate-500">
+                <p className="mt-2 text-[13px] font-medium text-slate-500">
                   {active ? "Showing details below · click again to clear" : "Click to view jobs in this stage"}
                 </p>
               </button>
@@ -720,7 +720,7 @@ export function JobsList({ jobs }: JobsListProps) {
       {!isWorker && (
         <div className="flex flex-wrap items-center justify-end gap-2">
           <label
-            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[13px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
               assignedToFilter != null
                 ? "border-orange-300 ring-1 ring-orange-200"
                 : "border-[#E5E7EB]"
@@ -737,7 +737,7 @@ export function JobsList({ jobs }: JobsListProps) {
                   page: null,
                 });
               }}
-              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[13px] outline-none hover:text-[#EA580C]"
               aria-label="Filter assignee"
             >
               <option value="">All</option>
@@ -750,7 +750,7 @@ export function JobsList({ jobs }: JobsListProps) {
             </select>
           </label>
           <div
-            className={`inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+            className={`inline-flex h-[46px] min-w-0 items-center gap-2 rounded-full border bg-white px-3 text-[13px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
               dueFrom || dueTo
                 ? "border-orange-300 ring-1 ring-orange-200"
                 : "border-[#E5E7EB]"
@@ -765,7 +765,7 @@ export function JobsList({ jobs }: JobsListProps) {
                 setPage(1);
                 updateUrlParams({ dueFrom: e.target.value || null, page: null });
               }}
-              className="min-w-0 bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              className="min-w-0 bg-transparent text-[13px] outline-none hover:text-[#EA580C]"
               aria-label="Due date from"
             />
             <span className="shrink-0 text-slate-400">–</span>
@@ -777,7 +777,7 @@ export function JobsList({ jobs }: JobsListProps) {
                 setPage(1);
                 updateUrlParams({ dueTo: e.target.value || null, page: null });
               }}
-              className="min-w-0 bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              className="min-w-0 bg-transparent text-[13px] outline-none hover:text-[#EA580C]"
               aria-label="Due date to"
             />
             {(dueFrom || dueTo) && (
@@ -795,7 +795,7 @@ export function JobsList({ jobs }: JobsListProps) {
             )}
           </div>
           <label
-            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[11px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
+            className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[13px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
               stageGroupFilter || statusFilter !== "All"
                 ? "border-orange-300 ring-1 ring-orange-200"
                 : "border-[#E5E7EB]"
@@ -845,7 +845,7 @@ export function JobsList({ jobs }: JobsListProps) {
                   });
                 }
               }}
-              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[11px] outline-none hover:text-[#EA580C]"
+              className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[13px] outline-none hover:text-[#EA580C]"
               aria-label="Filter stage"
             >
               <option value="All">All</option>
@@ -863,7 +863,7 @@ export function JobsList({ jobs }: JobsListProps) {
             <button
               type="button"
               onClick={() => setCreateJobOpen(true)}
-              className="inline-flex h-[46px] items-center justify-center gap-1.5 rounded-full bg-[#F97316] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[#EA580C]"
+              className="inline-flex h-[46px] items-center justify-center gap-1.5 rounded-full bg-[#F97316] px-3 text-[13px] font-semibold text-white transition-colors hover:bg-[#EA580C]"
             >
               <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
               NEW JOB
@@ -935,7 +935,7 @@ export function JobsList({ jobs }: JobsListProps) {
 }
 
 const TH =
-  "whitespace-nowrap px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500 align-middle";
+  "whitespace-nowrap px-3 py-3 text-[12px] font-semibold uppercase tracking-wide text-slate-500 align-middle";
 const TD = "px-3 py-3.5 align-middle text-xs text-slate-700";
 
 function JobsTable({
@@ -1001,7 +1001,7 @@ function JobsTable({
                   </td>
                   <td className={`${TD} text-left`}>
                     <p className="truncate font-medium text-slate-900">{job.clientName}</p>
-                    <p className="truncate text-[10px] text-slate-500">{job.projectName}</p>
+                    <p className="truncate text-[12px] text-slate-500">{job.projectName}</p>
                   </td>
                   {!workerMode && (
                     <td className={`${TD} text-left`}>

@@ -23,7 +23,7 @@ const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
 
 const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  "block text-[12px] font-semibold uppercase tracking-wide text-slate-500";
 
 const CURRENCY_OPTIONS = [
   "AUD",
@@ -536,7 +536,7 @@ export function CreateNewJobDrawer({
         {stepIndex === 0 ? "Cancel" : "Back"}
       </button>
       <div className="flex items-center gap-2">
-        <span className="text-[11px] font-semibold text-slate-500">
+        <span className="text-[13px] font-semibold text-slate-500">
           Step {stepIndex + 1} of {WIZARD_STEPS.length}
         </span>
         {isLastStep ? (
@@ -576,7 +576,7 @@ export function CreateNewJobDrawer({
               }`}
             />
             <span
-              className={`text-[10px] font-semibold uppercase tracking-wide ${
+              className={`text-[12px] font-semibold uppercase tracking-wide ${
                 active ? "text-[#2563EB]" : "text-slate-400"
               }`}
               aria-current={active ? "step" : undefined}
@@ -786,7 +786,7 @@ export function CreateNewJobDrawer({
                 className="rounded-[14px] border border-[#E2E8F0] bg-[#F8FAFC] p-3"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <span className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
                     Item {index + 1}
                   </span>
                   {form.items.length > 1 && (
@@ -904,7 +904,7 @@ export function CreateNewJobDrawer({
             onClick={() =>
               patch({ items: [...form.items, emptyJobItemRow()] })
             }
-            className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[#2563EB] hover:text-[#1D4ED8]"
+            className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold uppercase tracking-wide text-[#2563EB] hover:text-[#1D4ED8]"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             Add Item
@@ -922,7 +922,7 @@ export function CreateNewJobDrawer({
                   key={pill.status}
                   type="button"
                   onClick={() => patch({ status: pill.status })}
-                  className={`inline-flex min-h-[34px] items-center rounded-full border px-3 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                  className={`inline-flex min-h-[34px] items-center rounded-full border px-3 text-[13px] font-semibold uppercase tracking-wide transition-colors ${
                     active
                       ? "border-[#2563EB] bg-[#2563EB] text-white shadow-sm"
                       : "border-[#E2E8F0] bg-white text-[#0F172A] hover:border-[#BFDBFE] hover:bg-[#EFF6FF]"
@@ -989,7 +989,7 @@ export function CreateNewJobDrawer({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="mt-3 inline-flex min-h-[34px] items-center rounded-full border border-[#E2E8F0] bg-white px-4 text-[11px] font-semibold uppercase tracking-wide text-[#0F172A] hover:bg-[#F8FAFC]"
+              className="mt-3 inline-flex min-h-[34px] items-center rounded-full border border-[#E2E8F0] bg-white px-4 text-[13px] font-semibold uppercase tracking-wide text-[#0F172A] hover:bg-[#F8FAFC]"
             >
               Browse files
             </button>
@@ -1014,7 +1014,7 @@ export function CreateNewJobDrawer({
                       <p className="truncate text-sm font-medium text-[#0F172A]">
                         {file.name}
                       </p>
-                      <p className="text-[11px] text-slate-500">{file.sizeLabel}</p>
+                      <p className="text-[13px] text-slate-500">{file.sizeLabel}</p>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -1048,7 +1048,7 @@ export function CreateNewJobDrawer({
               ))}
             </ul>
           )}
-          <p className="mt-2 hidden text-[11px] text-slate-500">
+          <p className="mt-2 hidden text-[13px] text-slate-500">
             Files are staged locally until the job record exists in the system.
           </p>
         </FormSection>

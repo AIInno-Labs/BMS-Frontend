@@ -480,7 +480,7 @@ export function JobEmailRulesEditor({
         }
       >
         <fieldset>
-          <legend className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <legend className="block text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             Recipients
           </legend>
           {saveError ? (
@@ -581,7 +581,7 @@ export function JobEmailRulesEditor({
               </div>
 
               <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                   Added ({addedUsers.length})
                 </p>
                 {addedUsers.length === 0 ? (
@@ -651,7 +651,7 @@ function CategorySection({
   return (
     <section className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
       <div className="border-b border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           {label}
         </h3>
       </div>
@@ -662,7 +662,7 @@ function CategorySection({
             <col />
             <col className="w-24" />
           </colgroup>
-          <thead className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <thead className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-2.5">Event</th>
               <th className="w-24 px-4 py-2.5">Enabled</th>
@@ -733,7 +733,7 @@ function EventName({
   return (
     <>
       {milestone ? (
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
           {milestone}
         </p>
       ) : null}
@@ -833,7 +833,7 @@ function EventCard({
             onChange={(e) => onToggleEnabled(row, e.target.checked)}
             className="h-4 w-4"
           />
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             Enabled
           </span>
         </label>

@@ -275,7 +275,7 @@ export function Dashboard() {
                   </div>
                   <Link
                     href="/jobs?group=overdue"
-                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                    className="shrink-0 text-[13px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
                   >
                     View All →
                   </Link>
@@ -298,14 +298,14 @@ export function Dashboard() {
                           <p className="text-xs font-semibold text-slate-900">
                             {job.id}
                           </p>
-                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[12px] font-semibold text-slate-700">
                             {job.priority}
                           </span>
                         </div>
                         <p className="mt-0.5 text-xs text-slate-700">
                           {job.clientName}
                         </p>
-                        <p className="text-[11px] text-slate-500">
+                        <p className="text-[13px] text-slate-500">
                           Due {formatShortDate(job.dueDate)} · {job.status}
                         </p>
                       </Link>
@@ -362,7 +362,7 @@ export function Dashboard() {
                                 {formatShortDate(job.dueDate)}
                               </td>
                               <td className="px-3 py-1.5 text-right text-slate-700">
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
                                   {job.status}
                                 </span>
                               </td>
@@ -414,7 +414,7 @@ export function Dashboard() {
                       key={`${arc.label}-row`}
                       className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"
                     >
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+                      <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
                         <span
                           className="h-1.5 w-1.5 rounded-full"
                           style={{ backgroundColor: arc.color }}
@@ -428,21 +428,21 @@ export function Dashboard() {
                 </div>
               </div>
               <details className="mt-1.5 hidden rounded-md border border-slate-200 bg-white">
-                <summary className="cursor-pointer px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                <summary className="cursor-pointer px-2.5 py-1 text-[13px] font-semibold text-slate-600">
                   Advanced metrics
                 </summary>
                 <div className="border-t border-slate-100 px-2.5 py-1.5">
                   <ReadyToManufacturePieChart jobs={jobs} compact />
                   <div className="mt-1.5 grid grid-cols-3 gap-1">
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px]">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px]">
                       <p className="font-semibold text-slate-500">Awaiting</p>
                       <p className="font-semibold text-slate-900">{awaitingCount}</p>
                     </div>
-                    <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px]">
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[12px]">
                       <p className="font-semibold text-amber-700">Ready</p>
                       <p className="font-semibold text-amber-900">{readyCount}</p>
                     </div>
-                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px]">
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[12px]">
                       <p className="font-semibold text-emerald-700">Fabrication</p>
                       <p className="font-semibold text-emerald-900">{fabricationCount}</p>
                     </div>
@@ -454,7 +454,7 @@ export function Dashboard() {
                       { label: "Fabrication", value: fabricationCount, color: "bg-amber-500" },
                     ].map((row) => (
                       <div key={row.label}>
-                        <div className="mb-0.5 flex items-center justify-between text-[10px]">
+                        <div className="mb-0.5 flex items-center justify-between text-[12px]">
                           <span className="font-medium text-slate-700">{row.label}</span>
                           <span className="text-slate-600">
                             {Math.round((row.value / totalActive) * 100)}%
@@ -479,7 +479,7 @@ export function Dashboard() {
                   <h2 className="text-sm font-semibold text-slate-900">Upcoming Due</h2>
                   <Link
                     href={`/jobs?assignedTo=${myUserId}&dueFrom=${todayIso()}&dueTo=${isoDatePlusDays(UPCOMING_DUE_WINDOW_DAYS)}`}
-                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                    className="shrink-0 text-[13px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
                   >
                     View All →
                   </Link>
@@ -499,9 +499,9 @@ export function Dashboard() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="text-xs font-semibold text-slate-900">{job.id}</p>
-                            <p className="truncate text-[10px] text-slate-500">{job.clientName}</p>
+                            <p className="truncate text-[12px] text-slate-500">{job.clientName}</p>
                           </div>
-                          <span className="shrink-0 text-[10px] font-semibold text-slate-600">
+                          <span className="shrink-0 text-[12px] font-semibold text-slate-600">
                             {formatShortDate(job.dueDate)}
                           </span>
                         </div>
@@ -510,14 +510,14 @@ export function Dashboard() {
                   )}
                 </div>
                 <details className="mt-2 hidden rounded-md border border-slate-200 bg-white">
-                  <summary className="cursor-pointer px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                  <summary className="cursor-pointer px-2.5 py-1 text-[13px] font-semibold text-slate-600">
                     Queue details
                   </summary>
                   <div className="space-y-1 border-t border-slate-100 px-2.5 py-1.5">
-                    <p className="text-[11px] text-slate-600">
+                    <p className="text-[13px] text-slate-600">
                       Delayed: <span className="font-semibold text-slate-900">{delayedCount}</span>
                     </p>
-                    <p className="text-[11px] text-slate-600">
+                    <p className="text-[13px] text-slate-600">
                       Priority queue: <span className="font-semibold text-slate-900">{priorityQueue.length}</span>
                     </p>
                     <div className="space-y-1">
@@ -525,7 +525,7 @@ export function Dashboard() {
                         <Link
                           key={`update-${job.id}`}
                           href={`/jobs/${job.id}`}
-                          className="flex items-center justify-between rounded-md border border-slate-200 px-2 py-1 text-[11px] hover:bg-slate-50"
+                          className="flex items-center justify-between rounded-md border border-slate-200 px-2 py-1 text-[13px] hover:bg-slate-50"
                         >
                           <span className="font-medium text-slate-700">{job.id}</span>
                           <span className="text-slate-500">{job.status}</span>
@@ -557,7 +557,7 @@ export function Dashboard() {
                   </div>
                   <Link
                     href={`/jobs?assignedTo=${myUserId}`}
-                    className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
+                    className="shrink-0 text-[13px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-amber-700"
                   >
                     View All →
                   </Link>
@@ -578,12 +578,12 @@ export function Dashboard() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-xs font-semibold text-slate-900">{job.id}</p>
-                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[12px] font-semibold text-slate-700">
                         {job.priority}
                       </span>
                     </div>
                     <p className="mt-0.5 text-xs text-slate-700">{job.clientName}</p>
-                    <p className="text-[11px] text-slate-500">{job.status}</p>
+                    <p className="text-[13px] text-slate-500">{job.status}</p>
                   </Link>
                 ))}
               </div>
@@ -620,7 +620,7 @@ export function Dashboard() {
                         <td className="px-3 py-1.5 text-slate-700">{job.clientName}</td>
                         <td className="px-3 py-1.5 text-slate-700">{job.projectName}</td>
                         <td className="px-3 py-1.5 text-right text-slate-700">
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
                             {job.status}
                           </span>
                         </td>
@@ -675,12 +675,12 @@ export function Dashboard() {
             aria-label="Compact footer"
           >
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] text-slate-600">
+              <p className="text-[13px] text-slate-600">
                 Operational overview in compact ERP mode.
               </p>
               <Link
                 href="/jobs"
-                className="inline-flex min-h-[28px] items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                className="inline-flex min-h-[28px] items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[13px] font-semibold text-slate-700 hover:bg-slate-100"
               >
                 Open Jobs
               </Link>

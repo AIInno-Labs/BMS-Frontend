@@ -1279,7 +1279,7 @@ export function JobWorkflowDashboard({
   return (
     <div className="no-print mx-auto w-full max-w-[88rem] px-4 py-5 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <BackToJobsLink className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#374151] shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-[#111827]">
+        <BackToJobsLink className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[13px] font-semibold text-[#374151] shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/50 hover:text-[#111827]">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           Back to Jobs
         </BackToJobsLink>
@@ -1292,7 +1292,7 @@ export function JobWorkflowDashboard({
               onClick={onPrintLoc}
               disabled={isExportingLoc || isSaving || cancelBusy}
               aria-busy={isExportingLoc}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2C5985] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#234868] disabled:cursor-wait disabled:opacity-80"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2C5985] px-2.5 py-1.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#234868] disabled:cursor-wait disabled:opacity-80"
             >
               {isExportingLoc ? (
                 <Loader2
@@ -1310,7 +1310,7 @@ export function JobWorkflowDashboard({
             onClick={onPrint}
             disabled={isExporting || isSaving || cancelBusy}
             aria-busy={isExporting}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#EA580C] disabled:cursor-wait disabled:opacity-80"
           >
             {isExporting ? (
               <Loader2
@@ -1325,7 +1325,7 @@ export function JobWorkflowDashboard({
           {jobIsIdle ? (
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-[#EA580C] disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-lg bg-[#F97316] px-2.5 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#EA580C] disabled:opacity-60"
               title={
                 editsBlocked
                   ? CASH_PAYMENT_BLOCK_MESSAGE
@@ -1339,7 +1339,7 @@ export function JobWorkflowDashboard({
           ) : null}
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
             // editsBlocked too: a job awaiting cash payment, cancelled or on
             // hold may still have its Project Requirements changed, but not
             // its stages picked by hand. The two routes reach the same
@@ -1376,7 +1376,7 @@ export function JobWorkflowDashboard({
           {cancelled ? (
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-60"
               disabled={isSaving || restoreBusy || isExporting}
               onClick={() => {
                 setRestoreError(null);
@@ -1388,7 +1388,7 @@ export function JobWorkflowDashboard({
           ) : (
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
               disabled={isSaving || cancelBusy || isExporting || job.status === "Complete"}
               onClick={() => setShowCancelConfirm(true)}
             >
@@ -1508,11 +1508,11 @@ export function JobWorkflowDashboard({
         <button
           type="button"
           onClick={() => setChatDrawerOpen(true)}
-          className="fixed right-0 top-[42%] z-30 flex -translate-y-1/2 flex-col items-center gap-1 rounded-l-xl border border-r-0 border-[#E5E7EB] bg-white px-2 py-3 text-[10px] font-semibold uppercase tracking-wide text-[#111827] shadow-[-4px_0_16px_rgba(15,23,42,0.08)] transition-colors hover:border-orange-200 hover:bg-orange-50/80 print:hidden"
+          className="fixed right-0 top-[42%] z-30 flex -translate-y-1/2 flex-col items-center gap-1 rounded-l-xl border border-r-0 border-[#E5E7EB] bg-white px-2 py-3 text-[12px] font-semibold uppercase tracking-wide text-[#111827] shadow-[-4px_0_16px_rgba(15,23,42,0.08)] transition-colors hover:border-orange-200 hover:bg-orange-50/80 print:hidden"
           aria-label="Open chat"
         >
           <MessageSquare className="h-4 w-4 text-[#F97316]" aria-hidden />
-          <span className="flex flex-col items-center gap-0.5 text-[11px] font-bold leading-none text-[#111827]">
+          <span className="flex flex-col items-center gap-0.5 text-[13px] font-bold leading-none text-[#111827]">
             <span>C</span>
             <span>H</span>
             <span>A</span>
@@ -1590,7 +1590,7 @@ export function JobWorkflowDashboard({
                 job.manualInstructions?.trim() ||
                 "No description provided."}
             </p>
-            <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
               {job.priority}
             </span>
             <p className="text-sm text-slate-500">
@@ -2247,7 +2247,7 @@ export function JobWorkflowDashboard({
               </p>
               <div className="mt-2 max-h-40 overflow-y-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="text-[10px] uppercase text-slate-400">
+                  <thead className="text-[12px] uppercase text-slate-400">
                     <tr>
                       <th className="pb-1 pr-2 font-medium">Code</th>
                       <th className="pb-1 pr-2 font-medium">Item</th>
@@ -2734,7 +2734,7 @@ function CustomerRow({
     <div className="flex items-start gap-2">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           {label}
         </p>
         <p className="break-words text-sm text-slate-700">{value}</p>

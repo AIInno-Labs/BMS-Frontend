@@ -16,7 +16,7 @@ const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
 
 const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  "block text-[12px] font-semibold uppercase tracking-wide text-slate-500";
 
 /** Types Org Admin can assign on custom roles. Platform-only codes are never shown. */
 const ASSIGNABLE_TYPES = new Set(["ACTION", "MENU", "FIELD"]);
@@ -312,7 +312,7 @@ export function CreateRoleDrawer({
             <div className="mt-2 space-y-4 rounded-xl border border-slate-200 p-3">
               {groupedByType.map(({ type, domains }) => (
                 <div key={type}>
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                  <p className="mb-2 text-[13px] font-bold uppercase tracking-wide text-slate-700">
                     {type}
                     <span className="ml-2 font-normal text-slate-500">
                       {TYPE_HINT[type] ?? ""}
@@ -321,7 +321,7 @@ export function CreateRoleDrawer({
                   <div className="space-y-3">
                     {domains.map(([domain, items]) => (
                       <div key={`${type}-${domain}`}>
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        <p className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                           {domain}
                         </p>
                         <div className="space-y-1">

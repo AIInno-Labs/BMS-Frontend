@@ -71,7 +71,7 @@ export function AppProfileMenu() {
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[13px] font-bold text-white">
           {isAuthenticated ? initials : "?"}
         </span>
         <ChevronDown

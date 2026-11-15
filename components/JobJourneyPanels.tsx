@@ -121,7 +121,7 @@ export function PurchaseOrdersPanel({
       icon={Receipt}
       action={
         totalVariances > 0 ? (
-          <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+          <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[13px] font-semibold text-red-700">
             {totalVariances} variance{totalVariances === 1 ? "" : "s"}
           </span>
         ) : null
@@ -141,18 +141,18 @@ export function PurchaseOrdersPanel({
                   {po.poNumber}
                 </p>
                 {po.issuedOn && (
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[13px] text-slate-500">
                     Issued {po.issuedOn}
                   </p>
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {(po.varianceCount ?? 0) > 0 && (
-                  <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                  <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[13px] font-semibold text-red-700">
                     {po.varianceCount}
                   </span>
                 )}
-                <span className="inline-flex items-center rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-0.5 text-[11px] font-semibold text-[#2563EB]">
+                <span className="inline-flex items-center rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-0.5 text-[13px] font-semibold text-[#2563EB]">
                   v{po.version}
                 </span>
               </div>
@@ -216,7 +216,7 @@ export function DrawingsApprovalsPanel({
       )}
 
       <div className="mt-3 border-t border-[#E2E8F0] pt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           Client approvals
         </p>
         {clientRevisionApprovals.length === 0 ? (
@@ -228,7 +228,7 @@ export function DrawingsApprovalsPanel({
             {clientRevisionApprovals.map((revision) => (
               <span
                 key={revision}
-                className="inline-flex items-center rounded-full border border-[#86EFAC] bg-[#DCFCE7] px-2 py-0.5 text-[11px] font-semibold text-[#166534]"
+                className="inline-flex items-center rounded-full border border-[#86EFAC] bg-[#DCFCE7] px-2 py-0.5 text-[13px] font-semibold text-[#166534]"
               >
                 {revision}
               </span>
@@ -258,7 +258,7 @@ export function SharePointFilesPanel({
       icon={FolderTree}
       action={
         <span
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${meta.className}`}
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[13px] font-semibold ${meta.className}`}
         >
           {meta.label}
         </span>
@@ -273,7 +273,7 @@ export function SharePointFilesPanel({
         </div>
       ) : (
         <div className="mt-3">
-          <p className="truncate font-mono text-[11px] text-slate-600">
+          <p className="truncate font-mono text-[13px] text-slate-600">
             {folderPath}
           </p>
           <ul className="mt-2 space-y-1">
@@ -286,7 +286,7 @@ export function SharePointFilesPanel({
                   className="h-3.5 w-3.5 shrink-0 text-slate-400"
                   aria-hidden
                 />
-                <span className="font-mono text-[11px] text-slate-600">
+                <span className="font-mono text-[13px] text-slate-600">
                   /{folder}
                 </span>
               </li>

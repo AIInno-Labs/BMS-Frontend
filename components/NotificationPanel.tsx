@@ -81,7 +81,7 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={() => void notifications?.markAllRead()}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-orange-700"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-orange-700"
           >
             <CheckCheck className="h-3.5 w-3.5" aria-hidden />
             Mark all read
@@ -131,12 +131,12 @@ export function NotificationPanel({ onClose }: { onClose: () => void }) {
                       >
                         {n.title}
                       </span>
-                      <span className="shrink-0 text-[10px] text-slate-400">
+                      <span className="shrink-0 text-[12px] text-slate-400">
                         {relativeTime(n.createdAt)}
                       </span>
                     </span>
                     {n.bodyPreview ? (
-                      <span className="mt-0.5 line-clamp-2 block text-[11px] leading-relaxed text-slate-500">
+                      <span className="mt-0.5 line-clamp-2 block text-[13px] leading-relaxed text-slate-500">
                         {n.bodyPreview}
                       </span>
                     ) : null}

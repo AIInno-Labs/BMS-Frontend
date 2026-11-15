@@ -9,7 +9,7 @@ export interface PrintLocResult {
 /**
  * Loads the Letter of Compliance HTML and opens the print dialog in the
  * current tab (hidden iframe — no new tab / pop-up). Mirrors
- * `printJobCardPdf` in `openJobCardPdfPrint.ts`, minus the dynamic one-page
+ * `printJobCardPdf` in `openJobCardPdfPrint.ts`, minus the dynamic page
  * fitting — `loc.html` is short enough to fit one A4 page from its own
  * `@page` margin rules alone.
  *
