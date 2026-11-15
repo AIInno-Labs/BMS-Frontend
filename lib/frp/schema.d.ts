@@ -720,7 +720,7 @@ export interface components {
             /** Format: date */
             dueDate?: string;
             /** @enum {string} */
-            readonly stageStatus?: "PENDING" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
+            readonly stageStatus?: "PENDING" | "READY" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
             /** @enum {string} */
             priority?: "NORMAL" | "HIGH" | "RUSH";
             stageStatusLabel?: string;
@@ -947,7 +947,7 @@ export interface components {
             /** Format: date */
             dueDate?: string;
             /** @enum {string} */
-            stageStatus?: "PENDING" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
+            stageStatus?: "PENDING" | "READY" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
             /** @enum {string} */
             priority?: "NORMAL" | "HIGH" | "RUSH";
             resinCode?: string;
@@ -1434,7 +1434,7 @@ export interface operations {
     findAll_4: {
         parameters: {
             query?: {
-                status?: "PENDING" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
+                status?: "PENDING" | "READY" | "AWAITING_MANAGER_APPROVAL" | "READY_TO_MANUFACTURE" | "IN_FABRICATION" | "ON_HOLD" | "COMPLETE" | "CANCELLED";
                 priority?: "NORMAL" | "HIGH" | "RUSH";
                 assignedTo?: number;
                 dueBefore?: string;

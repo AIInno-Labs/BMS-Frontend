@@ -3,8 +3,8 @@
  * page, the timeline and the Stage filter - so they can never disagree.
  *
  * A job has two things:
- *  - a stored status (Pending, Ready to Manufacture, Awaiting Manager Approval,
- *    In Fabrication, On Hold, Complete, Cancelled), and
+ *  - a stored status (Pending, Ready, Awaiting Manager Approval,
+ *    Ready to Manufacture, In Fabrication, On Hold, Complete, Cancelled), and
  *  - a milestone, `currentStageKey` (draft, design, approval, production, qc,
  *    dispatch, completed) - where the job physically is.
  *
@@ -42,21 +42,21 @@ export function jobDisplayStage(job: StageInput): JobDisplayStage {
   const { status } = job;
   if (status === "Complete") return "completed";
 
-  // Mark Ready flips the stored status to Ready to Manufacture. `isReady` also
-  // counts when a stale PENDING status has not been synced yet.
-  const ready =
-    status === "Ready to Manufacture" ||
-    (job.isReady === true && status === "Pending");
+  // Mark Ready flips the stored status to Ready. `isReady` also counts when a
+  // stale PENDING status has not been synced yet.
+  const readyAtDraft =
+    status === "Ready" || (job.isReady === true && status === "Pending");
+  const readyAtProduction = status === "Ready to Manufacture";
 
   switch (job.currentStageKey) {
     case "draft":
-      return ready ? "ready" : "pending";
+      return readyAtDraft ? "ready" : "pending";
     case "design":
       return "drawing";
     case "approval":
       return "approval";
     case "production":
-      return ready ? "readyToManufacture" : "production";
+      return readyAtProduction ? "readyToManufacture" : "production";
     case "qc":
       return "qc";
     case "dispatch":
@@ -65,7 +65,8 @@ export function jobDisplayStage(job: StageInput): JobDisplayStage {
       return "completed";
     default:
       // No milestone saved (older jobs): fall back to the stored status word.
-      if (ready) return "ready";
+      if (readyAtDraft) return "ready";
+      if (readyAtProduction) return "readyToManufacture";
       if (status === "Awaiting Manager Approval") return "approval";
       if (status === "In Fabrication") return "production";
       return "pending";
@@ -134,7 +135,7 @@ export function stageFilterFromLegacyStatus(
 ): StageFilterKey | null {
   if (status === "Pending") return "pending";
   if (status === "Awaiting Manager Approval") return "approval";
-  if (status === "Ready to Manufacture") return "ready";
+  if (status === "Ready" || status === "Ready to Manufacture") return "ready";
   return null;
 }
 
@@ -146,9 +147,9 @@ export function stageFilterFromLegacyStatus(
  */
 export const STAGE_FILTER_BACKEND_STATUSES: Record<StageFilterKey, BackendJobStatus[]> = {
   pending: ["PENDING"],
-  drawing: ["PENDING", "READY_TO_MANUFACTURE"],
+  drawing: ["PENDING", "READY", "READY_TO_MANUFACTURE"],
   approval: ["AWAITING_MANAGER_APPROVAL", "READY_TO_MANUFACTURE"],
-  ready: ["READY_TO_MANUFACTURE", "PENDING"],
+  ready: ["READY", "READY_TO_MANUFACTURE", "PENDING"],
 };
 
 /** True when the job's chip belongs to this filter option. */

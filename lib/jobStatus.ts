@@ -46,6 +46,7 @@ export type JobExceptionStatus = (typeof JOB_EXCEPTION_STATUSES)[number];
 /** Statuses kept for UI compatibility with older job cards / demos. */
 export const LEGACY_JOB_STATUSES = [
   "Pending",
+  "Ready",
   "Awaiting Manager Approval",
   "Ready to Manufacture",
   "In Fabrication",
@@ -169,6 +170,7 @@ const EXCEPTION_STATUS_GROUP: Record<JobExceptionStatus, JobStageGroup> = {
 
 const LEGACY_STATUS_GROUP: Record<LegacyJobStatus, JobStageGroup> = {
   Pending: "not-started",
+  Ready: "not-started",
   "Awaiting Manager Approval": "not-started",
   "Ready to Manufacture": "manufacturing",
   "In Fabrication": "manufacturing",
@@ -188,12 +190,16 @@ const LEGACY_STATUS_GROUP: Record<LegacyJobStatus, JobStageGroup> = {
  *   survive as its own status.
  * - "In Fabrication" sits between Ready to Manufacture and Manufacturing
  *   Complete, which the PRD models as a transition rather than a resting state.
+ * - "Ready" (Mark Ready on a draft/design-stage job) has no PRD counterpart
+ *   either — it is earlier than "Ready to Manufacture" and not one of the
+ *   drawing states, so it is left for the same business decision.
  */
 export const LEGACY_TO_CANONICAL: Record<
   LegacyJobStatus,
   JobStatus | JobExceptionStatus | null
 > = {
   Pending: "Quote Accepted",
+  Ready: null,
   "Awaiting Manager Approval": null,
   "Ready to Manufacture": "Ready to Manufacture",
   "In Fabrication": null,

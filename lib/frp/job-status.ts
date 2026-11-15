@@ -22,6 +22,7 @@ import { isCanonicalStatus, JOB_STATUS_META } from "@/lib/jobStatus";
 /** Exactly the backend `JobStatus` enum. */
 export const BACKEND_JOB_STATUSES = [
   "PENDING",
+  "READY",
   "AWAITING_MANAGER_APPROVAL",
   "READY_TO_MANUFACTURE",
   "IN_FABRICATION",
@@ -41,6 +42,7 @@ export type BackendJobStatus = (typeof BACKEND_JOB_STATUSES)[number];
  */
 const STATUS_TO_LABEL: Record<BackendJobStatus, LegacyJobStatus> = {
   PENDING: "Pending",
+  READY: "Ready",
   AWAITING_MANAGER_APPROVAL: "Awaiting Manager Approval",
   READY_TO_MANUFACTURE: "Ready to Manufacture",
   IN_FABRICATION: "In Fabrication",
@@ -94,6 +96,8 @@ export function statusToUi(value?: string | null): LegacyJobStatus {
 /**
  * Display status for a job DTO. Mark Ready / is_ready means Ready even when
  * the row is still sitting on the draft milestone with a stale PENDING cache.
+ * (The backend now also stores this as its own `READY` value, so this only
+ * matters for a row read before that recompute lands.)
  */
 export function jobStatusToUi(opts: {
   stageStatus?: string | null;
@@ -105,7 +109,7 @@ export function jobStatusToUi(opts: {
       opts.stageStatus === "PENDING" ||
       statusToUi(opts.stageStatus) === "Pending")
   ) {
-    return "Ready to Manufacture";
+    return "Ready";
   }
   return statusToUi(opts.stageStatus);
 }
@@ -150,6 +154,8 @@ export const STATUS_TARGET_STAGE: Record<
   { stageKey: string; status: "IN_PROGRESS" | "COMPLETE" | "BLOCKED" } | null
 > = {
   PENDING: { stageKey: "draft", status: "IN_PROGRESS" },
+  // Not reachable by advancing a stage - only Mark Ready sets this.
+  READY: null,
   AWAITING_MANAGER_APPROVAL: { stageKey: "approval", status: "IN_PROGRESS" },
   READY_TO_MANUFACTURE: { stageKey: "approval", status: "COMPLETE" },
   IN_FABRICATION: { stageKey: "production", status: "IN_PROGRESS" },
