@@ -10,6 +10,10 @@
 }
 
 html {
+  /* 106.25% = 17px at the default 16px; a percentage so it still follows the
+     user's own browser font-size setting. Tailwind sizes are rem-based, so this
+     lifts every text-xs / text-sm / text-base ... in one place. */
+  font-size: 106.25%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: clip;

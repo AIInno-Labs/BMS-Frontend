@@ -167,7 +167,7 @@ export function AppHeader({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
                 <Bell className="h-4 w-4" aria-hidden />
                 {unreadCount > 0 ? (
                   <span
-                    className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.05rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white"
+                    className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.05rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[12px] font-bold leading-4 text-white ring-2 ring-white"
                     aria-hidden
                   >
                     {unreadCount > 9 ? "9+" : unreadCount}

@@ -226,7 +226,7 @@ export function JobsChart({ jobs }: { jobs: Job[] }) {
               />
               <XAxis
                 dataKey="shortLabel"
-                tick={{ fill: "#334155", fontSize: 11, fontWeight: 600 }}
+                tick={{ fill: "#334155", fontSize: 13, fontWeight: 600 }}
                 axisLine={{ stroke: "#cbd5e1" }}
                 tickLine={false}
                 interval={0}
@@ -238,7 +238,7 @@ export function JobsChart({ jobs }: { jobs: Job[] }) {
               <YAxis
                 allowDecimals={false}
                 domain={[0, yMax]}
-                tick={{ fill: "#64748b", fontSize: 12, fontWeight: 500 }}
+                tick={{ fill: "#64748b", fontSize: 14, fontWeight: 500 }}
                 axisLine={false}
                 tickLine={false}
                 width={32}
@@ -251,7 +251,7 @@ export function JobsChart({ jobs }: { jobs: Job[] }) {
                   offset={12}
                   style={{
                     fill: "#64748b",
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: 600,
                     textAnchor: "middle",
                   }}

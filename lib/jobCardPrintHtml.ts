@@ -39,10 +39,17 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Break points after "@" and "." so a long email wraps at a sensible spot. */
+function withEmailBreaks(escaped: string): string {
+  return escaped.replace(/([@.])/g, "$1<wbr>");
+}
+
 function fillDataJc(html: string, id: string, raw: string): string {
   const value = HTML_FIELD_IDS_ALLOW_RAW.has(id)
     ? raw.replace(/\n/g, "<br>")
-    : escapeHtml(raw);
+    : id === "contactEmail"
+      ? withEmailBreaks(escapeHtml(raw))
+      : escapeHtml(raw);
   const pattern = new RegExp(
     `(<[^>]*\\bdata-jc="${escapeRegex(id)}"[^>]*>)([\\s\\S]*?)(</[^>]+>)`,
     "i"

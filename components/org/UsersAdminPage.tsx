@@ -22,7 +22,7 @@ const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
 
 const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  "block text-[12px] font-semibold uppercase tracking-wide text-slate-500";
 
 export function UsersAdminPage() {
   const { loading: authLoading, isAuthenticated, appRole, user: me } =
@@ -123,7 +123,7 @@ export function UsersAdminPage() {
       <div className="mx-auto max-w-7xl">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
               Organization Admin
             </p>
             <h2 className="mt-1 text-xl font-semibold text-[#111827]">Users</h2>
@@ -160,7 +160,7 @@ export function UsersAdminPage() {
 
         <div className="scrollbar-thin app-card mt-6 overflow-x-auto !p-0">
           <table className="min-w-[720px] w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-slate-200 bg-slate-50 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>

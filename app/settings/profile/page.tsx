@@ -21,7 +21,7 @@ const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 disabled:bg-slate-50 disabled:text-slate-500";
 
 const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  "block text-[12px] font-semibold uppercase tracking-wide text-slate-500";
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
   return (
@@ -193,7 +193,7 @@ export default function ProfileSettingsPage() {
   return (
     <main className="app-mesh-bg flex-1 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-2xl">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           Account
         </p>
         <h2 className="mt-1 text-xl font-semibold text-[#111827]">Profile</h2>
@@ -322,7 +322,7 @@ export default function ProfileSettingsPage() {
                   {[...privileges].sort().map((code) => (
                     <span
                       key={code}
-                      className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-mono text-[11px] text-slate-600 ring-1 ring-slate-200"
+                      className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-mono text-[13px] text-slate-600 ring-1 ring-slate-200"
                     >
                       {code}
                     </span>

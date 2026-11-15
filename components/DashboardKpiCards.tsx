@@ -19,7 +19,7 @@ const cardBase =
 
 function KpiLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+    <p className="text-[12px] font-semibold uppercase tracking-widest text-slate-500">
       {children}
     </p>
   );

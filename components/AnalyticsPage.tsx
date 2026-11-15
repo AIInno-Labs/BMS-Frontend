@@ -445,14 +445,14 @@ export function AnalyticsPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                     <XAxis
                       dataKey="status"
-                      tick={{ fontSize: 10, fill: "#64748b" }}
+                      tick={{ fontSize: 12, fill: "#64748b" }}
                       interval={0}
                       angle={-32}
                       textAnchor="end"
                       height={44}
                     />
                     <YAxis
-                      tick={{ fontSize: 10, fill: "#64748b" }}
+                      tick={{ fontSize: 12, fill: "#64748b" }}
                       allowDecimals={false}
                       width={28}
                     />
@@ -492,12 +492,12 @@ export function AnalyticsPage() {
                     margin={{ top: 4, right: 8, left: 4, bottom: 4 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#64748b" }} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: "#64748b" }} />
                     <YAxis
                       type="category"
                       dataKey="resin"
                       width={64}
-                      tick={{ fill: "#64748b", fontSize: 10 }}
+                      tick={{ fill: "#64748b", fontSize: 12 }}
                     />
                     <Tooltip
                       formatter={(value: number) => [`${value} jobs`, "Count"]}
@@ -557,7 +557,7 @@ export function AnalyticsPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={quotientChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} angle={-20} textAnchor="end" height={50} />
+                  <XAxis dataKey="name" tick={{ fontSize: 13, fill: "#64748b" }} angle={-20} textAnchor="end" height={50} />
                   <YAxis allowDecimals={false} tick={{ fill: "#64748b" }} />
                   <Tooltip />
                   <Bar

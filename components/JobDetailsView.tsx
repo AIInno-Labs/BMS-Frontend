@@ -135,7 +135,7 @@ export function JobDetailsView({
 
   return (
     <div className="no-print mx-auto w-full min-w-0 max-w-6xl px-3 py-3 sm:px-6 sm:py-6">
-      <BackToJobsLink className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-[#2563EB]">
+      <BackToJobsLink className="inline-flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:text-[#2563EB]">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
         Back to Jobs
       </BackToJobsLink>
@@ -159,7 +159,7 @@ export function JobDetailsView({
                 {job.id}
               </h1>
               <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide ${getStageBadgeClass(job.status)}`}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
                 {getStageLabel(job.status)}
@@ -176,7 +176,7 @@ export function JobDetailsView({
                 {formatDueLine(job)}
               </p>
             ) : needsDraftDueDateWarning(job) ? (
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[13px] font-semibold uppercase tracking-wide text-amber-900">
                 <Calendar className="h-3.5 w-3.5 text-amber-600" aria-hidden />
                 {DRAFT_DUE_DATE_WARNING}
               </p>
@@ -189,7 +189,7 @@ export function JobDetailsView({
                 type="button"
                 onClick={onEdit}
                 disabled={isEditing}
-                className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 text-[11px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC] disabled:opacity-50 lg:min-h-[36px] lg:w-auto"
+                className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC] disabled:opacity-50 lg:min-h-[36px] lg:w-auto"
               >
                 <Pencil className="h-3.5 w-3.5" aria-hidden />
                 Edit Job
@@ -197,7 +197,7 @@ export function JobDetailsView({
               <button
                 type="button"
                 onClick={onUpdateStatus}
-                className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 text-[11px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC] lg:min-h-[36px] lg:w-auto"
+                className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC] lg:min-h-[36px] lg:w-auto"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden />
                 Update Status
@@ -205,7 +205,7 @@ export function JobDetailsView({
               <button
                 type="button"
                 onClick={onPrint}
-                className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 text-[11px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC] lg:min-h-[36px] lg:w-auto"
+                className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 text-[13px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC] lg:min-h-[36px] lg:w-auto"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden />
                 Export PDF
@@ -221,13 +221,13 @@ export function JobDetailsView({
             <h2 className="text-sm font-semibold text-[#0F172A]">Job Details</h2>
             <dl className="mt-3 space-y-3 text-sm">
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                   Project Name
                 </dt>
                 <dd className="mt-0.5 font-medium text-[#0F172A]">{job.projectName}</dd>
               </div>
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                   Assigned Staff
                 </dt>
                 <dd className="mt-0.5 text-[#0F172A]">
@@ -235,7 +235,7 @@ export function JobDetailsView({
                 </dd>
               </div>
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                   Description
                 </dt>
                 <dd className="mt-0.5 leading-relaxed text-slate-700">
@@ -246,18 +246,18 @@ export function JobDetailsView({
                 </dd>
               </div>
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                   Job type
                 </dt>
                 <dd className="mt-0.5 text-[#0F172A]">{job.jobType || "—"}</dd>
               </div>
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                   Priority
                 </dt>
                 <dd className="mt-1">
                   <span
-                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getPriorityBadgeClass(job.priority)}`}
+                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide ${getPriorityBadgeClass(job.priority)}`}
                   >
                     {job.priority}
                   </span>
@@ -285,7 +285,7 @@ export function JobDetailsView({
                     <span className="truncate text-sm font-medium text-[#0F172A]">{step.label}</span>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide ${
                       step.done
                         ? "bg-[#DCFCE7] text-[#166534]"
                         : "bg-slate-100 text-slate-600"
@@ -326,7 +326,7 @@ export function JobDetailsView({
                         ? `PO-${pd.purchaseOrderNo}.pdf`
                         : "Job specification.pdf"}
                     </p>
-                    <p className="text-[11px] text-slate-500">Attached document</p>
+                    <p className="text-[13px] text-slate-500">Attached document</p>
                   </div>
                 </div>
                 <button
@@ -343,7 +343,7 @@ export function JobDetailsView({
             )}
             <button
               type="button"
-              className="mt-3 inline-flex w-full min-h-[38px] items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white text-[11px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC]"
+              className="mt-3 inline-flex w-full min-h-[38px] items-center justify-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white text-[13px] font-semibold uppercase tracking-wide text-[#0F172A] transition-colors hover:bg-[#F8FAFC]"
             >
               <Upload className="h-3.5 w-3.5" aria-hidden />
               Upload File
@@ -425,7 +425,7 @@ function CustomerRow({
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           {label}
         </p>
         <p className="mt-0.5 break-words text-sm font-medium text-[#0F172A]">{value}</p>

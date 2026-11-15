@@ -22,7 +22,7 @@ import {
 const CUSTOMERS_PAGE_SIZE = 10;
 
 const TH =
-  "sticky top-0 z-10 bg-[#F8FAFC] whitespace-nowrap px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500 align-middle";
+  "sticky top-0 z-10 bg-[#F8FAFC] whitespace-nowrap px-3 py-3 text-[12px] font-semibold uppercase tracking-wide text-slate-500 align-middle";
 const TD = "px-3 py-3.5 align-middle text-xs text-slate-700";
 
 type PaymentModeLabel = "Cash" | "Account";
@@ -430,7 +430,7 @@ export function CustomersListPage() {
                         >
                           <td className={`${TD} text-left`}>
                             <div className="flex items-center gap-2.5">
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-orange-200 bg-orange-50 text-[11px] font-bold text-orange-700">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-orange-200 bg-orange-50 text-[13px] font-bold text-orange-700">
                                 {initials(c.name)}
                               </span>
                               <p className="truncate font-medium text-slate-900">{c.name}</p>

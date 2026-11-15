@@ -130,7 +130,7 @@ function FileThumbnailTile({
           </span>
         ) : null}
         {isPending ? (
-          <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[10px] font-semibold text-orange-700">
+          <span className="absolute inset-2 z-10 flex flex-col items-center justify-center rounded-lg bg-white/85 text-[12px] font-semibold text-orange-700">
             <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
             Uploading
           </span>
@@ -138,7 +138,7 @@ function FileThumbnailTile({
         {isFailed ? (
           <span
             title={file.remarks?.trim() || "SharePoint upload failed"}
-            className="absolute left-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm"
+            className="absolute left-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm"
           >
             Failed
           </span>
@@ -155,7 +155,7 @@ function FileThumbnailTile({
             <PreviewIcon kind={style.kind} />
           </div>
           <span
-            className={`mt-1.5 text-[9px] font-bold tracking-wider ${
+            className={`mt-1.5 text-[11px] font-bold tracking-wider ${
               isFailed ? "text-red-700" : "text-slate-600"
             }`}
           >
@@ -163,7 +163,7 @@ function FileThumbnailTile({
           </span>
         </div>
         <p
-          className={`mt-2 max-w-[88px] truncate text-center text-[10px] font-semibold ${
+          className={`mt-2 max-w-[88px] truncate text-center text-[12px] font-semibold ${
             isFailed ? "text-red-800" : "text-slate-700"
           }`}
         >
@@ -249,7 +249,7 @@ export function JobFilesDocumentStrip({
       <select
         value={fileSort}
         onChange={(e) => onFileSortChange(e.target.value as JobFileSortMode)}
-        className="max-w-[6.5rem] cursor-pointer rounded-md border border-[#E5E7EB] bg-white py-1 pl-2 pr-6 text-[10px] font-semibold uppercase tracking-wide text-slate-600 outline-none hover:border-orange-200 focus:border-orange-300 focus:ring-1 focus:ring-orange-200"
+        className="max-w-[6.5rem] cursor-pointer rounded-md border border-[#E5E7EB] bg-white py-1 pl-2 pr-6 text-[12px] font-semibold uppercase tracking-wide text-slate-600 outline-none hover:border-orange-200 focus:border-orange-300 focus:ring-1 focus:ring-orange-200"
         aria-label="Sort files"
       >
         {JOB_FILE_SORT_OPTIONS.map((opt) => (
@@ -315,7 +315,7 @@ export function JobFilesDocumentStrip({
         aria-label="Upload file"
       >
         <Plus className="h-6 w-6" aria-hidden />
-        <span className="mt-1 text-[10px] font-semibold">Upload</span>
+        <span className="mt-1 text-[12px] font-semibold">Upload</span>
       </button>
       ) : null}
     </div>

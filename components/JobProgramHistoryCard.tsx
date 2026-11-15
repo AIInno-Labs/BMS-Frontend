@@ -33,7 +33,7 @@ export function JobProgramHistoryCard({
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#111827] shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/50"
+            className="inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[13px] font-semibold text-[#111827] shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/50"
             onClick={onPrint}
           >
             View job card (PDF)

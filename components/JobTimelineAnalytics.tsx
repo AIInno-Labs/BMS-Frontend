@@ -20,7 +20,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useJobs } from "@/context/JobsContext";
 import {
   buildJobTimelineAnalytics,
-  timelineStageInfo,
   isStageSetupDone,
   selectedTimelineStageIds,
   type JobTimelineAnalyticsData,
@@ -38,6 +37,7 @@ import {
   DRAFT_DUE_DATE_WARNING,
 } from "@/lib/frp/job-status";
 import { isJobLockedForCashPayment } from "@/lib/frp/job-cash-payment-gate";
+import { jobStageChipLabel } from "@/lib/jobDisplayStage";
 import { resolveStatusGroup } from "@/lib/jobStatus";
 import type { JobStageGroup } from "@/lib/jobStageGroups";
 import type { Job } from "@/lib/types";
@@ -81,38 +81,18 @@ function formatDueLine(job: Job): string {
   })}`;
 }
 
-const STAGE_GROUP_LABEL: Record<JobStageGroup, string> = {
-  "not-started": "Not Started",
-  manufacturing: "Manufacturing",
-  delivered: "Delivered",
-};
-
 const STAGE_GROUP_CLASS: Record<JobStageGroup, string> = {
   "not-started": "status-pill status-pill--not-started",
   manufacturing: "status-pill status-pill--manufacturing",
   delivered: "status-pill status-pill--delivered",
 };
 
-// `currentStageKey` (backend-computed: furthest milestone that's complete or
-// active) names the real stage the job is sitting at, e.g. "Drawing" — more
-// precise than the coarse status group, which only flips once the *next*
-// stage has started. Falls back to the group label for jobs the backend
-// hasn't populated it on.
+// Same word as the Jobs list chip and the detail-page status (see
+// lib/jobDisplayStage.ts): Ready once marked ready on Draft, Drawing,
+// Approval, Ready to Manufacture before production starts, then
+// Production / QC / Dispatch / Completed.
 function jobStageLabel(job: Job): string {
-  // Ready jobs often still sit on the draft milestone — don't show that as
-  // Pending / Not Started when setup is already confirmed.
-  if (
-    job.isReady ||
-    job.status === "Ready to Manufacture"
-  ) {
-    if (!job.currentStageKey || job.currentStageKey === "draft") {
-      return "Ready to Manufacture";
-    }
-  }
-  return (
-    timelineStageInfo(job.currentStageKey)?.title ??
-    STAGE_GROUP_LABEL[resolveStatusGroup(job.status)]
-  );
+  return jobStageChipLabel(job, "full");
 }
 
 function jobStageClass(status: Job["status"]): string {
@@ -313,7 +293,7 @@ function MinorTimelineNode({
         )}
       </div>
       <p
-        className={`mt-2 text-center text-[11px] leading-tight ${
+        className={`mt-2 text-center text-[13px] leading-tight ${
           selected || isActive ? "font-semibold text-slate-800" : "font-medium text-slate-600"
         }`}
       >
@@ -388,31 +368,31 @@ function StageDetailContent({
     <>
     <dl className="grid gap-2 text-sm sm:grid-cols-2">
       <div>
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">Status</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">Status</dt>
         <dd className="font-medium text-orange-700">{detail.status}</dd>
       </div>
       <div>
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">Completion</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">Completion</dt>
         <dd className="font-mono font-medium text-[#111827]">{stage.completionPct}%</dd>
       </div>
       <div>
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">Start</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">Start</dt>
         <dd className="text-slate-700">{detail.startDate}</dd>
       </div>
       <div>
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">End</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">End</dt>
         <dd className="text-slate-700">{detail.endDate}</dd>
       </div>
       <div>
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">Assigned team</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">Assigned team</dt>
         <dd className="text-slate-700">{detail.assignedTeam}</dd>
       </div>
       <div>
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">Dependency</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">Dependency</dt>
         <dd className="text-slate-700">{detail.dependency}</dd>
       </div>
       <div className="sm:col-span-2">
-        <dt className="text-[10px] font-semibold uppercase text-slate-500">Notes</dt>
+        <dt className="text-[12px] font-semibold uppercase text-slate-500">Notes</dt>
         <dd className="mt-0.5 whitespace-pre-wrap text-slate-700">
           {detail.notes?.trim() ? (
             detail.notes
@@ -424,7 +404,7 @@ function StageDetailContent({
     </dl>
     {stage.subStages && stage.subStages.length > 0 && (
       <div className="mt-3">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           Sub-stages
         </p>
         <SubStageTimeline
@@ -483,23 +463,23 @@ function renderDetailContent(
       body: (
         <dl className="grid gap-2 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-[10px] uppercase text-slate-500">Current stage</dt>
+            <dt className="text-[12px] uppercase text-slate-500">Current stage</dt>
             <dd className="font-semibold">{s.currentStage}</dd>
           </div>
           <div>
-            <dt className="text-[10px] uppercase text-slate-500">Completion</dt>
+            <dt className="text-[12px] uppercase text-slate-500">Completion</dt>
             <dd className="font-mono font-semibold text-orange-600">{progressDisplay}%</dd>
           </div>
           <div>
-            <dt className="text-[10px] uppercase text-slate-500">Days remaining</dt>
+            <dt className="text-[12px] uppercase text-slate-500">Days remaining</dt>
             <dd className="font-mono">{s.daysRemaining}</dd>
           </div>
           <div>
-            <dt className="text-[10px] uppercase text-slate-500">Risk</dt>
+            <dt className="text-[12px] uppercase text-slate-500">Risk</dt>
             <dd className="font-semibold">{s.riskLevel}</dd>
           </div>
           <div className="sm:col-span-2">
-            <dt className="text-[10px] uppercase text-slate-500">Owner</dt>
+            <dt className="text-[12px] uppercase text-slate-500">Owner</dt>
             <dd>{s.owner}</dd>
           </div>
         </dl>
@@ -813,7 +793,7 @@ export function JobTimelineAnalytics({
               {formatDueLine(job)}
             </p>
           ) : needsDraftDueDateWarning(job) ? (
-            <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+            <p className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[13px] font-semibold uppercase tracking-wide text-amber-900">
               <Calendar className="h-3.5 w-3.5 text-amber-600" aria-hidden />
               {DRAFT_DUE_DATE_WARNING}
             </p>
@@ -826,13 +806,13 @@ export function JobTimelineAnalytics({
                 type="button"
                 onClick={() => void assignJobToMe()}
                 disabled={assignBusy}
-                className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900 transition-colors hover:border-sky-300 hover:bg-sky-100 disabled:opacity-60"
+                className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-sky-900 transition-colors hover:border-sky-300 hover:bg-sky-100 disabled:opacity-60"
               >
                 {assignBusy ? "Assigning…" : "Assign to me"}
               </button>
             ) : null}
             {assignedToMe ? (
-              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-900">
+              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-sky-900">
                 Assigned to you
               </span>
             ) : null}
@@ -846,7 +826,7 @@ export function JobTimelineAnalytics({
                     ? "Resume — the backend blocks edits on this job until it's resumed"
                     : "Put this overdue job on hold — blocks edits until resumed"
                 }
-                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-60 ${
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-60 ${
                   onHold
                     ? "border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200"
                     : "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"
@@ -866,7 +846,7 @@ export function JobTimelineAnalytics({
               }`}
               aria-expanded={selected?.type === "health"}
             >
-              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                 Job Progress
               </p>
               <p className="mt-0.5 font-mono text-lg font-semibold leading-none text-orange-600">
@@ -964,7 +944,7 @@ export function JobTimelineAnalytics({
                   </div>
 
                   <p
-                    className={`mt-2.5 text-center text-[11px] font-semibold ${
+                    className={`mt-2.5 text-center text-[13px] font-semibold ${
                       isActive ? "text-orange-700" : isComplete ? "text-slate-700" : "text-slate-400"
                     }`}
                   >
@@ -975,10 +955,10 @@ export function JobTimelineAnalytics({
                       ? "Ready"
                       : stage.title}
                   </p>
-                  <p className="mt-0.5 text-center text-[10px] text-slate-500">
+                  <p className="mt-0.5 text-center text-[12px] text-slate-500">
                     {stage.dateLabel}
                   </p>
-                  <p className="text-center text-[10px] text-slate-400">
+                  <p className="text-center text-[12px] text-slate-400">
                     {stage.durationLabel}
                   </p>
 
@@ -991,7 +971,7 @@ export function JobTimelineAnalytics({
                     />
                   </div>
                   <p
-                    className={`mt-0.5 text-center font-mono text-[10px] ${
+                    className={`mt-0.5 text-center font-mono text-[12px] ${
                       isActive ? "text-orange-600" : "text-slate-400"
                     }`}
                   >

@@ -23,7 +23,7 @@ const inputClass =
   "mt-1.5 w-full min-h-[42px] rounded-[14px] border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#0F172A] shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20";
 
 const labelClass =
-  "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  "block text-[12px] font-semibold uppercase tracking-wide text-slate-500";
 
 const SECTIONS: {
   id: string;
@@ -363,7 +363,7 @@ export function PlatformNotificationRulesAdminPage() {
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
               Super Admin
             </p>
             <h2 className="mt-1 text-xl font-semibold text-[#111827]">
@@ -478,7 +478,7 @@ export function PlatformNotificationRulesAdminPage() {
                 className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm"
               >
                 <div className="border-b border-[#E5E7EB] bg-[#F8FAFC] px-4 py-3">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  <h3 className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                     {section.label}
                   </h3>
                 </div>
@@ -489,7 +489,7 @@ export function PlatformNotificationRulesAdminPage() {
                       <col className="w-24" />
                       <col className="w-28" />
                     </colgroup>
-                    <thead className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    <thead className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                       <tr>
                         <th className="px-4 py-2.5">Event</th>
                         <th className="w-24 px-4 py-2.5">Enabled</th>
@@ -689,7 +689,7 @@ function EventName({
   return (
     <>
       {milestone ? (
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
           {milestone}
         </p>
       ) : null}
@@ -726,7 +726,7 @@ function Flag({
           onChange={(e) => onChange(e.target.checked)}
           className="h-4 w-4"
         />
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           {label}
         </span>
       </label>

@@ -99,7 +99,7 @@ export function RolesAdminPage() {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-500">
               Organization Admin
             </p>
             <h2 className="mt-1 text-xl font-semibold text-[#111827]">Roles</h2>
@@ -143,7 +143,7 @@ export function RolesAdminPage() {
 
         <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-[#F8FAFC] text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <thead className="bg-[#F8FAFC] text-[12px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Code</th>
