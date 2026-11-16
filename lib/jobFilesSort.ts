@@ -7,6 +7,9 @@ export type JobFileRecord = {
   documentId?: number;
   /** Backend `documentType` — PRODUCTION / DRAWING open in Document Versions. */
   documentType?: "DRAWING" | "PRODUCTION" | "QC" | "OTHER";
+  /** Backend `milestoneStageKey` — the stage/folder the file was uploaded to
+   *  (design, approval, production, qc, dispatch…). Drives the folder tabs. */
+  milestoneStageKey?: string | null;
   /** PO entered by hand with no file attached (see `isManualPoDocument`). */
   isManualEntry?: boolean;
   /** Backend review status — mirrors `FrpDocumentStatus`. */

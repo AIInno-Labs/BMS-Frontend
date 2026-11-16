@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { JobFilesDocumentStrip } from "@/components/JobFilesDocumentStrip";
+import type { JobFileFolder } from "@/lib/jobFileFolders";
 import type { JobFileRecord, JobFileSortMode } from "@/lib/jobFilesSort";
 import {
   scopeLinesToText,
@@ -62,7 +63,8 @@ interface JobWorkflowExtrasSectionProps {
   files: JobFileRecord[];
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
-  onUploadFile: () => void;
+  /** `folder` is set when "Upload here" is used on a Project documents tab. */
+  onUploadFile: (folder?: JobFileFolder) => void;
   onDownloadFile: (file: JobFileRecord) => void;
   onOpenFile?: (file: JobFileRecord) => void;
   /** PDF/image thumbnail click — parent opens the in-app preview modal. */

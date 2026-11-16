@@ -16,6 +16,11 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { isPreviewableFile } from "@/components/DocumentPreviewModal";
 import { deleteJobDocument } from "@/lib/frp/api";
 import {
+  JOB_FILE_FOLDERS,
+  fileFolder,
+  type JobFileFolder,
+} from "@/lib/jobFileFolders";
+import {
   JOB_FILE_SORT_OPTIONS,
   type JobFileRecord,
   type JobFileSortMode,
@@ -43,7 +48,9 @@ interface JobFilesDocumentStripProps {
   files: JobFileRecord[];
   fileSort: JobFileSortMode;
   onFileSortChange: (mode: JobFileSortMode) => void;
-  onUpload?: () => void;
+  /** `folder` is the active folder tab (undefined on the All tab), so the upload
+   *  dialog can preselect it. */
+  onUpload?: (folder?: JobFileFolder) => void;
   onDownload: (file: JobFileRecord) => void;
   /** PO / drawing clicks — parent scrolls to Document Versions. */
   onOpenFile?: (file: JobFileRecord) => void;
@@ -227,21 +234,56 @@ export function JobFilesDocumentStrip({
     }
   };
 
+  // Folder tabs (full variant). The tab shows only the files in that folder; the
+  // All tab shows everything. Until the user picks one, the first folder that
+  // has files is shown, so the card opens on something useful.
+  const [chosenTab, setChosenTab] = useState<JobFileFolder | "all" | null>(null);
+  useEffect(() => setChosenTab(null), [jobId]);
+
+  const folderCounts = useMemo(() => {
+    const counts: Record<JobFileFolder, number> = {
+      drawing: 0,
+      approval: 0,
+      production: 0,
+      qc: 0,
+      dispatch: 0,
+      others: 0,
+    };
+    for (const f of files) counts[fileFolder(f)] += 1;
+    return counts;
+  }, [files]);
+
+  const activeTab: JobFileFolder | "all" =
+    chosenTab ?? JOB_FILE_FOLDERS.find((f) => folderCounts[f.key] > 0)?.key ?? "all";
+  const activeFolderLabel =
+    JOB_FILE_FOLDERS.find((f) => f.key === activeTab)?.label ?? "this folder";
+
+  const visibleFiles = useMemo(
+    () =>
+      variant === "compact" || activeTab === "all"
+        ? files
+        : files.filter((f) => fileFolder(f) === activeTab),
+    [files, activeTab, variant]
+  );
+
   const selectedFile = useMemo(() => {
-    if (files.length === 0) return null;
-    return files.find((f) => fileKey(f) === selectedKey) ?? files[0];
-  }, [files, selectedKey]);
+    if (visibleFiles.length === 0) return null;
+    return visibleFiles.find((f) => fileKey(f) === selectedKey) ?? visibleFiles[0];
+  }, [visibleFiles, selectedKey]);
 
   useEffect(() => {
     if (variant === "compact") return;
-    if (files.length === 0) {
+    if (visibleFiles.length === 0) {
       setSelectedKey(null);
       return;
     }
-    if (!selectedKey || !files.some((f) => fileKey(f) === selectedKey)) {
-      setSelectedKey(fileKey(files[0]));
+    if (!selectedKey || !visibleFiles.some((f) => fileKey(f) === selectedKey)) {
+      setSelectedKey(fileKey(visibleFiles[0]));
     }
-  }, [files, selectedKey, variant]);
+  }, [visibleFiles, selectedKey, variant]);
+
+  // The Upload tiles open the dialog on the folder being viewed.
+  const uploadFolder = activeTab === "all" ? undefined : activeTab;
 
   const sortControl = (
     <label className="inline-flex min-w-0 items-center">
@@ -263,7 +305,7 @@ export function JobFilesDocumentStrip({
 
   const thumbnailRow = (
     <div className="flex flex-wrap items-start gap-3 overflow-x-auto overscroll-contain pb-1">
-      {files.map((file) => (
+      {visibleFiles.map((file) => (
         <FileThumbnailTile
           key={fileKey(file)}
           file={file}
@@ -310,9 +352,9 @@ export function JobFilesDocumentStrip({
       {onUpload ? (
       <button
         type="button"
-        onClick={onUpload}
+        onClick={() => onUpload(uploadFolder)}
         className="flex h-[88px] w-[88px] shrink-0 flex-col items-center justify-center rounded-xl border border-dashed border-orange-200 bg-orange-50/60 text-orange-700 transition-colors hover:border-orange-300 hover:bg-orange-50"
-        aria-label="Upload file"
+        aria-label={uploadFolder ? `Upload file to ${activeFolderLabel}` : "Upload file"}
       >
         <Plus className="h-6 w-6" aria-hidden />
         <span className="mt-1 text-[12px] font-semibold">Upload</span>
@@ -417,7 +459,7 @@ export function JobFilesDocumentStrip({
         <button
           type="button"
           className="text-sm font-semibold text-orange-700 hover:text-orange-800"
-          onClick={onUpload}
+          onClick={() => onUpload(uploadFolder)}
         >
           Upload another →
         </button>
@@ -426,17 +468,31 @@ export function JobFilesDocumentStrip({
     </div>
   ) : (
     <div className="min-w-[200px] flex-1 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-4">
-      <p className="text-sm font-semibold text-slate-700">No files uploaded</p>
-      <p className="mt-1 text-xs text-slate-500">
-        Add specifications, drawings, POs, or QA documents for this job.
-      </p>
+      {files.length > 0 ? (
+        <>
+          <p className="text-sm font-semibold text-slate-700">
+            No files in {activeFolderLabel}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Files uploaded to this folder will show here. Use the other tabs to see
+            the rest of this job&apos;s documents.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm font-semibold text-slate-700">No files uploaded</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Add specifications, drawings, POs, or QA documents for this job.
+          </p>
+        </>
+      )}
       {onUpload ? (
       <button
         type="button"
         className="mt-3 text-sm font-semibold text-orange-700 hover:text-orange-800"
-        onClick={onUpload}
+        onClick={() => onUpload(uploadFolder)}
       >
-        Upload file →
+        {uploadFolder ? `Upload to ${activeFolderLabel} →` : "Upload file →"}
       </button>
       ) : null}
     </div>
@@ -454,6 +510,49 @@ export function JobFilesDocumentStrip({
           Project documents
         </p>
         {sortControl}
+      </div>
+      <div
+        role="tablist"
+        aria-label="Document folders"
+        className="mt-3 flex gap-1.5 overflow-x-auto border-b border-[#E5E7EB] pb-2"
+      >
+        {(
+          [
+            { key: "all" as const, label: "All", count: files.length },
+            ...JOB_FILE_FOLDERS.map((f) => ({
+              key: f.key,
+              label: f.label,
+              count: folderCounts[f.key],
+            })),
+          ]
+        ).map((tab) => {
+          const active = tab.key === activeTab;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setChosenTab(tab.key)}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-semibold transition-colors ${
+                active
+                  ? "border-orange-300 bg-orange-50 text-orange-800"
+                  : tab.count === 0
+                    ? "border-transparent text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                    : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`}
+            >
+              {tab.label}
+              <span
+                className={`rounded-full px-1.5 text-[11px] font-bold ${
+                  active ? "bg-orange-200/70 text-orange-900" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
       </div>
       <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">{thumbnailRow}</div>
