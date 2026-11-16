@@ -13,6 +13,7 @@ import {
 import { useJobs } from "@/context/JobsContext";
 import { useAuth } from "@/context/AuthContext";
 import { ACCESS_KEYS, type AccessKey } from "@/lib/frp/access";
+import { stageGroupCounts } from "@/lib/frp/job-counts";
 
 const cardBase =
   "min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50/80";
@@ -47,16 +48,10 @@ export function DashboardKpiCards() {
   // Org-wide aggregates from GET /jobs/counts — one card per field on the DTO.
   const { counts } = useJobs();
   const { can } = useAuth();
-  const {
-    total,
-    active,
-    overdue,
-    notStarted,
-    awaitingApproval,
-    ready,
-    manufacturing,
-    delivered,
-  } = counts;
+  const { total, active, overdue, awaitingApproval, ready, delivered } = counts;
+  // Not started / Manufacturing use the same rule as the Jobs-page cards, so a
+  // tile's number equals the list it links to.
+  const { notStarted, manufacturing } = stageGroupCounts(counts);
 
   const allCards: KpiCard[] = [
     {
