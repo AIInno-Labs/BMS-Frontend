@@ -11,6 +11,7 @@ import { useJobs } from "@/context/JobsContext";
 import { usePersona } from "@/context/PersonaContext";
 import { useAuth } from "@/context/AuthContext";
 import { listJobs, listUpcomingDueJobs } from "@/lib/frp/api";
+import { stageGroupCounts } from "@/lib/frp/job-counts";
 import { frpJobSummaryToUi } from "@/lib/frp/job-mapper";
 import { formatShortDate } from "@/lib/jobData";
 import type { Job } from "@/lib/types";
@@ -217,8 +218,9 @@ export function Dashboard() {
   };
 
   const deliveredCount = counts.delivered;
-  // Same buckets as the KPI cards — do not fold awaiting/ready into "not started".
-  const manufacturingNowCount = counts.manufacturing + counts.ready;
+  // Manufacturing = Ready to Manufacture + In Fabrication, the same number as the
+  // Manufacturing tile and card. Pending stays Pending only; Awaiting its own slice.
+  const manufacturingNowCount = stageGroupCounts(counts).manufacturing;
   const notStartedCount = counts.notStarted;
   const breakdownTotal = Math.max(
     1,
@@ -228,7 +230,7 @@ export function Dashboard() {
     { label: "DELIVERED", value: deliveredCount, color: "#10B981" },
     { label: "MANUFACTURING", value: manufacturingNowCount, color: "#F59E0B" },
     { label: "AWAITING", value: counts.awaitingApproval, color: "#8B5CF6" },
-    { label: "NOT STARTED", value: notStartedCount, color: "#EF4444" },
+    { label: "PENDING", value: notStartedCount, color: "#EF4444" },
   ];
   const donutRadius = 34;
   const donutCircumference = 2 * Math.PI * donutRadius;

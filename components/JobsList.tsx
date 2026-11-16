@@ -39,12 +39,10 @@ import { stageGroupCounts } from "@/lib/frp/job-counts";
 import { rememberJobsListUrl } from "@/lib/frp/jobs-list-return";
 import { STAGE_GROUP_INFO, type JobStageGroup } from "@/lib/jobStageGroups";
 import {
-  BACKEND_JOB_STATUSES,
   isCancelledJob,
   isOnHoldJob,
   priorityToBackend,
   statusToBackend,
-  statusToUi,
   type BackendJobStatus,
 } from "@/lib/frp/job-status";
 import { resolveStatusGroup } from "@/lib/jobStatus";
@@ -81,17 +79,23 @@ const WORKER_STATUSES: BackendJobStatus[] = [
  * is served as one backend request per status in the group, merged client
  * side (see `loadGroupJobs` in `JobsList`).
  */
-const STAGE_GROUP_BACKEND_STATUSES: Record<JobStageGroup, BackendJobStatus[]> = (() => {
-  const groups: Record<JobStageGroup, BackendJobStatus[]> = {
-    "not-started": [],
-    manufacturing: [],
-    delivered: [],
-  };
-  for (const status of BACKEND_JOB_STATUSES) {
-    groups[resolveStatusGroup(statusToUi(status))].push(status);
-  }
-  return groups;
-})();
+const STAGE_GROUP_BACKEND_STATUSES: Record<JobStageGroup, BackendJobStatus[]> = {
+  // Must match `stageGroupCounts` (lib/frp/job-counts.ts) so a card's number
+  // equals its list. On Hold and Cancelled are in neither card.
+  "not-started": ["PENDING", "READY", "AWAITING_MANAGER_APPROVAL"],
+  manufacturing: ["READY_TO_MANUFACTURE", "IN_FABRICATION"],
+  delivered: ["COMPLETE"],
+};
+
+/** Every status that can still be overdue: all except Complete / Cancelled. */
+const OVERDUE_BACKEND_STATUSES: BackendJobStatus[] = [
+  "PENDING",
+  "READY",
+  "AWAITING_MANAGER_APPROVAL",
+  "READY_TO_MANUFACTURE",
+  "IN_FABRICATION",
+  "ON_HOLD",
+];
 
 /** The three clickable stage tiles above the jobs table — "delivered" isn't
  *  one of them; "overdue" cuts across not-started/manufacturing by due date
@@ -303,12 +307,9 @@ export function JobsList({ jobs }: JobsListProps) {
     const next = stageGroupFilter === group ? null : group;
     setStageGroupFilter(next);
     setPage(1);
-    if (next) {
-      setStatusFilter("All");
-      updateUrlParams({ group: next, status: null, page: null });
-    } else {
-      updateUrlParams({ group: null, page: null });
-    }
+    // The card and the Stage dropdown are independent filters: a card only
+    // sets/clears the group and leaves the dropdown's status alone.
+    updateUrlParams({ group: next, page: null });
   };
 
   const stageCards = useMemo(() => {
@@ -562,20 +563,29 @@ export function JobsList({ jobs }: JobsListProps) {
       // same set the Overdue card counts. If more than ONE_CALL_SIZE jobs have a
       // past due date, one page would miss some, so fall through to the
       // per-status crawl below instead.
-      if (stageGroupFilter === "overdue") {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const yesterday = [
+        d.getFullYear(),
+        String(d.getMonth() + 1).padStart(2, "0"),
+        String(d.getDate()).padStart(2, "0"),
+      ].join("-");
+      // Overdue means due on or before yesterday; a user-chosen "due to" date
+      // that is earlier narrows it further.
+      const overdueDueTo = dueTo && dueTo < yesterday ? dueTo : yesterday;
+
+      // The Stage dropdown's status, if one is chosen, narrows the card: the
+      // card and the dropdown are independent filters that combine.
+      const chosenStatus =
+        statusFilter !== "All" ? statusToBackend(statusFilter) ?? undefined : undefined;
+
+      if (stageGroupFilter === "overdue" && !chosenStatus) {
         const ONE_CALL_SIZE = 200;
-        const d = new Date();
-        d.setDate(d.getDate() - 1);
-        const yesterday = [
-          d.getFullYear(),
-          String(d.getMonth() + 1).padStart(2, "0"),
-          String(d.getDate()).padStart(2, "0"),
-        ].join("-");
         const res = await listJobs(0, ONE_CALL_SIZE, {
           sort: "RECENT",
           ...assignedToQuery,
           dueFrom,
-          dueTo: dueTo && dueTo < yesterday ? dueTo : yesterday,
+          dueTo: overdueDueTo,
           ignoreOverdue: true,
         });
         if ((res.totalElements ?? 0) <= ONE_CALL_SIZE) {
@@ -587,13 +597,17 @@ export function JobsList({ jobs }: JobsListProps) {
       // delivered, not cancelled) whose due date has passed — so it crawls
       // both the not-started and manufacturing statuses and filters by date
       // client side, mirroring `deriveFromJobs`'s overdue predicate.
-      const statuses =
+      const groupStatuses =
         stageGroupFilter === "overdue"
-          ? [
-              ...STAGE_GROUP_BACKEND_STATUSES["not-started"],
-              ...STAGE_GROUP_BACKEND_STATUSES.manufacturing,
-            ]
+          ? OVERDUE_BACKEND_STATUSES
           : STAGE_GROUP_BACKEND_STATUSES[stageGroupFilter as JobStageGroup];
+      // With a dropdown status chosen: one status only - and none at all (no
+      // request) when that status is not part of the card's group.
+      const statuses = chosenStatus
+        ? groupStatuses.includes(chosenStatus)
+          ? [chosenStatus]
+          : []
+        : groupStatuses;
       const collected: Job[] = [];
       for (const status of statuses) {
         for (let backendPage = 0; backendPage < MAX_PAGES; backendPage++) {
@@ -602,7 +616,7 @@ export function JobsList({ jobs }: JobsListProps) {
             sort: "RECENT",
             ...assignedToQuery,
             dueFrom,
-            dueTo,
+            dueTo: stageGroupFilter === "overdue" ? overdueDueTo : dueTo,
             // Overdue tile or due-date filter: honor IGNORE_OVERDUE.
             ignoreOverdue:
               stageGroupFilter === "overdue" || Boolean(dueFrom || dueTo),
@@ -633,7 +647,15 @@ export function JobsList({ jobs }: JobsListProps) {
     return () => {
       cancelled = true;
     };
-  }, [isWorker, stageGroupFilter, assignedToFilter, dueFrom, dueTo, listRevision]);
+  }, [
+    isWorker,
+    stageGroupFilter,
+    statusFilter,
+    assignedToFilter,
+    dueFrom,
+    dueTo,
+    listRevision,
+  ]);
 
   const groupFilteredJobs = useMemo(() => {
     if (!stageGroupFilter) return [];
@@ -816,53 +838,53 @@ export function JobsList({ jobs }: JobsListProps) {
           </div>
           <label
             className={`inline-flex h-[46px] min-w-0 items-center justify-between rounded-full border bg-white px-3 text-[13px] font-semibold tracking-wide text-[#111827] focus-within:border-orange-300/45 focus-within:ring-2 focus-within:ring-orange-200/40 ${
-              stageGroupFilter || statusFilter !== "All"
+              statusFilter !== "All" || stageGroupFilter === "overdue"
                 ? "border-orange-300 ring-1 ring-orange-200"
                 : "border-[#E5E7EB]"
             }`}
           >
             <span className="shrink-0">STAGE</span>
             <select
+              // The dropdown shows the status filter only. The one exception is
+              // Overdue, which is the same flag as the Overdue card: it shows
+              // here while on and no status is chosen. Not Started and
+              // Manufacturing belong to their cards and never appear here.
               value={
-                stageGroupFilter
-                  ? `group:${stageGroupFilter}`
-                  : statusFilter === "All"
-                    ? "All"
-                    : `status:${statusFilter}`
+                statusFilter !== "All"
+                  ? `status:${statusFilter}`
+                  : stageGroupFilter === "overdue"
+                    ? "group:overdue"
+                    : "All"
               }
               onChange={(e) => {
                 const next = e.target.value;
                 setPage(1);
                 if (next === "All") {
+                  // Clears the status. If the dropdown was showing Overdue,
+                  // that is cleared too; other cards are left as they are.
+                  const clearOverdue =
+                    statusFilter === "All" && stageGroupFilter === "overdue";
                   setStatusFilter("All");
-                  setStageGroupFilter(null);
+                  if (clearOverdue) setStageGroupFilter(null);
                   updateUrlParams({
                     status: null,
-                    group: null,
+                    ...(clearOverdue ? { group: null } : {}),
                     page: null,
                   });
                   return;
                 }
-                if (next.startsWith("group:")) {
-                  const group = parseStageCardParam(next.slice("group:".length));
+                if (next === "group:overdue") {
+                  // Overdue replaces the dropdown's status; other cards stay.
                   setStatusFilter("All");
-                  setStageGroupFilter(group);
-                  updateUrlParams({
-                    group,
-                    status: null,
-                    page: null,
-                  });
+                  setStageGroupFilter("overdue");
+                  updateUrlParams({ group: "overdue", status: null, page: null });
                   return;
                 }
                 if (next.startsWith("status:")) {
+                  // Only the status changes; any active card stays on.
                   const status = next.slice("status:".length) as JobStatus;
                   setStatusFilter(status);
-                  setStageGroupFilter(null);
-                  updateUrlParams({
-                    status,
-                    group: null,
-                    page: null,
-                  });
+                  updateUrlParams({ status, page: null });
                 }
               }}
               className="ml-2 min-w-0 max-w-40 truncate bg-transparent text-[13px] outline-none hover:text-[#EA580C]"
@@ -870,16 +892,6 @@ export function JobsList({ jobs }: JobsListProps) {
             >
               <option value="All">All</option>
               <option value="group:overdue">Overdue</option>
-              {/* The Not Started / Manufacturing cards cover several statuses, so
-                  they are not single-call options. They are listed here only while
-                  a card (or a dashboard link) has one active, so the select never
-                  shows the wrong label. */}
-              {stageGroupFilter === "not-started" && (
-                <option value="group:not-started">Not Started</option>
-              )}
-              {stageGroupFilter === "manufacturing" && (
-                <option value="group:manufacturing">Manufacturing</option>
-              )}
               {/* One option per stored job status: each is a single
                   GET /jobs?status=... call, paged by the backend. */}
               <option value="status:Pending">Pending</option>
@@ -942,7 +954,9 @@ export function JobsList({ jobs }: JobsListProps) {
           {isWorker
             ? "No assigned jobs on the floor right now. Check back later."
             : stageGroupFilter
-              ? `No jobs in ${CARD_INFO[stageGroupFilter].label} match your search. Clear filters or try another stage.`
+              ? statusFilter !== "All"
+                ? `No ${statusFilter} jobs in ${CARD_INFO[stageGroupFilter].label}. Clear a filter or try another stage.`
+                : `No jobs in ${CARD_INFO[stageGroupFilter].label} match your search. Clear filters or try another stage.`
               : "No jobs match your filters. Try clearing search or selecting another stage."}
         </p>
       ) : (
