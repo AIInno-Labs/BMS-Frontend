@@ -199,18 +199,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
       // the endpoint is missing, but they are then a floor, not a total.
       try {
         // Jobs + dashboard overdue tiles: exclude IGNORE_OVERDUE (API default).
-        const dto = await getJobCounts({ ignoreOverdue: true });
-        // /jobs/counts merges READY into READY_TO_MANUFACTURE, but the Not
-        // Started and Manufacturing cards need them apart. One size-1 request
-        // gives READY's total. If it fails (e.g. a backend without READY),
-        // treat it as 0: every "ready" job is then Ready to Manufacture.
-        const readyOnly = await listJobs(0, 1, {
-          status: "READY",
-          ignoreOverdue: false,
-        })
-          .then((p) => p.totalElements ?? 0)
-          .catch(() => 0);
-        setCounts(countsFromDto(dto, readyOnly));
+        setCounts(countsFromDto(await getJobCounts({ ignoreOverdue: true })));
       } catch {
         setCounts(deriveFromJobs(list));
       }

@@ -25,12 +25,6 @@ export interface JobCounts {
   awaitingApproval: number;
   /** READY and READY_TO_MANUFACTURE together - the backend merges them. */
   ready: number;
-  /**
-   * READY alone (a draft marked ready). `/jobs/counts` cannot split it from
-   * `ready`, so it is read separately (see `JobsContext`); Ready to Manufacture
-   * is `ready - readyOnly`.
-   */
-  readyOnly: number;
   manufacturing: number;
   onHold: number;
   delivered: number;
@@ -49,7 +43,6 @@ export const EMPTY_JOB_COUNTS: JobCounts = {
   notStarted: 0,
   awaitingApproval: 0,
   ready: 0,
-  readyOnly: 0,
   manufacturing: 0,
   onHold: 0,
   delivered: 0,
@@ -57,7 +50,7 @@ export const EMPTY_JOB_COUNTS: JobCounts = {
   authoritative: false,
 };
 
-export function countsFromDto(dto: FrpJobCountsDTO, readyOnly = 0): JobCounts {
+export function countsFromDto(dto: FrpJobCountsDTO): JobCounts {
   return {
     total: dto.total ?? 0,
     active: dto.active ?? 0,
@@ -65,7 +58,6 @@ export function countsFromDto(dto: FrpJobCountsDTO, readyOnly = 0): JobCounts {
     notStarted: dto.notStarted ?? 0,
     awaitingApproval: dto.awaitingApproval ?? 0,
     ready: dto.ready ?? 0,
-    readyOnly: Math.min(readyOnly, dto.ready ?? 0),
     manufacturing: dto.manufacturing ?? 0,
     onHold: dto.onHold ?? 0,
     delivered: dto.delivered ?? 0,
@@ -94,7 +86,6 @@ export function deriveFromJobs(jobs: Job[]): JobCounts {
     notStarted: by("Pending"),
     awaitingApproval: by("Awaiting Manager Approval"),
     ready: by("Ready") + by("Ready to Manufacture"),
-    readyOnly: by("Ready"),
     manufacturing: by("In Fabrication"),
     onHold: by("On Hold"),
     delivered: by("Complete"),
@@ -105,20 +96,19 @@ export function deriveFromJobs(jobs: Job[]): JobCounts {
 
 /**
  * The Not Started and Manufacturing cards (Jobs page and dashboard tiles).
- * The card lists in `JobsList` (`STAGE_GROUP_BACKEND_STATUSES`) use the same
- * statuses, so a card's number always equals its list:
+ * Both are the backend's own numbers, and a card's number always equals the
+ * list you get when you click it:
  *
- *  - Not Started   = Pending + Ready + Awaiting Manager Approval
- *  - Manufacturing = Ready to Manufacture + In Fabrication
+ *  - Not Started   = `notStarted` (PENDING). The card opens the Jobs list with
+ *                    the Stage filter on Pending.
+ *  - Manufacturing = `manufacturing` (IN_FABRICATION). The card opens the Jobs
+ *                    list with the Stage filter on In Fabrication.
  *
- * On Hold and Cancelled are in neither card (they stay under All and their own
- * Stage options). `total` is every job except Cancelled, the divisor for the
- * "% of jobs" figures.
+ * `total` is every job except Cancelled, the divisor for the "% of jobs" figures.
  */
 export function stageGroupCounts(counts: JobCounts) {
-  const readyToManufacture = Math.max(0, counts.ready - counts.readyOnly);
-  const notStarted = counts.notStarted + counts.readyOnly + counts.awaitingApproval;
-  const manufacturing = counts.manufacturing + readyToManufacture;
+  const notStarted = counts.notStarted;
+  const manufacturing = counts.manufacturing;
   const delivered = counts.delivered;
   return {
     notStarted,

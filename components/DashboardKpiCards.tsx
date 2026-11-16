@@ -49,8 +49,8 @@ export function DashboardKpiCards() {
   const { counts } = useJobs();
   const { can } = useAuth();
   const { total, active, overdue, awaitingApproval, ready, delivered } = counts;
-  // Not started / Manufacturing use the same rule as the Jobs-page cards, so a
-  // tile's number equals the list it links to.
+  // Not started (Pending) and Manufacturing (In Fabrication) are the API's own
+  // numbers, the same as the Jobs-page cards, so a tile equals the list it opens.
   const { notStarted, manufacturing } = stageGroupCounts(counts);
 
   const allCards: KpiCard[] = [
@@ -94,7 +94,7 @@ export function DashboardKpiCards() {
       key: "notStarted",
       label: "Not started",
       value: notStarted,
-      href: "/jobs?group=not-started",
+      href: "/jobs?status=Pending",
       icon: Hourglass,
       iconClass: "bg-rose-50 text-rose-700",
       accessKey: ACCESS_KEYS.DASHBOARD_CARD_NOT_STARTED,
@@ -121,7 +121,7 @@ export function DashboardKpiCards() {
       key: "manufacturing",
       label: "Manufacturing",
       value: manufacturing,
-      href: "/jobs?group=manufacturing",
+      href: "/jobs?status=In%20Fabrication",
       icon: Cog,
       iconClass: "bg-amber-50 text-amber-700",
       accessKey: ACCESS_KEYS.DASHBOARD_CARD_MANUFACTURING,
