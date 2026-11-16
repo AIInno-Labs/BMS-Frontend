@@ -218,8 +218,8 @@ export function Dashboard() {
   };
 
   const deliveredCount = counts.delivered;
-  // Manufacturing = Ready to Manufacture + In Fabrication, the same number as the
-  // Manufacturing tile and card. Pending stays Pending only; Awaiting its own slice.
+  // Manufacturing = In Fabrication, the same number as the Manufacturing tile
+  // and card. Not Started is Pending only; Awaiting is its own slice.
   const manufacturingNowCount = stageGroupCounts(counts).manufacturing;
   const notStartedCount = counts.notStarted;
   const breakdownTotal = Math.max(
@@ -230,7 +230,7 @@ export function Dashboard() {
     { label: "DELIVERED", value: deliveredCount, color: "#10B981" },
     { label: "MANUFACTURING", value: manufacturingNowCount, color: "#F59E0B" },
     { label: "AWAITING", value: counts.awaitingApproval, color: "#8B5CF6" },
-    { label: "PENDING", value: notStartedCount, color: "#EF4444" },
+    { label: "NOT STARTED", value: notStartedCount, color: "#EF4444" },
   ];
   const donutRadius = 34;
   const donutCircumference = 2 * Math.PI * donutRadius;
