@@ -18,7 +18,6 @@
  * next to this one.
  */
 
-import type { BackendJobStatus } from "@/lib/frp/job-status";
 import type { Job } from "@/lib/types";
 
 export type JobDisplayStage =
@@ -107,62 +106,4 @@ export function jobStageChipLabel(
 export function jobStatusText(job: StageInput): string {
   if (job.status === "On Hold" || job.status === "Cancelled") return job.status;
   return jobStageChipLabel(job, "full");
-}
-
-/* -------------------------------------------------------------- Stage filter */
-
-/**
- * Stage-dropdown options that are decided by the chip rule above rather than by
- * the stored status alone. (In Fabrication and Delivered stay plain stored-status
- * filters and are not listed here.)
- */
-export type StageFilterKey = "pending" | "drawing" | "approval" | "ready";
-
-export function parseStageFilterParam(
-  value: string | null | undefined
-): StageFilterKey | null {
-  return value === "pending" ||
-    value === "drawing" ||
-    value === "approval" ||
-    value === "ready"
-    ? value
-    : null;
-}
-
-/** Older links (dashboard tiles) pass `?status=...` - map them to the same filter. */
-export function stageFilterFromLegacyStatus(
-  status: string | null | undefined
-): StageFilterKey | null {
-  if (status === "Pending") return "pending";
-  if (status === "Awaiting Manager Approval") return "approval";
-  if (status === "Ready" || status === "Ready to Manufacture") return "ready";
-  return null;
-}
-
-/**
- * Stored statuses that can contain each filter's jobs. The backend filters by
- * status only, so these are fetched and then narrowed by milestone with
- * {@link jobMatchesStageFilter}. On Hold and Cancelled are never requested, so
- * they stay out of these lists (they remain visible under All).
- */
-export const STAGE_FILTER_BACKEND_STATUSES: Record<StageFilterKey, BackendJobStatus[]> = {
-  pending: ["PENDING"],
-  drawing: ["PENDING", "READY", "READY_TO_MANUFACTURE"],
-  approval: ["AWAITING_MANAGER_APPROVAL", "READY_TO_MANUFACTURE"],
-  ready: ["READY", "READY_TO_MANUFACTURE", "PENDING"],
-};
-
-/** True when the job's chip belongs to this filter option. */
-export function jobMatchesStageFilter(job: StageInput, key: StageFilterKey): boolean {
-  const stage = jobDisplayStage(job);
-  switch (key) {
-    case "pending":
-      return stage === "pending";
-    case "drawing":
-      return stage === "drawing";
-    case "approval":
-      return stage === "approval";
-    case "ready":
-      return stage === "ready" || stage === "readyToManufacture";
-  }
 }
