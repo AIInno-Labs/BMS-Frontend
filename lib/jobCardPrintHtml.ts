@@ -102,6 +102,21 @@ export function buildJobCardPrintHtml(
   html = html.replace(INVENTORY_ROWS_MARKER, inventoryRowsHtml(data));
 
   const values = officialDataToFieldValues(data);
+
+  // The right-hand Scope column only exists for commercial / add-on lines.
+  // With none, drop it so the scope text uses the full width of the card.
+  if (!(values.scopeRightLines ?? "").trim()) {
+    html = html
+      .replace(
+        /<td[^>]*data-jc="scopeRightLines"[^>]*>[\s\S]*?<\/td>/i,
+        ""
+      )
+      .replace(
+        /<td width="62%"([^>]*data-jc="scopeLines")/i,
+        '<td width="100%"$1'
+      );
+  }
+
   for (const [id, value] of Object.entries(values)) {
     // Inventory rows are injected above — skip legacy clip.* bindings.
     if (id.startsWith("clip.")) continue;
