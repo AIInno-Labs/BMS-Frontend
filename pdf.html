@@ -6,6 +6,33 @@
 
 <style>
 
+:root{
+    /*
+     * Font sizes are "design px": the card is laid out 953px wide and then
+     * scaled to the A4 page width (about x0.8 when printed), so the printed
+     * size is roughly 0.6 of the value in pt. Scope of Work and Notes are the
+     * largest on purpose - that is what the workshop reads from paper.
+     * These rules apply on screen and in print, so the pre-print measurement
+     * in openJobCardPdfPrint.ts sees exactly what the printer will.
+     */
+    --jc-fs-header:13px;
+    --jc-fs-header-label:12px;
+    --jc-fs-qa:12px;
+    --jc-fs-notice:12px;
+    --jc-fs-title:15px;
+    --jc-fs-table:14px;
+    --jc-fs-small-table:13px;
+    --jc-fs-delivery:18px;
+    --jc-fs-scope:20px;
+    --jc-fs-notes:20px;
+    /* Customer / transport / contact values in the header (the example card
+       prints these at about 10pt), the due date, and the inventory rows. */
+    --jc-fs-header-value:16.5px;
+    --jc-fs-due:14.4px;
+    --jc-fs-inventory:15.5px;
+    --jc-fs-footer:11px;
+}
+
 *{
     box-sizing:border-box;
     margin:0;
@@ -26,15 +53,14 @@ body.jc-print{
 
 .jc-print-viewport{
     margin:0 auto;
-    overflow:hidden;
     position:relative;
 }
 
 .jc-watermark{
     position:absolute;
-    bottom:8px;
-    left:10px;
-    font-size:7px;
+    bottom:4px;
+    left:8px;
+    font-size:var(--jc-fs-footer);
     font-weight:600;
     letter-spacing:0.04em;
     color:rgba(47,49,56,0.38);
@@ -48,127 +74,8 @@ body.jc-print{
     margin:2mm;
 }
 
-@media print{
-    html,body{
-        width:100%;
-        height:100%;
-        min-height:0;
-        max-height:100%;
-        margin:0;
-        padding:0;
-        overflow:hidden;
-        background:#fff;
-    }
-
-    body{
-        display:block;
-    }
-
-    .jc-print-viewport{
-        overflow:hidden;
-        page-break-after:avoid;
-        break-after:avoid;
-        page-break-inside:avoid;
-        break-inside:avoid;
-    }
-
-    .jc-print-root{
-        width:953px;
-        margin:0;
-        overflow:visible;
-        page-break-after:avoid;
-        break-after:avoid;
-    }
-
-    .jobcard{
-        width:953px;
-        margin:0;
-        border:1px solid #666;
-        page-break-inside:auto;
-        break-inside:auto;
-        page-break-after:avoid;
-        break-after:avoid;
-    }
-
-    .section-block{
-        margin-top:2px;
-        page-break-inside:auto;
-        break-inside:auto;
-    }
-
-    .notice-table td{
-        height:28px;
-        font-size:7px;
-        padding:1px 6px;
-    }
-
-    .scope-area{
-        height:88px;
-    }
-
-    .scope-text{
-        font-size:8px;
-        padding:3px 6px;
-        line-height:1.15;
-    }
-
-    .notes-area{
-        height:40px;
-        font-size:8px;
-        padding:3px 6px;
-    }
-
-    .small-table td,
-    .small-table th,
-    .clips-table td,
-    .clips-table th,
-    .spec-table td,
-    .spec-table th{
-        height:12px;
-        font-size:7px;
-        padding:1px 3px;
-    }
-
-    .delivery-instructions-box{
-        height:40px;
-        font-size:8px;
-        padding:3px 6px;
-    }
-
-    .section-body--photos,
-    .section-body--delivery,
-    .section-body--scope{
-        padding:2px 6px 3px;
-    }
-
-    .section-title{
-        padding:3px 8px;
-        font-size:9px;
-    }
-
-    .header-master .label,
-    .header-master .h-spine,
-    .header-master .h-top-gap,
-    .header-master .qa-inner .qa-title,
-    .header-master .qa-inner .qa-label,
-    .section-title,
-    .spec-label,
-    .clips-table thead th,
-    .small-table thead th{
-        background:#2f3138 !important;
-        color:#fff !important;
-        -webkit-print-color-adjust:exact;
-        print-color-adjust:exact;
-    }
-
-    .header-master .value,
-    .spec-value,
-    .header-master .qa-inner .qa-value{
-        background:#fff !important;
-        color:#000 !important;
-        -webkit-print-color-adjust:exact;
-        print-color-adjust:exact;
-    }
+.jc-print-root{
+    width:953px;
 }
 
 .jobcard{
@@ -188,6 +95,22 @@ td,th{
     font-size:12px;
 }
 
+/*
+ * Word wrap: every box wraps its text and grows downwards instead of
+ * clipping or spilling over the next section. "anywhere" also breaks long
+ * unbroken strings (emails, URLs, part codes) that would otherwise push a
+ * fixed-width cell wider than the card.
+ */
+.jobcard td,
+.jobcard th,
+.scope-text,
+.notes-area,
+.delivery-instructions-box{
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-wrap:break-word;
+}
+
 .dark,
 .spec-label,
 .clips-table thead th,
@@ -205,40 +128,73 @@ td,th{
 }
 
 .spec-table td,
-.spec-table th{
-    padding:1px 4px;
-    font-size:7px;
-    line-height:1.05;
-    height:12px;
-}
-
+.spec-table th,
 .clips-table td,
 .clips-table th{
-    padding:1px 3px;
-    font-size:7px;
-    line-height:1.05;
-    height:12px;
+    padding:2px 4px;
+    font-size:var(--jc-fs-small-table);
+    line-height:1.15;
+    height:18px;
 }
 
-.jobcard td,
-.jobcard th{
-    font-size:inherit;
+.inventory-table {
+    table-layout: fixed;
+    width: 100%;
+    border: none !important;
 }
 
-/* Header master table — 953px = 67 spine + 534 info + 352 right (logo + QA) */
+.inventory-table th {
+    font-size: var(--jc-fs-table);
+}
+
+.inventory-table td {
+    font-size: var(--jc-fs-inventory);
+}
+
+.inventory-table th,
+.inventory-table td {
+    padding: 3px 4px;
+    line-height: 1.25;
+    height: 24px;
+    border: none !important;
+}
+
+.inventory-table thead th {
+    background: #d9d9d9 !important;
+    font-weight: 700;
+    text-align: center;
+}
+
+.inventory-table tr{
+    break-inside:avoid;
+    page-break-inside:avoid;
+}
+
+.inventory-table tr.inventory-blank td {
+    height: 28px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+/*
+ * Header master table - 953px = 52 spine + 549 info + 352 right (logo + QA).
+ * Column widths come from the <colgroup> in the markup below.
+ */
 .header-master{
     width:953px;
-    height:136px;
+    height:150px;
     border-collapse:collapse;
     table-layout:fixed;
+    break-inside:avoid;
+    page-break-inside:avoid;
 }
 
 .header-master td,
 .header-master th{
     border:1px solid #666;
-    padding:0 3px;
-    font-size:8px;
-    line-height:1.1;
+    padding:1px 3px;
+    font-size:var(--jc-fs-header);
+    line-height:1.15;
     vertical-align:middle;
 }
 
@@ -257,28 +213,28 @@ td,th{
     color:#fff;
     font-weight:bold;
     font-style:italic;
-    white-space:nowrap;
-    overflow:visible;
+    font-size:var(--jc-fs-header-label);
 }
 
 .header-master .value{
     background:#fff;
     color:#000;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
+}
+
+.header-master .h-data .value{
+    font-size:var(--jc-fs-header-value);
 }
 
 .header-master .h-top-gap{
-    width:67px;
-    height:32px;
+    width:52px;
+    height:34px;
     background:#2f3138;
     padding:0;
     border-left:none;
 }
 
 .header-master .h-spine{
-    width:67px;
+    width:52px;
     background:#2f3138;
     color:#fff;
     text-align:center;
@@ -318,8 +274,8 @@ td,th{
 .header-master .qa-inner th{
     border:1px solid #666;
     padding:0 3px;
-    font-size:7px;
-    line-height:1.05;
+    font-size:var(--jc-fs-qa);
+    line-height:1.1;
 }
 
 .header-master .qa-inner .qa-title{
@@ -327,8 +283,8 @@ td,th{
     color:#fff;
     font-weight:bold;
     text-align:center;
-    height:16px;
-    font-size:7px;
+    height:18px;
+    font-size:var(--jc-fs-qa);
     border-top:none;
     border-left:none;
     border-right:none;
@@ -339,13 +295,13 @@ td,th{
     color:#fff;
     font-weight:bold;
     font-style:italic;
-    width:34px;
-    font-size:7px;
+    width:40px;
+    font-size:var(--jc-fs-qa);
 }
 
-.header-master .qa-inner .qa-name{ height:28px; }
-.header-master .qa-inner .qa-sign{ height:28px; }
-.header-master .qa-inner .qa-date{ height:28px; }
+.header-master .qa-inner .qa-name{ height:30px; }
+.header-master .qa-inner .qa-sign{ height:30px; }
+.header-master .qa-inner .qa-date{ height:30px; }
 
 .header-master .qa-inner tr:last-child td{
     border-bottom:none;
@@ -365,34 +321,37 @@ td,th{
     display:inline-block;
     writing-mode:vertical-rl;
     transform:rotate(180deg);
-    font-size:11px;
+    font-size:16px;
     font-weight:bold;
-    letter-spacing:0.4px;
+    letter-spacing:0.5px;
     line-height:1;
 }
 
 .header-master .h-meta td{
-    height:32px;
+    height:34px;
 }
 
 .header-master .h-meta .value{
     text-align:center;
 }
 
-.header-master .h-data.r1 td{ height:17px; }
-.header-master .h-data.r2 td{ height:18px; }
-.header-master .h-data.r3 td{ height:17px; }
-.header-master .h-data.r4 td{ height:18px; }
-.header-master .h-data.r5 td{ height:17px; }
-.header-master .h-data.r6 td{ height:17px; }
+/* Row heights are minimums - a wrapped label or value grows its row. */
+.header-master .h-data td{ height:22px; }
 
 .header-master .due-date{
     color:#e00;
     font-weight:bold;
+    font-size:var(--jc-fs-due);
+    white-space:nowrap;
+}
+
+.notice-table{
+    break-inside:avoid;
+    page-break-inside:avoid;
 }
 
 .notice-table td{
-    height:28px;
+    height:32px;
     border:1px solid #666;
     border-top:none;
     border-left:none;
@@ -400,17 +359,20 @@ td,th{
     text-align:center;
     vertical-align:middle;
     font-weight:bold;
-    font-size:7.5px;
-    line-height:1.1;
-    padding:1px 8px;
+    font-size:var(--jc-fs-notice);
+    line-height:1.2;
+    padding:2px 8px;
 }
 
 .section-title{
     background:#2f3138;
     color:white;
     font-weight:bold;
-    padding:5px 8px;
-    font-size:10px;
+    padding:4px 8px;
+    font-size:var(--jc-fs-title);
+    /* never leave a heading stranded at the bottom of a page */
+    break-after:avoid;
+    page-break-after:avoid;
 }
 
 .section-block{
@@ -420,18 +382,24 @@ td,th{
     margin-top:3px;
 }
 
+/* Small, fixed-shape sections stay in one piece; text sections may split. */
+.section-block--keep{
+    break-inside:avoid;
+    page-break-inside:avoid;
+}
+
 .section-block .section-title{
     margin:0;
 }
 
 .section-body{
-    padding:6px 0;
+    padding:2px 0 3px;
 }
 
 .section-body--photos,
 .section-body--delivery,
 .section-body--scope{
-    padding:4px 8px 6px;
+    padding:3px 6px 4px;
 }
 
 .section-body--notes{
@@ -439,21 +407,24 @@ td,th{
 }
 
 .notes-area{
-    height:40px;
+    min-height:72px;
+    height:auto;
     box-sizing:border-box;
-    font-size:8px;
-    padding:3px 6px;
-    line-height:1.2;
+    font-size:var(--jc-fs-notes);
+    padding:8px 12px;
+    line-height:1.3;
 }
 
 .scope-area{
-    height:88px;
+    min-height:90px;
+    height:auto;
     border-collapse:collapse;
+    width:100%;
+    table-layout:fixed;
 }
 
 .scope-area > tbody > tr > td{
-    border:none;
-    padding:0;
+    border:1px solid #666;
     vertical-align:top;
 }
 
@@ -476,7 +447,7 @@ td,th{
 }
 
 .delivery-pack-title{
-    font-size:10px;
+    font-size:var(--jc-fs-table);
     font-weight:bold;
     text-transform:uppercase;
     margin-bottom:3px;
@@ -491,10 +462,16 @@ td,th{
 .delivery-pack-table td{
     border:none;
     padding:2px 0 3px;
-    font-size:10px;
+    font-size:var(--jc-fs-table);
     line-height:1.4;
     vertical-align:middle;
     height:auto;
+}
+
+/* The measurements themselves (not the PACK / LENGTH labels) print at the
+   same ~10pt as the other values on the card. */
+.delivery-pack-table tr:not(:first-child) td:not(:first-child){
+    font-size:var(--jc-fs-header-value);
 }
 
 .delivery-pack-table tr:first-child td{
@@ -504,10 +481,11 @@ td,th{
 
 .delivery-instructions-box{
     border:1px solid #666;
-    padding:4px 6px;
-    height:40px;
-    font-size:10px;
-    line-height:1.2;
+    padding:6px 8px;
+    min-height:112px;
+    height:auto;
+    font-size:var(--jc-fs-delivery);
+    line-height:1.3;
     box-sizing:border-box;
 }
 
@@ -519,16 +497,20 @@ td,th{
 
 .small-table td,
 .small-table th{
-    height:13px;
-    font-size:7px;
-    padding:1px 3px;
+    height:19px;
+    font-size:var(--jc-fs-small-table);
+    padding:2px 3px;
 }
 
-.scope-text{
-    font-size:10px;
-    line-height:1.25;
-    padding:6px 8px;
+.scope-area > tbody > tr > td.scope-text{
+    font-size:var(--jc-fs-scope);
+    line-height:1.3;
+    padding:8px 12px;
     vertical-align:top;
+}
+
+.scope-text--right{
+    border-left:1px solid #666;
 }
 
 .spec-value{
@@ -551,6 +533,38 @@ td,th{
     vertical-align:top;
 }
 
+@media print{
+    html,body{
+        margin:0;
+        padding:0;
+        background:#fff;
+    }
+
+    .header-master .label,
+    .header-master .h-spine,
+    .header-master .h-top-gap,
+    .header-master .qa-inner .qa-title,
+    .header-master .qa-inner .qa-label,
+    .section-title,
+    .spec-label,
+    .clips-table thead th,
+    .small-table thead th{
+        background:#2f3138 !important;
+        color:#fff !important;
+        -webkit-print-color-adjust:exact;
+        print-color-adjust:exact;
+    }
+
+    .header-master .value,
+    .spec-value,
+    .header-master .qa-inner .qa-value{
+        background:#fff !important;
+        color:#000 !important;
+        -webkit-print-color-adjust:exact;
+        print-color-adjust:exact;
+    }
+}
+
 </style>
 </head>
 
@@ -562,18 +576,18 @@ td,th{
 
 <div class="jobcard">
 
-<!-- HEADER — 953px = 67 + 534 + 352 (7% / 56% / 37%) -->
+<!-- HEADER — 953px = 52 spine + 549 info + 352 right (logo + QA) -->
 <table class="header-master" cellspacing="0" cellpadding="0">
   <colgroup>
-    <col style="width:67px">
-    <col style="width:82px">
-    <col style="width:47px">
-    <col style="width:82px">
-    <col style="width:47px">
-    <col style="width:82px">
-    <col style="width:47px">
-    <col style="width:82px">
-    <col style="width:65px">
+    <col style="width:52px">
+    <col style="width:92px">
+    <col style="width:50px">
+    <col style="width:42px">
+    <col style="width:70px">
+    <col style="width:88px">
+    <col style="width:72px">
+    <col style="width:66px">
+    <col style="width:69px">
     <col style="width:352px">
   </colgroup>
 
@@ -588,7 +602,7 @@ td,th{
     <td class="value due-date" data-jc="dueDate"></td>
     <td class="label">Raised by</td>
     <td class="value" data-jc="raisedBy"></td>
-    <td rowspan="7" class="h-right">
+    <td rowspan="8" class="h-right">
       <div class="h-logo-wrap">
         <img src="./public/frp-logo-lockup-trimmed.png" alt="FRP Engineering">
       </div>
@@ -614,29 +628,35 @@ td,th{
 
   <!-- Rows 2–7: JOB CARD spine + customer / transport pairs -->
   <tr class="h-data r1">
-    <td rowspan="6" class="h-spine"><span class="job-label">JOB CARD</span></td>
+    <td rowspan="7" class="h-spine"><span class="job-label">JOB CARD</span></td>
     <td class="label">Customer</td>
     <td class="value" colspan="3" data-jc="customer"></td>
     <td class="label">Transport</td>
     <td class="value" colspan="3" data-jc="transport"></td>
   </tr>
+  <tr class="h-data r-address">
+    <td class="label">Address</td>
+    <td class="value" colspan="3" data-jc="customerAddress"></td>
+    <td class="label">Transport Company</td>
+    <td class="value" colspan="3" data-jc="transportCompany"></td>
+  </tr>
   <tr class="h-data r2">
     <td class="label">Contact Name</td>
     <td class="value" colspan="3" data-jc="contactName"></td>
-    <td class="label">Transport Company</td>
-    <td class="value" colspan="3" data-jc="transportCompany"></td>
+    <td class="label">Account #</td>
+    <td class="value" colspan="3" data-jc="freightAccount"></td>
   </tr>
   <tr class="h-data r3">
     <td class="label">Contact Number</td>
     <td class="value" colspan="3" data-jc="contactPhone"></td>
-    <td class="label">Account #</td>
-    <td class="value" colspan="3" data-jc="freightAccount"></td>
+    <td class="label">Consignment Note #</td>
+    <td class="value" colspan="3" data-jc="consignmentNote"></td>
   </tr>
   <tr class="h-data r4">
     <td class="label">Contact Email</td>
     <td class="value" colspan="3" data-jc="contactEmail"></td>
-    <td class="label">Consignment Note #</td>
-    <td class="value" colspan="3" data-jc="consignmentNote"></td>
+    <td class="label"></td>
+    <td class="value" colspan="3"></td>
   </tr>
   <tr class="h-data r5">
     <td class="label">Purchase Order No.</td>
@@ -673,75 +693,39 @@ SCOPE OF WORK
 
 <tr>
 
-<td width="70%" valign="top" class="scope-text" data-jc="scopeLines"></td>
+<td width="62%" valign="top" class="scope-text" data-jc="scopeLines"></td>
 
-<td width="30%" valign="top">
+<td width="38%" valign="top" class="scope-text scope-text--right" data-jc="scopeRightLines"></td>
 
-<table class="spec-table">
-
-<tr>
-<td class="spec-label">Type</td>
-<td class="spec-value" data-jc="scopeType"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Thickness</td>
-<td class="spec-value" data-jc="thickness"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Mesh</td>
-<td class="spec-value" data-jc="mesh"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Resin</td>
-<td class="spec-value" data-jc="resin"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Colour</td>
-<td class="spec-value" data-jc="colour"></td>
-</tr>
-
-<tr>
-<td class="spec-label">Finish</td>
-<td class="spec-value" data-jc="finish"></td>
 </tr>
 
 </table>
 
-<table class="clips-table" style="margin-top:2px">
+</div>
+</div>
+
+<!-- INVENTORY -->
+<div class="section-block">
+<div class="section-title">
+INVENTORY
+</div>
+<div class="section-body">
+
+<table class="clips-table inventory-table" style="width:100%">
+<colgroup><col style="width:17%"><col style="width:14%"><col style="width:14%"><col style="width:13%"><col style="width:14%"><col style="width:13%"><col style="width:6%"><col style="width:9%"></colgroup>
 
 <tr>
-<th>CLIPS</th>
-<th>QTY</th>
+<th>Product Group</th>
+<th>Attribute 1</th>
+<th>Attribute 2</th>
+<th>Attribute 3</th>
+<th>Resin / Material</th>
+<th>Primary Colour</th>
+<th>Qty</th>
 <th>Packed by</th>
 </tr>
 
-<tr><td>NO CLIPS REQUIRED</td><td data-jc="clip.0.qty"></td><td data-jc="clip.0.packedBy"></td></tr>
-<tr><td>Box 25mm M clips</td><td data-jc="clip.1.qty"></td><td data-jc="clip.1.packedBy"></td></tr>
-<tr><td>Box 38mm M clips</td><td data-jc="clip.2.qty"></td><td data-jc="clip.2.packedBy"></td></tr>
-<tr><td>Compression clips</td><td data-jc="clip.3.qty"></td><td data-jc="clip.3.packedBy"></td></tr>
-<tr><td>38mm Square top plate</td><td data-jc="clip.4.qty"></td><td data-jc="clip.4.packedBy"></td></tr>
-<tr><td>50mm Square top plate</td><td data-jc="clip.5.qty"></td><td data-jc="clip.5.packedBy"></td></tr>
-<tr><td>W30 Clips</td><td data-jc="clip.6.qty"></td><td data-jc="clip.6.packedBy"></td></tr>
-<tr><td>W45 Clips</td><td data-jc="clip.7.qty"></td><td data-jc="clip.7.packedBy"></td></tr>
-<tr><td>W54 Clips</td><td data-jc="clip.8.qty"></td><td data-jc="clip.8.packedBy"></td></tr>
-<tr><td>Loose 25mm M clip</td><td data-jc="clip.9.qty"></td><td data-jc="clip.9.packedBy"></td></tr>
-<tr><td>Loose 38mm M clip</td><td data-jc="clip.10.qty"></td><td data-jc="clip.10.packedBy"></td></tr>
-<tr><td>Loose 50mm M clip</td><td data-jc="clip.11.qty"></td><td data-jc="clip.11.packedBy"></td></tr>
-<tr><td>C clips 25mm</td><td data-jc="clip.12.qty"></td><td data-jc="clip.12.packedBy"></td></tr>
-<tr><td>C Clips 38mm</td><td data-jc="clip.13.qty"></td><td data-jc="clip.13.packedBy"></td></tr>
-<tr><td>OTHER:</td><td data-jc="clip.14.qty"></td><td data-jc="clip.14.packedBy"></td></tr>
-<tr><td>&nbsp;</td><td data-jc="clip.15.qty"></td><td data-jc="clip.15.packedBy"></td></tr>
-<tr><td>&nbsp;</td><td data-jc="clip.16.qty"></td><td data-jc="clip.16.packedBy"></td></tr>
-
-</table>
-
-</td>
-
-</tr>
+<!--JC_INVENTORY_ROWS-->
 
 </table>
 
@@ -749,7 +733,7 @@ SCOPE OF WORK
 </div>
 
 <!-- PHOTOS -->
-<div class="section-block">
+<div class="section-block section-block--keep">
 <div class="section-title">
 Photographs and Job check list
 </div>
@@ -786,6 +770,7 @@ Photographs and Job check list
     <td class="photos-col">
 
 <table class="small-table">
+<colgroup><col style="width:43%"><col style="width:19%"><col style="width:19%"><col style="width:19%"></colgroup>
 
 <tr>
 <th>Bolt List / Size</th>
@@ -823,7 +808,7 @@ NOTES
 </div>
 
 <!-- DELIVERY -->
-<div class="section-block">
+<div class="section-block section-block--keep">
 <div class="section-title">
 Pack Dimensions & Delivery Instructions
 </div>
@@ -840,10 +825,10 @@ Pack Dimensions & Delivery Instructions
       <div class="delivery-pack-title">PACK DIMENSIONS FOR TRANSPORT</div>
       <table class="delivery-pack-table" cellspacing="0" cellpadding="0">
         <tr>
-          <td style="width:25%"></td>
-          <td style="width:25%">PACK 1:</td>
-          <td style="width:25%">PACK 2:</td>
-          <td style="width:25%">PACK 3:</td>
+          <td style="width:31%"></td>
+          <td style="width:23%">PACK 1:</td>
+          <td style="width:23%">PACK 2:</td>
+          <td style="width:23%">PACK 3:</td>
         </tr>
         <tr>
           <td>LENGTH -</td>
@@ -888,7 +873,7 @@ Pack Dimensions & Delivery Instructions
 
 </div>
 
-<div class="jc-watermark">JOB ID <span data-jc="jobNumberWatermark"></span></div>
+<div class="jc-watermark">JOB <span data-jc="jobNumberWatermark"></span> · <span data-jc="jobCardVersion"></span></div>
 
 </div>
 

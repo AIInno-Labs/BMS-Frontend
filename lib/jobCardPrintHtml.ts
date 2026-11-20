@@ -2,18 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { OfficialJobCardData } from "@/lib/jobCardPrint";
+import { padInventoryRowsForPrint } from "@/lib/jobCardPrint";
 import { officialDataToFieldValues } from "@/lib/jobCardPdfFieldMap";
 
 const HTML_FIELD_IDS_ALLOW_RAW = new Set([
   "scopeLines",
+  "scopeRightLines",
   "notes",
   "deliveryInstructions",
 ]);
 
+const INVENTORY_ROWS_MARKER = "<!--JC_INVENTORY_ROWS-->";
+
 let cachedTemplate: string | null = null;
 
 function loadPdfTemplate(): string {
-  if (!cachedTemplate) {
+  // Always re-read in development so pdf.html edits show up without a restart.
+  if (process.env.NODE_ENV !== "production" || !cachedTemplate) {
     cachedTemplate = fs.readFileSync(
       path.join(process.cwd(), "pdf.html"),
       "utf8"
@@ -34,15 +39,46 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Break points after "@" and "." so a long email wraps at a sensible spot. */
+function withEmailBreaks(escaped: string): string {
+  return escaped.replace(/([@.])/g, "$1<wbr>");
+}
+
 function fillDataJc(html: string, id: string, raw: string): string {
   const value = HTML_FIELD_IDS_ALLOW_RAW.has(id)
     ? raw.replace(/\n/g, "<br>")
-    : escapeHtml(raw);
+    : id === "contactEmail"
+      ? withEmailBreaks(escapeHtml(raw))
+      : escapeHtml(raw);
   const pattern = new RegExp(
     `(<[^>]*\\bdata-jc="${escapeRegex(id)}"[^>]*>)([\\s\\S]*?)(</[^>]+>)`,
     "i"
   );
   return html.replace(pattern, `$1${value}$3`);
+}
+
+function inventoryRowsHtml(data: OfficialJobCardData): string {
+  const { rows, blankStartIndex } = padInventoryRowsForPrint(data.clipRows);
+  return rows
+    .map((row, index) => {
+      const blankClass =
+        index >= blankStartIndex ? ' class="inventory-blank"' : "";
+      const cells = [
+        row.productGroup || "",
+        row.attribute1 || "",
+        row.attribute2 || "",
+        row.attribute3 || "",
+        row.resin || "",
+        row.colour || "",
+        (row.qty ?? "").trim(),
+        (row.packedBy ?? "").trim(),
+      ].map((value) => {
+        const escaped = escapeHtml(value.trim());
+        return `<td>${escaped || "&nbsp;"}</td>`;
+      });
+      return `<tr${blankClass}>${cells.join("")}</tr>`;
+    })
+    .join("\n");
 }
 
 export type JobCardPrintHtmlOptions = {
@@ -63,8 +99,27 @@ export function buildJobCardPrintHtml(
     logoSrc
   );
 
+  html = html.replace(INVENTORY_ROWS_MARKER, inventoryRowsHtml(data));
+
   const values = officialDataToFieldValues(data);
+
+  // The right-hand Scope column only exists for commercial / add-on lines.
+  // With none, drop it so the scope text uses the full width of the card.
+  if (!(values.scopeRightLines ?? "").trim()) {
+    html = html
+      .replace(
+        /<td[^>]*data-jc="scopeRightLines"[^>]*>[\s\S]*?<\/td>/i,
+        ""
+      )
+      .replace(
+        /<td width="62%"([^>]*data-jc="scopeLines")/i,
+        '<td width="100%"$1'
+      );
+  }
+
   for (const [id, value] of Object.entries(values)) {
+    // Inventory rows are injected above — skip legacy clip.* bindings.
+    if (id.startsWith("clip.")) continue;
     html = fillDataJc(html, id, value);
   }
 

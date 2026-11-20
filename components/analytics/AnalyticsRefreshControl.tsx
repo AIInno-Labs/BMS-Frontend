@@ -100,7 +100,7 @@ export function AnalyticsRefreshControl({
             />
           </button>
           <span
-            className={`font-semibold ${compact ? "text-[10px]" : "text-xs"} ${
+            className={`font-semibold ${compact ? "text-[12px]" : "text-xs"} ${
               autoRefresh ? "text-blue-600" : "text-slate-500"
             }`}
           >

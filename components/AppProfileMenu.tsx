@@ -71,7 +71,7 @@ export function AppProfileMenu() {
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[13px] font-bold text-white">
           {isAuthenticated ? initials : "?"}
         </span>
         <ChevronDown
@@ -155,15 +155,15 @@ export function AppProfileMenu() {
 
           {isAuthenticated && (
             <>
-              <button
-                type="button"
+              <Link
+                href="/settings/profile"
                 role="menuitem"
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
                 onClick={() => setOpen(false)}
               >
                 <User className="h-4 w-4 text-slate-500" aria-hidden />
-                {user?.email || "Profile"}
-              </button>
+                <span className="truncate">{user?.email || "Profile"}</span>
+              </Link>
               <button
                 type="button"
                 role="menuitem"
