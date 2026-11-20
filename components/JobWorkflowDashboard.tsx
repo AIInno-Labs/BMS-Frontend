@@ -64,6 +64,7 @@ import {
   ensureWorkflowExtras,
   JOB_TYPE_OPTIONS,
 } from "@/lib/jobWorkflowExtras";
+import { JOB_FILE_FOLDERS, type JobFileFolder } from "@/lib/jobFileFolders";
 import {
   normalizeJobFiles,
   sortJobFiles,
@@ -197,6 +198,7 @@ function docToFileRecord(doc: FrpJobDocumentDTO): JobFile {
     uploadedAt: when.uploadedAt,
     documentId: doc.id,
     documentType: doc.documentType,
+    milestoneStageKey: doc.milestoneStageKey ?? null,
     isManualEntry: isManualPoDocument(doc),
     reviewStatus: doc.status,
     storageStatus: doc.storageStatus,
@@ -950,12 +952,24 @@ export function JobWorkflowDashboard({
       time: "just now",
       uploadedAt: Date.now(),
       storageStatus: "PENDING",
+      // So the "Uploading" tile appears under the folder it is going into.
+      milestoneStageKey:
+        typeof fileUploadDraft.milestoneId === "number"
+          ? milestones.find((m) => m.id === fileUploadDraft.milestoneId)?.stageKey ?? null
+          : null,
     };
     return [
       optimistic,
       ...visible.filter((f) => f.name !== optimistic.name),
     ];
-  }, [fileUploading, fileUploadDraft.file, filesWithSharePointTimeout, job]);
+  }, [
+    fileUploading,
+    fileUploadDraft.file,
+    fileUploadDraft.milestoneId,
+    filesWithSharePointTimeout,
+    job,
+    milestones,
+  ]);
 
   useEffect(() => {
     const now = Date.now();
@@ -1031,11 +1045,20 @@ export function JobWorkflowDashboard({
   const assignedLabel =
     job.assignedWorkerName || getWorkerDisplayName(job.assignedWorkerId);
 
-  const openFileUploadModal = () => {
+  const openFileUploadModal = (folder?: JobFileFolder) => {
     setFileUploadError(null);
+    // Opened from a folder tab: preselect that folder. Otherwise (or if the
+    // job has no such stage) leave it on "Select folder…".
+    const folderDef = JOB_FILE_FOLDERS.find((f) => f.key === folder);
+    const preselected =
+      folderDef?.key === "others"
+        ? ("others" as const)
+        : folderDef?.stageKey
+          ? milestones.find((m) => m.stageKey === folderDef.stageKey)?.id
+          : undefined;
     setFileUploadDraft({
       file: null,
-      milestoneId: "",
+      milestoneId: preselected ?? "",
     });
     setShowFileModal(true);
   };
